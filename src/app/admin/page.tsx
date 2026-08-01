@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import Link from 'next/link';
 import * as XLSX from 'xlsx';
 
 interface Subject {
@@ -13,110 +14,165 @@ interface Question {
   id: string;
   question_text: string;
   subject_id: string;
+  options?: string[];
+  correct_option_index?: number;
+  solution_text?: string;
   subjects?: { name: string };
 }
 
 interface MockTest {
   id: string;
   title: string;
+  exam_type?: string;
   duration_minutes: number;
   total_marks: number;
   is_published: boolean;
+  questions?: any[];
+}
+
+interface PdfCourse {
+  id: string;
+  title: string;
+  category: 'BSPS' | 'BSCA';
+  description?: string;
 }
 
 export default function AdminPage() {
-  const [activeTab, setActiveTab] = useState<'add_question' | 'bulk_upload' | 'create_mock' | 'direct_mock_upload'>('add_question');
+  const [activeTab, setActiveTab] = useState<
+    'direct_mock_upload' | 'pdf_uploader' | 'create_mock' | 'add_question' | 'bulk_upload'
+  >('direct_mock_upload');
 
-  // --- Common States ---
+  // Admin Security States
+  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+
+  // Common Admin States
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [selectedSubject, setSelectedSubject] = useState<string>('');
   const [statusMsg, setStatusMsg] = useState('');
-  const [loading, setLoading] = useState(true);
 
-  // --- Single Question Form State ---
+  // Single Question Form State
   const [questionText, setQuestionText] = useState('');
   const [options, setOptions] = useState(['', '', '', '', '']);
   const [correctOptionIndex, setCorrectOptionIndex] = useState(0);
   const [solutionText, setSolutionText] = useState('');
-const [isAdminUser, setIsAdminUser] = useState<boolean | null>(null);
 
-  useEffect(() => {
-    verifyAdminAccess();
-  }, []);
-
-  async function verifyAdminAccess() {
-    const { data: { session } } = await supabase.auth.getSession();
-    const user = session?.user;
-
-    if (user && (user.user_metadata?.is_admin === true || user.app_metadata?.role === 'admin')) {
-      setIsAdminUser(true);
-    } else {
-      setIsAdminUser(false);
-    }
-  }
-
-  // Access Denied Screen for Non-Admins
-  if (isAdminUser === false) {
-    return (
-      <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6 text-center font-sans">
-        <div className="h-16 w-16 bg-rose-500/10 border border-rose-500/30 text-rose-400 rounded-2xl flex items-center justify-center text-3xl mb-4">
-          🔒
-        </div>
-        <h1 className="text-2xl font-bold mb-2">Admin Access Required</h1>
-        <p className="text-xs text-slate-400 max-w-md mb-6">
-          This portal is restricted to BankingSolutions administrators. Please log in with an authorized admin account.
-        </p>
-        <a
-          href="/"
-          className="bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs px-6 py-3 rounded-xl transition"
-        >
-          Return to Homepage
-        </a>
-      </div>
-    );
-  }
-  // --- Mock Test Builder State ---
+  // Mock Test Builder State
   const [allQuestions, setAllQuestions] = useState<Question[]>([]);
   const [filterSubjectId, setFilterSubjectId] = useState<string>('ALL');
   const [mockTitle, setMockTitle] = useState('');
+  const [mockExamType, setMockExamType] = useState('SBI PO Prelims');
   const [mockDuration, setMockDuration] = useState(60);
   const [mockMarks, setMockMarks] = useState(100);
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<string[]>([]);
   const [existingMocks, setExistingMocks] = useState<MockTest[]>([]);
 
-  // --- Direct Mock Upload State ---
+  // Direct Mock Upload State
   const [directMockTitle, setDirectMockTitle] = useState('');
+  const [directMockExamType, setDirectMockExamType] = useState('SBI PO Prelims');
   const [directMockDuration, setDirectMockDuration] = useState(60);
   const [directMockMarks, setDirectMockMarks] = useState(100);
 
+  // PDF Course & File Upload States (BSPS / BSCA)
+  const [courseTitle, setCourseTitle] = useState('');
+  const [courseCategory, setCourseCategory] = useState<'BSPS' | 'BSCA'>('BSPS');
+  const [courseDesc, setCourseDesc] = useState('');
+  const [existingCourses, setExistingCourses] = useState<PdfCourse[]>([]);
+  
+  const [selectedCourseId, setSelectedCourseId] = useState('');
+  const [dayNumber, setDayNumber] = useState(1);
+  const [pdfTitle, setPdfTitle] = useState('');
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+
+  // Check auth & profile on mount
   useEffect(() => {
-    fetchInitialData();
+    checkAdminAuth();
   }, []);
 
-  async function fetchInitialData() {
-    setLoading(true);
+  async function checkAdminAuth() {
+    setCheckingAuth(true);
+    const { data: { session } } = await supabase.auth.getSession();
 
+    if (!session?.user) {
+      setIsAdmin(false);
+      setCheckingAuth(false);
+      return;
+    }
+
+    const user = session.user;
+    if (user.user_metadata?.is_admin === true || user.app_metadata?.role === 'admin') {
+      setIsAdmin(true);
+      fetchInitialData();
+    } else {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('is_admin')
+        .eq('id', user.id)
+        .single();
+
+      if (profile && profile.is_admin === true) {
+        setIsAdmin(true);
+        fetchInitialData();
+      } else {
+        setIsAdmin(false);
+      }
+    }
+    setCheckingAuth(false);
+  }
+
+  async function handleAdminLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setAuthError('');
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: authEmail,
+      password: authPassword,
+    });
+
+    if (error) {
+      setAuthError(error.message);
+    } else if (data.user) {
+      checkAdminAuth();
+    }
+  }
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    setIsAdmin(false);
+  }
+
+  async function fetchInitialData() {
+    // 1. Fetch Subjects
     const { data: subData } = await supabase.from('subjects').select('*');
     if (subData && subData.length > 0) {
       setSubjects(subData);
       setSelectedSubject(subData[0].id);
     }
 
+    // 2. Fetch Question Bank
     const { data: qData } = await supabase
       .from('questions')
-      .select('id, question_text, subject_id, subjects(name)');
+      .select('id, question_text, subject_id, options, correct_option_index, solution_text, subjects(name)');
     if (qData) setAllQuestions(qData as unknown as Question[]);
 
+    // 3. Fetch Published Mocks
     const { data: mData } = await supabase
       .from('mock_tests')
       .select('*')
       .order('created_at', { ascending: false });
     if (mData) setExistingMocks(mData);
 
-    setLoading(false);
+    // 4. Fetch PDF Courses (BSPS & BSCA)
+    const { data: cData } = await supabase
+      .from('pdf_courses')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (cData) setExistingCourses(cData as PdfCourse[]);
   }
 
-  // --- Single Question Submit Handler ---
+  // --- 1. SINGLE QUESTION SUBMIT ---
   async function handleQuestionSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedSubject) return;
@@ -136,7 +192,7 @@ const [isAdminUser, setIsAdminUser] = useState<boolean | null>(null);
     if (error) {
       setStatusMsg(`Error: ${error.message}`);
     } else {
-      setStatusMsg('✅ Question added successfully!');
+      setStatusMsg('✅ Question added to Question Bank!');
       setQuestionText('');
       setOptions(['', '', '', '', '']);
       setSolutionText('');
@@ -145,13 +201,13 @@ const [isAdminUser, setIsAdminUser] = useState<boolean | null>(null);
     }
   }
 
-  // --- Excel Bulk Upload Handler (Question Bank) ---
+  // --- 2. EXCEL BULK UPLOAD FOR QUESTION BANK ---
   const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     if (!selectedSubject) {
-      setStatusMsg('⚠️ Please select a subject first before uploading!');
+      setStatusMsg('⚠️ Please select a target subject first!');
       return;
     }
 
@@ -160,11 +216,9 @@ const [isAdminUser, setIsAdminUser] = useState<boolean | null>(null);
 
     reader.onload = async (evt) => {
       try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
-        const wsname = wb.SheetNames[0];
-        const ws = wb.Sheets[wsname];
-
+        const arrayBuffer = evt.target?.result;
+        const wb = XLSX.read(arrayBuffer, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
         const data: any[] = XLSX.utils.sheet_to_json(ws);
 
         if (!data || data.length === 0) {
@@ -172,25 +226,25 @@ const [isAdminUser, setIsAdminUser] = useState<boolean | null>(null);
           return;
         }
 
-        setStatusMsg(`Uploading ${data.length} questions to database...`);
+        setStatusMsg(`Uploading ${data.length} questions to Question Bank...`);
 
         const formattedQuestions = data.map((row) => {
-          const answerLetter = String(row['Correct Answer'] || 'A').toUpperCase().trim();
-          const optionMap: { [key: string]: number } = { A: 0, B: 1, C: 2, D: 3, E: 4, '1': 0, '2': 1, '3': 2, '4': 3, '5': 4 };
+          const answerLetter = String(row['Correct Answer'] || row.correctOptionIndex || 'A').toUpperCase().trim();
+          const optionMap: { [key: string]: number } = { A: 0, B: 1, C: 2, D: 3, E: 4, '0': 0, '1': 1, '2': 2, '3': 3, '4': 4 };
           const correctIdx = optionMap[answerLetter] !== undefined ? optionMap[answerLetter] : 0;
 
           return {
             subject_id: selectedSubject,
-            question_text: String(row['Question Text'] || ''),
+            question_text: String(row['Question Text'] || row.questionText || row.question || ''),
             options: [
-              String(row['Option A'] || ''),
-              String(row['Option B'] || ''),
-              String(row['Option C'] || ''),
-              String(row['Option D'] || ''),
-              String(row['Option E'] || ''),
-            ],
+              String(row['Option A'] || row.optionA || row.option1 || ''),
+              String(row['Option B'] || row.optionB || row.option2 || ''),
+              String(row['Option C'] || row.optionC || row.option3 || ''),
+              String(row['Option D'] || row.optionD || row.option4 || ''),
+              String(row['Option E'] || row.optionE || row.option5 || ''),
+            ].filter(Boolean),
             correct_option_index: correctIdx,
-            solution_text: String(row['Solution Text'] || ''),
+            solution_text: String(row['Solution Text'] || row.passageText || ''),
           };
         });
 
@@ -199,7 +253,7 @@ const [isAdminUser, setIsAdminUser] = useState<boolean | null>(null);
         if (error) {
           setStatusMsg(`Bulk Upload Error: ${error.message}`);
         } else {
-          setStatusMsg(`🎉 Success! Imported ${data.length} questions into bank!`);
+          setStatusMsg(`🎉 Imported ${data.length} questions into Question Bank!`);
           fetchInitialData();
         }
       } catch (err: any) {
@@ -207,223 +261,201 @@ const [isAdminUser, setIsAdminUser] = useState<boolean | null>(null);
       }
     };
 
-    reader.readAsBinaryString(file);
+    reader.readAsArrayBuffer(file);
   };
 
-  // --- Direct Mock Excel Upload Handler ---
+  // --- 3. CREATE MOCK FROM QUESTION BANK ---
+  async function handleMockFromQuestionBankSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!mockTitle.trim()) return setStatusMsg('⚠️ Please enter a Mock Test Title!');
+    if (selectedQuestionIds.length === 0) return setStatusMsg('⚠️ Please select at least 1 question!');
+
+    setStatusMsg('Building Mock Test from selected questions...');
+
+    const selectedQuestionObjects = allQuestions.filter((q) => selectedQuestionIds.includes(q.id));
+
+    const compiledJSONQuestions = selectedQuestionObjects.map((q, idx) => {
+      let subjectName = (q.subjects?.name || 'QUANT').toUpperCase();
+      let normSec = 'QUANT';
+
+      if (subjectName.includes('ENG')) normSec = 'ENGLISH';
+      else if (subjectName.includes('REASON')) normSec = 'REASONING';
+      else if (subjectName.includes('QUANT') || subjectName.includes('MATH')) normSec = 'QUANT';
+      else if (subjectName.includes('GA') || subjectName.includes('CURRENT') || subjectName.includes('AWARE')) normSec = 'GA';
+
+      return {
+        id: q.id || `q-${idx + 1}-${Date.now()}`,
+        section: normSec,
+        passageText: q.solution_text || '',
+        questionText: q.question_text || `Question ${idx + 1}`,
+        options: q.options && q.options.length > 0 ? q.options : ['Option A', 'Option B', 'Option C', 'Option D', 'Option E'],
+        correctOptionIndex: Number(q.correct_option_index ?? 0),
+        marks: 1.0,
+        negativeMarks: 0.25,
+      };
+    });
+
+    const payload = {
+      title: mockTitle.trim(),
+      exam_type: mockExamType,
+      duration_minutes: Number(mockDuration),
+      total_marks: Number(mockMarks),
+      questions: compiledJSONQuestions,
+      is_published: true,
+      created_at: new Date().toISOString(),
+    };
+
+    const { data: testData, error: testError } = await supabase.from('mock_tests').insert([payload]).select();
+
+    if (testError || !testData) {
+      setStatusMsg(`Error creating test: ${testError?.message}`);
+      return;
+    }
+
+    setStatusMsg(`✅ Published "${mockTitle}" with ${selectedQuestionIds.length} questions!`);
+    setMockTitle('');
+    setSelectedQuestionIds([]);
+    fetchInitialData();
+  }
+
+  // --- 4. DIRECT 1-CLICK EXCEL MOCK UPLOADER ---
   const handleDirectMockUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!directMockTitle) {
-      setStatusMsg('⚠️ Please enter a Mock Test Title first!');
-      return;
-    }
-
-    if (!selectedSubject) {
-      setStatusMsg('⚠️ Please select a default Subject first!');
-      return;
-    }
+    if (!directMockTitle.trim()) return setStatusMsg('⚠️ Please enter a Mock Test Title first!');
 
     setStatusMsg('Processing Direct Mock Upload...');
     const reader = new FileReader();
 
     reader.onload = async (evt) => {
       try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
-        const wsname = wb.SheetNames[0];
-        const ws = wb.Sheets[wsname];
-
+        const arrayBuffer = evt.target?.result;
+        const wb = XLSX.read(arrayBuffer, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
         const data: any[] = XLSX.utils.sheet_to_json(ws);
 
-        if (!data || data.length === 0) {
-          setStatusMsg('⚠️ Excel file is empty!');
-          return;
-        }
+        if (!data || data.length === 0) return setStatusMsg('⚠️ Excel file is empty!');
 
-        setStatusMsg(`1/3: Uploading ${data.length} questions...`);
+        const formattedJSONQuestions = data.map((row, idx) => {
+          let rawSec = String(row.section || row.Subject || 'QUANT').trim().toUpperCase();
+          let normSec = 'QUANT';
 
-        const formattedQuestions = data.map((row) => {
-          const answerLetter = String(row['Correct Answer'] || 'A').toUpperCase().trim();
-          const optionMap: { [key: string]: number } = { A: 0, B: 1, C: 2, D: 3, E: 4, '1': 0, '2': 1, '3': 2, '4': 3, '5': 4 };
+          if (rawSec.includes('ENG')) normSec = 'ENGLISH';
+          else if (rawSec.includes('REASON')) normSec = 'REASONING';
+          else if (rawSec.includes('QUANT') || rawSec.includes('MATH')) normSec = 'QUANT';
+          else if (rawSec.includes('GA') || rawSec.includes('CURRENT') || rawSec.includes('AWARE')) normSec = 'GA';
+
+          const answerLetter = String(row.correctOptionIndex ?? row['Correct Answer'] ?? row.correctOption ?? '0').toUpperCase().trim();
+          const optionMap: { [key: string]: number } = { A: 0, B: 1, C: 2, D: 3, E: 4, '0': 0, '1': 1, '2': 2, '3': 3, '4': 4 };
           const correctIdx = optionMap[answerLetter] !== undefined ? optionMap[answerLetter] : 0;
 
+          const options = [
+            String(row.optionA || row['Option A'] || row.option1 || ''),
+            String(row.optionB || row['Option B'] || row.option2 || ''),
+            String(row.optionC || row['Option C'] || row.option3 || ''),
+            String(row.optionD || row['Option D'] || row.option4 || ''),
+            String(row.optionE || row['Option E'] || row.option5 || ''),
+          ].filter(Boolean);
+
           return {
-            subject_id: selectedSubject,
-            question_text: String(row['Question Text'] || ''),
-            options: [
-              String(row['Option A'] || ''),
-              String(row['Option B'] || ''),
-              String(row['Option C'] || ''),
-              String(row['Option D'] || ''),
-              String(row['Option E'] || ''),
-            ],
-            correct_option_index: correctIdx,
-            solution_text: String(row['Solution Text'] || ''),
+            id: `q-${idx + 1}-${Date.now()}`,
+            section: normSec,
+            passageText: String(row.passageText || row.passage || row['Solution Text'] || '').trim(),
+            questionText: String(row.questionText || row.question || row['Question Text'] || `Question ${idx + 1}`).trim(),
+            options: options.length > 0 ? options : ['Option A', 'Option B', 'Option C', 'Option D', 'Option E'],
+            correctOptionIndex: correctIdx,
+            marks: Number(row.marks ?? 1.0),
+            negativeMarks: Number(row.negativeMarks ?? 0.25),
           };
         });
 
-        const { data: insertedQuestions, error: qErr } = await supabase
-          .from('questions')
-          .insert(formattedQuestions)
-          .select('id');
+        const payload = {
+          title: directMockTitle.trim(),
+          exam_type: directMockExamType,
+          duration_minutes: Number(directMockDuration),
+          total_marks: Number(directMockMarks),
+          questions: formattedJSONQuestions,
+          is_published: true,
+          created_at: new Date().toISOString(),
+        };
 
-        if (qErr || !insertedQuestions) {
-          setStatusMsg(`Error inserting questions: ${qErr?.message}`);
-          return;
-        }
+        const { data: testData, error: tErr } = await supabase.from('mock_tests').insert([payload]).select();
 
-        setStatusMsg('2/3: Creating Mock Test entry...');
+        if (tErr || !testData) return setStatusMsg(`Publish Error: ${tErr?.message}`);
 
-        const { data: testData, error: tErr } = await supabase
-          .from('mock_tests')
-          .insert([
-            {
-              title: directMockTitle,
-              duration_minutes: Number(directMockDuration),
-              total_marks: Number(directMockMarks),
-              is_published: true,
-            },
-          ])
-          .select();
-
-        if (tErr || !testData) {
-          setStatusMsg(`Error creating test: ${tErr?.message}`);
-          return;
-        }
-
-        const createdTestId = testData[0].id;
-
-        setStatusMsg('3/3: Linking questions to Mock Test...');
-
-        const mappings = insertedQuestions.map((q, idx) => ({
-          mock_test_id: createdTestId,
-          question_id: q.id,
-          order_index: idx + 1,
-        }));
-
-        const { error: mapErr } = await supabase.from('mock_test_questions').insert(mappings);
-
-        if (mapErr) {
-          setStatusMsg(`Error linking questions: ${mapErr.message}`);
-        } else {
-          setStatusMsg(`🎉 Direct Upload Complete! Created "${directMockTitle}" with ${data.length} questions!`);
-          setDirectMockTitle('');
-          fetchInitialData();
-        }
+        setStatusMsg(`🎉 Created "${directMockTitle}" with ${data.length} questions!`);
+        setDirectMockTitle('');
+        fetchInitialData();
       } catch (err: any) {
         setStatusMsg(`Direct Upload Error: ${err.message}`);
       }
     };
 
-    reader.readAsBinaryString(file);
+    reader.readAsArrayBuffer(file);
   };
 
-  // --- Manual Mock Test Creation Handler ---
-  async function handleMockTestSubmit(e: React.FormEvent) {
+  // --- 5. CREATE BSPS / BSCA COURSE CONTAINER ---
+  async function handleCreateCourseContainer(e: React.FormEvent) {
     e.preventDefault();
-    if (selectedQuestionIds.length === 0) {
-      setStatusMsg('⚠️ Please select at least 1 question for the mock test!');
-      return;
+    if (!courseTitle.trim()) return setStatusMsg('⚠️ Please enter a Course Title!');
+
+    setStatusMsg('Creating PDF Course Container...');
+    const { error } = await supabase.from('pdf_courses').insert([
+      {
+        title: courseTitle.trim(),
+        category: courseCategory,
+        description: courseDesc,
+      },
+    ]);
+
+    if (error) {
+      setStatusMsg(`Course Creation Error: ${error.message}`);
+    } else {
+      setStatusMsg(`🎉 Created ${courseCategory} Course Container: "${courseTitle}"`);
+      setCourseTitle('');
+      setCourseDesc('');
+      fetchInitialData();
     }
+  }
 
-    setStatusMsg('Creating Mock Test...');
+  // --- 6. UPLOAD DAY-WISE PDF FOR BSPS / BSCA ---
+  async function handlePdfUpload(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedCourseId) return setStatusMsg('⚠️ Please select a Course Container first!');
+    if (!pdfFile) return setStatusMsg('⚠️ Please select a PDF file!');
 
-    const { data: testData, error: testError } = await supabase
-      .from('mock_tests')
-      .insert([
+    try {
+      setStatusMsg('Uploading PDF to Supabase Storage...');
+      const filePath = `pdfs/${Date.now()}_${pdfFile.name}`;
+
+      const { error: uploadErr } = await supabase.storage.from('course_pdfs').upload(filePath, pdfFile);
+      if (uploadErr) throw uploadErr;
+
+      const { data: publicUrlData } = supabase.storage.from('course_pdfs').getPublicUrl(filePath);
+
+      setStatusMsg('Saving Day-Wise PDF Record...');
+      const { error: dbErr } = await supabase.from('course_pdfs').insert([
         {
-          title: mockTitle,
-          duration_minutes: Number(mockDuration),
-          total_marks: Number(mockMarks),
-          is_published: true,
+          course_id: selectedCourseId,
+          day_number: Number(dayNumber),
+          title: pdfTitle || `Day ${dayNumber} PDF Sheet`,
+          pdf_url: publicUrlData.publicUrl,
         },
-      ])
-      .select();
+      ]);
 
-    if (testError || !testData) {
-      setStatusMsg(`Error: ${testError?.message}`);
-      return;
-    }
+      if (dbErr) throw dbErr;
 
-    const createdTestId = testData[0].id;
-
-    const questionMappings = selectedQuestionIds.map((qId, idx) => ({
-      mock_test_id: createdTestId,
-      question_id: qId,
-      order_index: idx + 1,
-    }));
-
-    const { error: mapError } = await supabase.from('mock_test_questions').insert(questionMappings);
-
-    if (mapError) {
-      setStatusMsg(`Error adding questions: ${mapError.message}`);
-    } else {
-      setStatusMsg(`✅ Mock Test "${mockTitle}" created with ${selectedQuestionIds.length} questions!`);
-      setMockTitle('');
-      setSelectedQuestionIds([]);
-      fetchInitialData();
+      setStatusMsg(`🎉 Uploaded Day ${dayNumber} PDF successfully!`);
+      setPdfTitle('');
+      setPdfFile(null);
+      setDayNumber((prev) => prev + 1);
+    } catch (err: any) {
+      setStatusMsg(`Upload Error: ${err.message}`);
     }
   }
 
-  // --- Delete Mock Test Handler ---
-  async function handleDeleteMockTest(testId: string, title: string) {
-    if (!confirm(`Are you sure you want to delete "${title}"?`)) return;
-
-    setStatusMsg('Deleting Mock Test...');
-
-    await supabase.from('mock_test_questions').delete().eq('mock_test_id', testId);
-    const { error } = await supabase.from('mock_tests').delete().eq('id', testId);
-
-    if (error) {
-      setStatusMsg(`Delete Error: ${error.message}`);
-    } else {
-      setStatusMsg(`🗑️ Deleted "${title}" successfully.`);
-      fetchInitialData();
-    }
-  }
-
-  // --- Delete Selected Questions Handler ---
-  async function handleDeleteSelectedQuestions() {
-    if (selectedQuestionIds.length === 0) {
-      setStatusMsg('⚠️ Please select questions to delete first!');
-      return;
-    }
-
-    if (!confirm(`Are you sure you want to PERMANENTLY DELETE ${selectedQuestionIds.length} selected question(s)?`)) {
-      return;
-    }
-
-    setStatusMsg(`Deleting ${selectedQuestionIds.length} question(s)...`);
-
-    const { error } = await supabase.from('questions').delete().in('id', selectedQuestionIds);
-
-    if (error) {
-      setStatusMsg(`Delete Error: ${error.message}`);
-    } else {
-      setStatusMsg(`🗑️ Successfully deleted ${selectedQuestionIds.length} question(s) from Question Bank!`);
-      setSelectedQuestionIds([]);
-      fetchInitialData();
-    }
-  }
-
-  // --- Delete Single Question Handler ---
-  async function handleDeleteSingleQuestion(qId: string) {
-    if (!confirm('Are you sure you want to delete this question?')) return;
-
-    setStatusMsg('Deleting question...');
-    const { error } = await supabase.from('questions').delete().eq('id', qId);
-
-    if (error) {
-      setStatusMsg(`Delete Error: ${error.message}`);
-    } else {
-      setStatusMsg('🗑️ Question deleted successfully.');
-      setSelectedQuestionIds(selectedQuestionIds.filter((id) => id !== qId));
-      fetchInitialData();
-    }
-  }
-
+  // Selection & Delete Helpers
   const toggleQuestionSelection = (qId: string) => {
     if (selectedQuestionIds.includes(qId)) {
       setSelectedQuestionIds(selectedQuestionIds.filter((id) => id !== qId));
@@ -436,341 +468,451 @@ const [isAdminUser, setIsAdminUser] = useState<boolean | null>(null);
     ? allQuestions
     : allQuestions.filter((q) => q.subject_id === filterSubjectId);
 
-  // --- Select All / Deselect All Toggle ---
   const isAllFilteredSelected = filteredQuestions.length > 0 && filteredQuestions.every((q) => selectedQuestionIds.includes(q.id));
 
   const handleSelectAllFiltered = () => {
     if (isAllFilteredSelected) {
-      // Unselect filtered
       const filteredIds = new Set(filteredQuestions.map((q) => q.id));
       setSelectedQuestionIds(selectedQuestionIds.filter((id) => !filteredIds.has(id)));
     } else {
-      // Select all filtered
       const filteredIds = filteredQuestions.map((q) => q.id);
       const combined = Array.from(new Set([...selectedQuestionIds, ...filteredIds]));
       setSelectedQuestionIds(combined);
     }
   };
 
+  async function handleDeleteSelectedQuestions() {
+    if (selectedQuestionIds.length === 0) return;
+    if (!confirm(`Delete ${selectedQuestionIds.length} question(s) permanently?`)) return;
+
+    setStatusMsg(`Deleting ${selectedQuestionIds.length} question(s)...`);
+    const { error } = await supabase.from('questions').delete().in('id', selectedQuestionIds);
+
+    if (!error) {
+      setStatusMsg(`🗑️ Deleted ${selectedQuestionIds.length} question(s).`);
+      setSelectedQuestionIds([]);
+      fetchInitialData();
+    }
+  }
+
+  async function handleDeleteMockTest(testId: string, title: string) {
+    if (!confirm(`Are you sure you want to delete "${title}"?`)) return;
+    const { error } = await supabase.from('mock_tests').delete().eq('id', testId);
+    if (!error) fetchInitialData();
+  }
+
+  // --------------------------------------------------------------------------
+  // AUTH GUARD VIEW
+  // --------------------------------------------------------------------------
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center font-bold">
+        Verifying Admin Credentials...
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6 font-sans">
+        <div className="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-8 space-y-6 shadow-2xl">
+          <div className="text-center space-y-2">
+            <div className="w-12 h-12 bg-blue-600/20 text-blue-400 border border-blue-500/30 rounded-2xl flex items-center justify-center text-2xl mx-auto">
+              🔒
+            </div>
+            <h1 className="text-xl font-bold text-white">Admin Login Required</h1>
+            <p className="text-xs text-slate-400">
+              This portal is restricted to BankingSolutions admins only.
+            </p>
+          </div>
+
+          <form onSubmit={handleAdminLogin} className="space-y-4 text-left">
+            {authError && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs rounded-xl font-bold">
+                {authError}
+              </div>
+            )}
+
+            <div>
+              <label className="text-xs font-bold text-slate-400 uppercase block mb-1">Admin Email</label>
+              <input
+                type="email"
+                value={authEmail}
+                onChange={(e) => setAuthEmail(e.target.value)}
+                placeholder="admin@bankingsolutions.com"
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-400 uppercase block mb-1">Password</label>
+              <input
+                type="password"
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-3 bg-[#1D63B8] hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-lg transition"
+            >
+              Sign In as Admin
+            </button>
+          </form>
+
+          <div className="text-center pt-2">
+            <Link href="/" className="text-xs text-slate-400 hover:text-white transition">
+              ← Return to Homepage
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // MAIN ADMIN PORTAL VIEW
+  // --------------------------------------------------------------------------
   return (
-    <div className="max-w-5xl mx-auto p-6 font-sans">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 border-b pb-4 gap-4">
+    <div className="max-w-5xl mx-auto p-6 font-sans text-slate-900 bg-slate-50 min-h-screen space-y-6">
+      {/* HEADER BAR */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-4 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">BankingSolutions Admin</h1>
-          <p className="text-xs text-slate-500">Manage Question Bank & Mock Test Series</p>
+          <h1 className="text-2xl font-bold text-slate-800">BankingSolutions Admin Portal</h1>
+          <p className="text-xs text-slate-500">Manage Excel Mock Tests, BSPS Practice Sheets & BSCA Current Affairs PDFs</p>
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="flex space-x-1 bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs flex-wrap gap-y-1">
+        <div className="flex items-center gap-3">
+          {/* TABS NAVBAR */}
+          <div className="flex space-x-1 bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs flex-wrap gap-y-1">
+            <button
+              onClick={() => setActiveTab('direct_mock_upload')}
+              className={`px-3 py-1.5 font-bold rounded-md transition ${
+                activeTab === 'direct_mock_upload' ? 'bg-[#1D63B8] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              🚀 Direct Mock Upload
+            </button>
+            <button
+              onClick={() => setActiveTab('pdf_uploader')}
+              className={`px-3 py-1.5 font-bold rounded-md transition ${
+                activeTab === 'pdf_uploader' ? 'bg-[#1D63B8] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              📄 BSPS & BSCA PDF Uploader
+            </button>
+            <button
+              onClick={() => setActiveTab('create_mock')}
+              className={`px-3 py-1.5 font-bold rounded-md transition ${
+                activeTab === 'create_mock' ? 'bg-[#1D63B8] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              📋 Build from Bank
+            </button>
+            <button
+              onClick={() => setActiveTab('add_question')}
+              className={`px-3 py-1.5 font-semibold rounded-md transition ${
+                activeTab === 'add_question' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              + Add Question
+            </button>
+            <button
+              onClick={() => setActiveTab('bulk_upload')}
+              className={`px-3 py-1.5 font-semibold rounded-md transition ${
+                activeTab === 'bulk_upload' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              📥 Question Bank Excel
+            </button>
+          </div>
+
           <button
-            onClick={() => setActiveTab('add_question')}
-            className={`px-3 py-1.5 font-semibold rounded-md transition ${
-              activeTab === 'add_question' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-            }`}
+            onClick={handleLogout}
+            className="px-3 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold text-xs rounded-lg transition"
           >
-            + Single Question
-          </button>
-          <button
-            onClick={() => setActiveTab('bulk_upload')}
-            className={`px-3 py-1.5 font-semibold rounded-md transition ${
-              activeTab === 'bulk_upload' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            📥 Bank Upload
-          </button>
-          <button
-            onClick={() => setActiveTab('direct_mock_upload')}
-            className={`px-3 py-1.5 font-semibold rounded-md transition ${
-              activeTab === 'direct_mock_upload' ? 'bg-white text-emerald-700 font-bold shadow-sm' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            🚀 Direct Mock Upload
-          </button>
-          <button
-            onClick={() => setActiveTab('create_mock')}
-            className={`px-3 py-1.5 font-semibold rounded-md transition ${
-              activeTab === 'create_mock' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            📋 Build & Manage Mocks
+            Logout
           </button>
         </div>
       </div>
 
       {statusMsg && (
-        <div className="mb-6 p-3 bg-slate-100 border border-slate-200 text-slate-800 rounded text-sm font-medium">
+        <div className="p-4 bg-blue-50 border border-blue-200 text-blue-900 rounded-xl text-sm font-semibold">
           {statusMsg}
         </div>
       )}
 
-      {/* --- TAB 1: ADD SINGLE QUESTION --- */}
-      {activeTab === 'add_question' && (
-        <form onSubmit={handleQuestionSubmit} className="bg-white shadow-md rounded-lg p-6 border border-slate-200">
-          <h2 className="text-lg font-semibold mb-4 text-slate-700">Add Single Question to Bank</h2>
-
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-slate-700 mb-1">Select Subject</label>
-            <select
-              value={selectedSubject}
-              onChange={(e) => setSelectedSubject(e.target.value)}
-              className="w-full border border-slate-300 rounded p-2 text-slate-800 bg-white"
-              required
-            >
-              {subjects.map((subj) => (
-                <option key={subj.id} value={subj.id}>
-                  {subj.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-slate-700 mb-1">Question Text</label>
-            <textarea
-              rows={3}
-              value={questionText}
-              onChange={(e) => setQuestionText(e.target.value)}
-              placeholder="Enter question statement..."
-              className="w-full border border-slate-300 rounded p-2 text-slate-800"
-              required
-            />
-          </div>
-
-          <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-            {options.map((opt, idx) => (
-              <div key={idx} className={idx === 4 ? 'md:col-span-2' : ''}>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Option {String.fromCharCode(65 + idx)}
-                </label>
-                <input
-                  type="text"
-                  value={opt}
-                  onChange={(e) => {
-                    const updated = [...options];
-                    updated[idx] = e.target.value;
-                    setOptions(updated);
-                  }}
-                  placeholder={`Option ${String.fromCharCode(65 + idx)}`}
-                  className="w-full border border-slate-300 rounded p-2 text-slate-800"
-                  required
-                />
-              </div>
-            ))}
-          </div>
-
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-slate-700 mb-1">Correct Answer Option</label>
-            <select
-              value={correctOptionIndex}
-              onChange={(e) => setCorrectOptionIndex(Number(e.target.value))}
-              className="w-full border border-slate-300 rounded p-2 text-slate-800 bg-white"
-            >
-              <option value={0}>Option A</option>
-              <option value={1}>Option B</option>
-              <option value={2}>Option C</option>
-              <option value={3}>Option D</option>
-              <option value={4}>Option E</option>
-            </select>
-          </div>
-
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-slate-700 mb-1">Solution / Explanation</label>
-            <textarea
-              rows={3}
-              value={solutionText}
-              onChange={(e) => setSolutionText(e.target.value)}
-              placeholder="Explain solution step-by-step..."
-              className="w-full border border-slate-300 rounded p-2 text-slate-800"
-            />
-          </div>
-
-          <button
-            type="submit"
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 rounded transition"
-          >
-            Add Question to Database
-          </button>
-        </form>
-      )}
-
-      {/* --- TAB 2: EXCEL QUESTION BANK UPLOAD --- */}
-      {activeTab === 'bulk_upload' && (
-        <div className="bg-white shadow-md rounded-lg p-6 border border-slate-200">
-          <h2 className="text-lg font-semibold mb-2 text-slate-700">Import Questions into Question Bank</h2>
-          <p className="text-xs text-slate-500 mb-6">Upload a spreadsheet of questions into your master Question Bank.</p>
-
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-slate-700 mb-1">Target Subject</label>
-            <select
-              value={selectedSubject}
-              onChange={(e) => setSelectedSubject(e.target.value)}
-              className="w-full border border-slate-300 rounded p-2 text-slate-800 bg-white"
-            >
-              {subjects.map((subj) => (
-                <option key={subj.id} value={subj.id}>
-                  {subj.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-xl p-8 text-center bg-slate-50 transition cursor-pointer relative">
-            <input
-              type="file"
-              accept=".xlsx, .xls, .csv"
-              onChange={handleExcelUpload}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-            />
-            <div className="text-slate-600">
-              <span className="text-3xl block mb-2">📄</span>
-              <p className="font-semibold text-sm">Click to browse or drag & drop your Excel (.xlsx / .csv) file</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* --- TAB 3: DIRECT MOCK EXCEL UPLOAD --- */}
+      {/* -------------------------------------------------------------------- */}
+      {/* TAB 1: DIRECT EXCEL MOCK UPLOADER */}
+      {/* -------------------------------------------------------------------- */}
       {activeTab === 'direct_mock_upload' && (
-        <div className="bg-white shadow-md rounded-lg p-6 border border-slate-200">
-          <div className="flex items-center space-x-2 mb-2">
-            <h2 className="text-lg font-semibold text-slate-800">🚀 1-Click Direct Mock Upload from Excel</h2>
-            <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded">Fastest</span>
+        <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-6">
+          <div className="flex items-center space-x-2 border-b pb-3">
+            <h2 className="text-lg font-bold text-slate-800">1-Click Direct Mock Upload (Excel .xlsx)</h2>
           </div>
-          <p className="text-xs text-slate-500 mb-6">
-            Enter test details, select your Excel file, and publish a full mock test instantly.
-          </p>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="md:col-span-1">
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Mock Test Title</label>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Mock Test Title</label>
               <input
                 type="text"
                 value={directMockTitle}
                 onChange={(e) => setDirectMockTitle(e.target.value)}
-                placeholder="e.g. SBI PO Prelims - Full Mock 02"
-                className="w-full border border-slate-300 rounded p-2 text-slate-800 text-sm"
+                placeholder="e.g. SBI PO Prelims - Direct Mock 01"
+                className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Duration (Minutes)</label>
-              <input
-                type="number"
-                value={directMockDuration}
-                onChange={(e) => setDirectMockDuration(Number(e.target.value))}
-                className="w-full border border-slate-300 rounded p-2 text-slate-800 text-sm"
-                required
-              />
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Category / Exam Type</label>
+              <select
+                value={directMockExamType}
+                onChange={(e) => setDirectMockExamType(e.target.value)}
+                className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white font-semibold"
+              >
+                <option value="SBI PO Prelims">SBI PO Prelims</option>
+                <option value="IBPS PO Prelims">IBPS PO Prelims</option>
+                <option value="Quant Sectional Mock">Quant Sectional Mock</option>
+                <option value="Reasoning Sectional Mock">Reasoning Sectional Mock</option>
+                <option value="English Sectional Mock">English Sectional Mock</option>
+              </select>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Total Marks</label>
-              <input
-                type="number"
-                value={directMockMarks}
-                onChange={(e) => setDirectMockMarks(Number(e.target.value))}
-                className="w-full border border-slate-300 rounded p-2 text-slate-800 text-sm"
-                required
-              />
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Duration (Mins)</label>
+                <input
+                  type="number"
+                  value={directMockDuration}
+                  onChange={(e) => setDirectMockDuration(Number(e.target.value))}
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Total Marks</label>
+                <input
+                  type="number"
+                  value={directMockMarks}
+                  onChange={(e) => setDirectMockMarks(Number(e.target.value))}
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+                />
+              </div>
             </div>
           </div>
 
-          <div className="mb-6">
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Default Subject for Questions</label>
-            <select
-              value={selectedSubject}
-              onChange={(e) => setSelectedSubject(e.target.value)}
-              className="w-full border border-slate-300 rounded p-2 text-slate-800 bg-white text-sm"
-            >
-              {subjects.map((subj) => (
-                <option key={subj.id} value={subj.id}>
-                  {subj.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="border-2 border-dashed border-emerald-300 hover:border-emerald-500 rounded-xl p-8 text-center bg-emerald-50/50 transition cursor-pointer relative">
+          <div className="border-2 border-dashed border-blue-300 hover:border-blue-500 rounded-xl p-8 text-center bg-blue-50/40 transition cursor-pointer relative">
             <input
               type="file"
-              accept=".xlsx, .xls, .csv"
+              accept=".xlsx, .xls"
               onChange={handleDirectMockUpload}
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
             />
-            <div className="text-emerald-900">
-              <span className="text-3xl block mb-2">📊</span>
-              <p className="font-bold text-sm">Upload Mock Test Excel File</p>
+            <div className="text-blue-900 space-y-2">
+              <span className="text-4xl block">📊</span>
+              <p className="font-bold text-sm text-[#1D63B8]">Click to upload Excel Mock File (.xlsx)</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* --- TAB 4: MOCK BUILDER & QUESTION BANK MANAGEMENT --- */}
-      {activeTab === 'create_mock' && (
-        <div className="space-y-8">
-          <form onSubmit={handleMockTestSubmit} className="bg-white shadow-md rounded-lg p-6 border border-slate-200">
-            <h2 className="text-lg font-semibold mb-4 text-slate-700">Build Mock Test & Manage Questions</h2>
+      {/* -------------------------------------------------------------------- */}
+      {/* TAB 2: BSPS & BSCA DAY-WISE PDF UPLOADER */}
+      {/* -------------------------------------------------------------------- */}
+      {activeTab === 'pdf_uploader' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* CREATE COURSE CONTAINER */}
+          <form onSubmit={handleCreateCourseContainer} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+            <h2 className="text-base font-bold text-slate-800 border-b pb-2">Step 1: Create Course Container</h2>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-              <div className="md:col-span-1">
-                <label className="block text-xs font-medium text-slate-600 mb-1">Test Title</label>
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Module Type</label>
+              <select
+                value={courseCategory}
+                onChange={(e: any) => setCourseCategory(e.target.value)}
+                className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold"
+              >
+                <option value="BSPS">BSPS – BankingSolutions Practice Sheet</option>
+                <option value="BSCA">BSCA – BankingSolutions Current Affairs</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Course Title</label>
+              <input
+                type="text"
+                value={courseTitle}
+                onChange={(e) => setCourseTitle(e.target.value)}
+                placeholder={courseCategory === 'BSPS' ? 'e.g. BSPS 2026 - Quants & Reasoning Daily Sheets' : 'e.g. BSCA August 2026 Daily Banking GA'}
+                className="w-full border p-2.5 rounded-lg text-sm bg-white"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Description</label>
+              <textarea
+                rows={2}
+                value={courseDesc}
+                onChange={(e) => setCourseDesc(e.target.value)}
+                placeholder="Course details and day-wise release info..."
+                className="w-full border p-2.5 rounded-lg text-sm bg-white"
+              />
+            </div>
+
+            <button type="submit" className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow">
+              Create Course Container
+            </button>
+          </form>
+
+          {/* UPLOAD DAY-WISE PDF */}
+          <form onSubmit={handlePdfUpload} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+            <h2 className="text-base font-bold text-slate-800 border-b pb-2">Step 2: Upload Day-Wise PDF File</h2>
+
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Target Course</label>
+              <select
+                value={selectedCourseId}
+                onChange={(e) => setSelectedCourseId(e.target.value)}
+                className="w-full border p-2.5 rounded-lg text-sm bg-white font-semibold"
+                required
+              >
+                <option value="">-- Choose BSPS or BSCA Course --</option>
+                {existingCourses.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    [{c.category}] {c.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Day No.</label>
+                <input
+                  type="number"
+                  value={dayNumber}
+                  onChange={(e) => setDayNumber(Number(e.target.value))}
+                  className="w-full border p-2.5 rounded-lg text-sm bg-white"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">PDF Title</label>
                 <input
                   type="text"
-                  value={mockTitle}
-                  onChange={(e) => setMockTitle(e.target.value)}
-                  placeholder="e.g. SBI PO Prelims - Mock 1"
-                  className="w-full border border-slate-300 rounded p-2 text-slate-800"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Duration (Minutes)</label>
-                <input
-                  type="number"
-                  value={mockDuration}
-                  onChange={(e) => setMockDuration(Number(e.target.value))}
-                  className="w-full border border-slate-300 rounded p-2 text-slate-800"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Total Marks</label>
-                <input
-                  type="number"
-                  value={mockMarks}
-                  onChange={(e) => setMockMarks(Number(e.target.value))}
-                  className="w-full border border-slate-300 rounded p-2 text-slate-800"
+                  value={pdfTitle}
+                  onChange={(e) => setPdfTitle(e.target.value)}
+                  placeholder="e.g. Day 1 - DI & Puzzle Sheet"
+                  className="w-full border p-2.5 rounded-lg text-sm bg-white"
+                  required
                 />
               </div>
             </div>
 
-            {/* Subject Filter + Select All + Delete Questions Toolbar */}
-            <div className="mb-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
-              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-3">
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Select PDF File (.pdf)</label>
+              <input
+                type="file"
+                accept=".pdf"
+                onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
+                className="w-full border p-2 rounded-lg text-xs bg-white"
+                required
+              />
+            </div>
+
+            <button type="submit" className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow">
+              Publish Day PDF
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* -------------------------------------------------------------------- */}
+      {/* TAB 3: BUILD MOCK FROM QUESTION BANK */}
+      {/* -------------------------------------------------------------------- */}
+      {activeTab === 'create_mock' && (
+        <div className="space-y-6">
+          <form onSubmit={handleMockFromQuestionBankSubmit} className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-6">
+            <h2 className="text-lg font-bold text-slate-800 border-b pb-3">Build Mock Test from Question Bank</h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="md:col-span-1">
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Mock Test Title</label>
+                <input
+                  type="text"
+                  value={mockTitle}
+                  onChange={(e) => setMockTitle(e.target.value)}
+                  placeholder="e.g. SBI PO Prelims - Mock 01"
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Category / Exam Type</label>
+                <select
+                  value={mockExamType}
+                  onChange={(e) => setMockExamType(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white font-semibold"
+                >
+                  <option value="SBI PO Prelims">SBI PO Prelims</option>
+                  <option value="IBPS PO Prelims">IBPS PO Prelims</option>
+                  <option value="Quant Sectional Mock">Quant Sectional Mock</option>
+                  <option value="Reasoning Sectional Mock">Reasoning Sectional Mock</option>
+                  <option value="English Sectional Mock">English Sectional Mock</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700">Question Bank Manager</label>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Duration (Mins)</label>
+                  <input
+                    type="number"
+                    value={mockDuration}
+                    onChange={(e) => setMockDuration(Number(e.target.value))}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Total Marks</label>
+                  <input
+                    type="number"
+                    value={mockMarks}
+                    onChange={(e) => setMockMarks(Number(e.target.value))}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                <div>
+                  <label className="block text-sm font-bold text-slate-800">Select Questions from Bank</label>
                   <p className="text-xs text-slate-500">
-                    Selected: <span className="font-bold text-blue-600">{selectedQuestionIds.length} Questions</span>
+                    Selected for this mock: <span className="font-bold text-[#1D63B8]">{selectedQuestionIds.length} Questions</span>
                   </p>
                 </div>
 
-                {/* Bulk Actions */}
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={handleSelectAllFiltered}
-                    className="bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-semibold px-3 py-1.5 rounded transition"
+                    className="bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold px-3 py-1.5 rounded-lg transition"
                   >
-                    {isAllFilteredSelected ? 'Deselect All' : 'Select All Filtered'}
+                    {isAllFilteredSelected ? 'Deselect Filtered' : 'Select All Filtered'}
                   </button>
-
                   <button
                     type="button"
                     onClick={handleDeleteSelectedQuestions}
                     disabled={selectedQuestionIds.length === 0}
-                    className={`text-xs font-semibold px-3 py-1.5 rounded transition ${
+                    className={`text-xs font-bold px-3 py-1.5 rounded-lg transition ${
                       selectedQuestionIds.length > 0
                         ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-sm'
                         : 'bg-slate-200 text-slate-400 cursor-not-allowed'
@@ -781,13 +923,12 @@ const [isAdminUser, setIsAdminUser] = useState<boolean | null>(null);
                 </div>
               </div>
 
-              {/* Subject Filter Dropdown */}
               <select
                 value={filterSubjectId}
                 onChange={(e) => setFilterSubjectId(e.target.value)}
-                className="w-full border border-slate-300 rounded p-2 text-slate-800 bg-white text-sm"
+                className="w-full border border-slate-300 rounded-lg p-2 text-slate-900 bg-white text-xs font-bold"
               >
-                <option value="ALL">All Subjects ({allQuestions.length} Questions in Bank)</option>
+                <option value="ALL">All Subjects ({allQuestions.length} Questions Available)</option>
                 {subjects.map((subj) => {
                   const count = allQuestions.filter((q) => q.subject_id === subj.id).length;
                   return (
@@ -799,96 +940,182 @@ const [isAdminUser, setIsAdminUser] = useState<boolean | null>(null);
               </select>
             </div>
 
-            {/* Questions Checklist with Individual Delete */}
-            <div className="mb-6">
-              <div className="max-h-72 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 bg-white p-2">
-                {filteredQuestions.length === 0 ? (
-                  <p className="text-xs text-slate-500 p-4 text-center">No questions found in database.</p>
-                ) : (
-                  filteredQuestions.map((q) => {
-                    const isSelected = selectedQuestionIds.includes(q.id);
-                    return (
-                      <div
-                        key={q.id}
-                        className={`p-3 rounded transition flex items-start justify-between space-x-3 text-xs ${
-                          isSelected ? 'bg-blue-50/70 border border-blue-200' : 'hover:bg-slate-50'
-                        }`}
-                      >
-                        <div
-                          onClick={() => toggleQuestionSelection(q.id)}
-                          className="flex items-start space-x-3 cursor-pointer flex-1"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => {}}
-                            className="mt-0.5 rounded text-blue-600"
-                          />
-                          <div>
-                            <span className="bg-slate-200 text-slate-700 text-[10px] font-bold px-1.5 py-0.5 rounded mr-2">
-                              {q.subjects?.name || 'Subject'}
-                            </span>
-                            <span className="text-slate-800 font-medium">{q.question_text}</span>
-                          </div>
-                        </div>
-
-                        {/* Individual Delete Button */}
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteSingleQuestion(q.id)}
-                          className="text-rose-500 hover:text-rose-700 font-bold px-2 py-0.5 hover:bg-rose-50 rounded transition text-xs"
-                          title="Delete this question"
-                        >
-                          ✕
-                        </button>
+            <div className="max-h-80 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 bg-white p-2">
+              {filteredQuestions.length === 0 ? (
+                <p className="text-xs text-slate-500 p-6 text-center">No questions in Question Bank yet.</p>
+              ) : (
+                filteredQuestions.map((q) => {
+                  const isSelected = selectedQuestionIds.includes(q.id);
+                  return (
+                    <div
+                      key={q.id}
+                      onClick={() => toggleQuestionSelection(q.id)}
+                      className={`p-3 rounded-lg transition flex items-start space-x-3 text-xs cursor-pointer ${
+                        isSelected ? 'bg-blue-50 border border-blue-200 font-medium' : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => {}}
+                        className="mt-0.5 rounded text-blue-600"
+                      />
+                      <div>
+                        <span className="bg-slate-200 text-slate-700 text-[10px] font-bold px-2 py-0.5 rounded mr-2">
+                          {q.subjects?.name || 'Subject'}
+                        </span>
+                        <span className="text-slate-800">{q.question_text}</span>
                       </div>
-                    );
-                  })
-                )}
-              </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
 
             <button
               type="submit"
-              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 px-4 rounded transition shadow-sm"
+              disabled={selectedQuestionIds.length === 0}
+              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-bold rounded-xl transition shadow text-xs"
             >
-              Publish Selected Questions as Mock Test
+              Publish Selected {selectedQuestionIds.length} Questions as Mock Test
             </button>
           </form>
+        </div>
+      )}
 
-          {/* Published List */}
-          <div className="bg-white shadow-md rounded-lg p-6 border border-slate-200">
-            <h2 className="text-lg font-semibold mb-4 text-slate-700">Published Mock Tests</h2>
-            {existingMocks.length === 0 ? (
-              <p className="text-xs text-slate-500">No published mock tests yet.</p>
-            ) : (
-              <div className="divide-y divide-slate-100">
-                {existingMocks.map((test) => (
-                  <div key={test.id} className="py-3 flex justify-between items-center">
-                    <div>
-                      <h3 className="font-semibold text-slate-800 text-sm">{test.title}</h3>
-                      <p className="text-xs text-slate-500">
-                        {test.duration_minutes} Mins | {test.total_marks} Marks
-                      </p>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <span className="bg-emerald-100 text-emerald-800 text-xs font-bold px-2 py-0.5 rounded">
-                        Live
-                      </span>
-                      <button
-                        onClick={() => handleDeleteMockTest(test.id, test.title)}
-                        className="bg-rose-100 hover:bg-rose-200 text-rose-700 font-semibold text-xs px-2.5 py-1 rounded transition"
-                      >
-                        Delete 🗑️
-                      </button>
-                    </div>
-                  </div>
-                ))}
+      {/* -------------------------------------------------------------------- */}
+      {/* TAB 4: ADD SINGLE QUESTION TO MASTER BANK */}
+      {/* -------------------------------------------------------------------- */}
+      {activeTab === 'add_question' && (
+        <form onSubmit={handleQuestionSubmit} className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-4">
+          <h2 className="text-lg font-bold text-slate-800 border-b pb-3">Add Single Question to Master Bank</h2>
+
+          <div>
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Subject</label>
+            <select
+              value={selectedSubject}
+              onChange={(e) => setSelectedSubject(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+            >
+              {subjects.map((subj) => (
+                <option key={subj.id} value={subj.id}>{subj.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Question Statement</label>
+            <textarea
+              rows={3}
+              value={questionText}
+              onChange={(e) => setQuestionText(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            {options.map((opt, idx) => (
+              <div key={idx}>
+                <label className="block text-[11px] font-bold text-slate-500 mb-1">Option {String.fromCharCode(65 + idx)}</label>
+                <input
+                  type="text"
+                  value={opt}
+                  onChange={(e) => {
+                    const updated = [...options];
+                    updated[idx] = e.target.value;
+                    setOptions(updated);
+                  }}
+                  className="w-full border border-slate-300 rounded-lg p-2 text-slate-900 text-xs bg-white"
+                  required
+                />
               </div>
-            )}
+            ))}
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Correct Option (0 = A, 1 = B, 2 = C, 3 = D, 4 = E)</label>
+            <select
+              value={correctOptionIndex}
+              onChange={(e) => setCorrectOptionIndex(Number(e.target.value))}
+              className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+            >
+              <option value={0}>Option A</option>
+              <option value={1}>Option B</option>
+              <option value={2}>Option C</option>
+              <option value={3}>Option D</option>
+              <option value={4}>Option E</option>
+            </select>
+          </div>
+
+          <button type="submit" className="w-full py-3 bg-[#1D63B8] text-white font-bold rounded-xl text-xs">
+            Add Question to Bank
+          </button>
+        </form>
+      )}
+
+      {/* -------------------------------------------------------------------- */}
+      {/* TAB 5: BULK QUESTION BANK UPLOADER */}
+      {/* -------------------------------------------------------------------- */}
+      {activeTab === 'bulk_upload' && (
+        <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-4">
+          <h2 className="text-lg font-bold text-slate-800 border-b pb-3">Bulk Upload to Master Question Bank</h2>
+          <div>
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Target Subject</label>
+            <select
+              value={selectedSubject}
+              onChange={(e) => setSelectedSubject(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+            >
+              {subjects.map((subj) => (
+                <option key={subj.id} value={subj.id}>{subj.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="border-2 border-dashed border-slate-300 p-8 rounded-xl text-center bg-slate-50 relative cursor-pointer">
+            <input type="file" accept=".xlsx, .xls" onChange={handleExcelUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
+            <span className="text-sm font-bold text-blue-600 block">Click to upload Question Bank Excel (.xlsx)</span>
           </div>
         </div>
       )}
+
+      {/* PUBLISHED MOCK TESTS OVERVIEW */}
+      <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-4">
+        <div className="flex justify-between items-center border-b pb-3">
+          <h2 className="text-lg font-bold text-slate-800">Published Tests & Practice Sheets ({existingMocks.length})</h2>
+          <Link href="/tests" className="text-xs font-bold text-blue-600 hover:underline">
+            View Live Student Portal →
+          </Link>
+        </div>
+
+        {existingMocks.length === 0 ? (
+          <p className="text-xs text-slate-500">No published tests yet.</p>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {existingMocks.map((test) => (
+              <div key={test.id} className="py-3 flex justify-between items-center">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded">
+                      {test.exam_type || 'SBI PO Prelims'}
+                    </span>
+                    <h3 className="font-bold text-slate-800 text-sm">{test.title}</h3>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {test.duration_minutes} Mins | {test.total_marks} Marks | Questions Loaded: {test.questions ? (typeof test.questions === 'string' ? JSON.parse(test.questions).length : test.questions.length) : 0}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleDeleteMockTest(test.id, test.title)}
+                  className="bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold text-xs px-3 py-1.5 rounded-lg transition"
+                >
+                  Delete 🗑️
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
