@@ -87,11 +87,18 @@ export default function BankingSolutionsHomePage() {
 
           {/* Navigation Links */}
           <div className="flex items-center space-x-3">
+           
             <Link
               href="/pdf-courses?category=BSPS"
               className="text-xs font-semibold text-blue-400 hover:text-blue-300 px-3 py-2 rounded-lg transition hidden md:block"
             >
               BSPS Sheets 📄
+            </Link>
+            <Link
+              href="/pdf-courses?category=BSCA"
+              className="text-xs font-semibold text-amber-400 hover:text-amber-300 px-3 py-2 rounded-lg transition hidden md:block"
+            >
+              BSCA Current Affairs 📰
             </Link>
             <Link
               href="/tests"
@@ -156,14 +163,14 @@ export default function BankingSolutionsHomePage() {
         </div>
 
         <h1 className="text-4xl md:text-6xl font-black tracking-tight text-white mb-6 leading-tight max-w-4xl mx-auto">
-          Crack Banking Exams with <span className="text-blue-400">BSPS</span>, <span className="text-amber-400">BSCA</span> & <span className="text-emerald-400">TCS iON Mocks</span>
+          Crack Banking Exams with <span className="text-blue-400">BSPS</span>, <span className="text-amber-400">BSCA</span> & <span className="text-emerald-400">Interactive Quizzes</span>
         </h1>
 
         <p className="text-slate-400 text-base md:text-lg max-w-2xl mx-auto mb-10 leading-relaxed font-normal">
-          Master Quant, Reasoning, and General Awareness with daily BankingSolutions Practice Sheets (BSPS), Current Affairs (BSCA) PDFs, daily One-Liners, and mock tests.
+          Master Quant, Reasoning, and General Awareness with daily BankingSolutions Practice Sheets (BSPS), Current Affairs (BSCA) PDFs, daily One-Liners, and interactive GA Quizzes.
         </p>
 
-        {/* HERO CTA BUTTONS (MATCHING YOUR PINNED DESIGN) */}
+        {/* HERO CTA BUTTONS */}
         <div className="flex flex-wrap justify-center items-center gap-3 mb-16">
           <Link
             href="/pdf-courses?category=BSPS"
@@ -179,6 +186,14 @@ export default function BankingSolutionsHomePage() {
           >
             <span>📰</span>
             <span>BSCA CURRENT AFFAIRS</span>
+          </Link>
+
+          <Link
+            href="/bsca-quiz"
+            className="px-6 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl transition shadow-xl shadow-emerald-600/20 uppercase tracking-wider flex items-center gap-2"
+          >
+            <span>💡</span>
+            <span>BSCA DAILY GA QUIZ</span>
           </Link>
 
           <Link
@@ -233,7 +248,7 @@ export default function BankingSolutionsHomePage() {
           <p className="text-xs text-slate-400 mt-2 uppercase tracking-widest font-semibold">Choose your preparation mode</p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* Card 1: BSPS Practice Sheets */}
           <div className="bg-slate-950 border border-slate-800 hover:border-blue-500/50 rounded-2xl p-6 transition flex flex-col justify-between group">
             <div>
@@ -276,7 +291,28 @@ export default function BankingSolutionsHomePage() {
             </Link>
           </div>
 
-          {/* Card 3: CA One-Liners & Exam Updates */}
+          {/* Card 3: BSCA Daily GA Quiz */}
+          <div className="bg-slate-950 border border-slate-800 hover:border-emerald-500/50 rounded-2xl p-6 transition flex flex-col justify-between group">
+            <div>
+              <div className="h-12 w-12 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-xl flex items-center justify-center text-2xl mb-4 font-bold">
+                💡
+              </div>
+              <h3 className="text-lg font-bold text-white mb-2 group-hover:text-emerald-400 transition leading-snug">
+                BSCA Daily GA Quiz
+              </h3>
+              <p className="text-xs text-slate-400 leading-relaxed mb-6">
+                Interactive daily General Awareness quizzes with multiple-choice questions, instant scoring, and step-by-step solution explanations.
+              </p>
+            </div>
+            <Link
+              href="/bsca-quiz"
+              className="w-full bg-slate-800 hover:bg-emerald-600 text-white font-bold text-xs py-3 rounded-xl transition text-center block"
+            >
+              Attempt Daily GA Quiz →
+            </Link>
+          </div>
+
+          {/* Card 4: CA One-Liners & Exam Updates */}
           <div className="bg-slate-950 border border-slate-800 hover:border-rose-500/50 rounded-2xl p-6 transition flex flex-col justify-between group">
             <div>
               <div className="h-12 w-12 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-xl flex items-center justify-center text-2xl mb-4 font-bold">
@@ -297,7 +333,7 @@ export default function BankingSolutionsHomePage() {
             </Link>
           </div>
 
-          {/* Card 4: Mock Tests */}
+          {/* Card 5: Mock Tests */}
           <div className="bg-slate-950 border border-slate-800 hover:border-purple-500/50 rounded-2xl p-6 transition flex flex-col justify-between group">
             <div>
               <div className="h-12 w-12 bg-purple-500/10 text-purple-400 border border-purple-500/20 rounded-xl flex items-center justify-center text-2xl mb-4 font-bold">
@@ -318,7 +354,7 @@ export default function BankingSolutionsHomePage() {
             </Link>
           </div>
 
-          {/* Card 5: Calculation Lab */}
+          {/* Card 6: Calculation Lab */}
           <div className="bg-slate-950 border border-slate-800 hover:border-emerald-500/50 rounded-2xl p-6 transition flex flex-col justify-between group">
             <div>
               <div className="h-12 w-12 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-xl flex items-center justify-center text-2xl mb-4 font-bold">
@@ -350,7 +386,7 @@ export default function BankingSolutionsHomePage() {
               <div>
                 <h3 className="text-lg font-bold text-white">Admin Test & Content Portal</h3>
                 <p className="text-xs text-slate-400">
-                  Publish One-Liners & Updates, upload Excel Mock Tests, and manage day-wise BSPS / BSCA PDFs.
+                  Publish One-Liners, build BSCA Quizzes, upload Excel Mock Tests, and manage day-wise BSPS / BSCA PDFs.
                 </p>
               </div>
             </div>
@@ -381,6 +417,7 @@ export default function BankingSolutionsHomePage() {
           <div className="flex space-x-4 font-semibold text-slate-400">
             <Link href="/pdf-courses?category=BSPS" className="hover:text-blue-400 transition">BSPS</Link>
             <Link href="/pdf-courses?category=BSCA" className="hover:text-amber-400 transition">BSCA</Link>
+            <Link href="/bsca-quiz" className="hover:text-emerald-400 transition">Quiz</Link>
             <Link href="/updates" className="hover:text-rose-400 transition">Updates</Link>
             <Link href="/tests" className="hover:text-amber-400 transition">Tests</Link>
             <Link href="/calc-lab" className="hover:text-emerald-400 transition">Calc Lab</Link>

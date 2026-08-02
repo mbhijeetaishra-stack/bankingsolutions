@@ -58,7 +58,7 @@ interface UpdatePost {
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<
-    'updates_publisher' | 'pdf_uploader' | 'direct_mock_upload' | 'create_mock' | 'add_question' | 'bulk_upload'
+    'updates_publisher' | 'bsca_quiz_builder' | 'pdf_uploader' | 'direct_mock_upload' | 'create_mock' | 'add_question' | 'bulk_upload'
   >('updates_publisher');
 
   // Admin Security States
@@ -116,6 +116,18 @@ export default function AdminPage() {
   const [postIsPinned, setPostIsPinned] = useState(false);
   const [publishedFeed, setPublishedFeed] = useState<UpdatePost[]>([]);
   const [postDate, setPostDate] = useState(new Date().toISOString().split('T')[0]);
+
+  // BSCA Quiz Builder States
+  const [quizTitle, setQuizTitle] = useState('');
+  const [quizDate, setQuizDate] = useState(new Date().toISOString().split('T')[0]);
+  const [quizDuration, setQuizDuration] = useState(10);
+  const [existingQuizzes, setExistingQuizzes] = useState<any[]>([]);
+
+  const [selectedQuizId, setSelectedQuizId] = useState('');
+  const [quizQuestionText, setQuizQuestionText] = useState('');
+  const [quizOptions, setQuizOptions] = useState(['', '', '', '']);
+  const [quizCorrectOption, setQuizCorrectOption] = useState(0);
+  const [quizExplanation, setQuizExplanation] = useState('');
 
   // Check auth & profile on mount
   useEffect(() => {
@@ -214,6 +226,70 @@ export default function AdminPage() {
       .select('*')
       .order('created_at', { ascending: false });
     if (uData) setPublishedFeed(uData as UpdatePost[]);
+
+    // 7. Fetch Quizzes
+    const { data: quizData } = await supabase
+      .from('bsca_quizzes')
+      .select('*')
+      .order('quiz_date', { ascending: false });
+    if (quizData) setExistingQuizzes(quizData);
+  }
+
+  // --- CREATE BSCA QUIZ CONTAINER ---
+  async function handleCreateQuiz(e: React.FormEvent) {
+    e.preventDefault();
+    if (!quizTitle.trim()) return setStatusMsg('⚠️ Enter Quiz Title!');
+
+    setStatusMsg('Creating Quiz Container...');
+    const { error } = await supabase.from('bsca_quizzes').insert([
+      { title: quizTitle.trim(), quiz_date: quizDate, duration_minutes: Number(quizDuration) },
+    ]);
+
+    if (error) {
+      setStatusMsg(`Quiz Creation Error: ${error.message}`);
+    } else {
+      setStatusMsg(`🎉 Created Quiz: "${quizTitle}"`);
+      setQuizTitle('');
+      fetchInitialData();
+    }
+  }
+
+  // --- ADD QUESTION TO BSCA QUIZ ---
+  async function handleAddQuizQuestion(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedQuizId) return setStatusMsg('⚠️ Select a Quiz container!');
+
+    setStatusMsg('Adding Question to Quiz...');
+    const { error } = await supabase.from('bsca_quiz_questions').insert([
+      {
+        quiz_id: selectedQuizId,
+        question_text: quizQuestionText,
+        options: quizOptions,
+        correct_option_index: Number(quizCorrectOption),
+        explanation: quizExplanation,
+      },
+    ]);
+
+    if (error) {
+      setStatusMsg(`Question Error: ${error.message}`);
+    } else {
+      setStatusMsg('✅ Added Question & Explanation to Quiz!');
+      setQuizQuestionText('');
+      setQuizOptions(['', '', '', '']);
+      setQuizExplanation('');
+      setQuizCorrectOption(0);
+    }
+  }
+
+  // --- DELETE BSCA QUIZ ---
+  async function handleDeleteQuiz(quizId: string, title: string) {
+    if (!confirm(`Delete Quiz "${title}" and all its questions?`)) return;
+
+    const { error } = await supabase.from('bsca_quizzes').delete().eq('id', quizId);
+    if (!error) {
+      setStatusMsg(`🗑️ Deleted Quiz "${title}".`);
+      fetchInitialData();
+    }
   }
 
   // --- PUBLISH ONE-LINER OR EXAM UPDATE ---
@@ -700,7 +776,7 @@ export default function AdminPage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-4 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">BankingSolutions Admin Portal</h1>
-          <p className="text-xs text-slate-500">Manage One-Liners, Exam Updates, Excel Mocks, BSPS & BSCA PDFs</p>
+          <p className="text-xs text-slate-500">Manage One-Liners, Quizzes, Excel Mocks, BSPS & BSCA PDFs</p>
         </div>
 
         <div className="flex items-center gap-3">
@@ -713,6 +789,14 @@ export default function AdminPage() {
               }`}
             >
               📢 One-Liners & Updates
+            </button>
+            <button
+              onClick={() => setActiveTab('bsca_quiz_builder')}
+              className={`px-3 py-1.5 font-bold rounded-md transition ${
+                activeTab === 'bsca_quiz_builder' ? 'bg-[#1D63B8] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              💡 BSCA Quiz Builder
             </button>
             <button
               onClick={() => setActiveTab('pdf_uploader')}
@@ -801,7 +885,7 @@ export default function AdminPage() {
                   <option value="General">General / All Exams</option>
                 </select>
               </div>
-              {/* Date Picker*/}
+
               <div>
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Target Date</label>
                 <input
@@ -812,7 +896,8 @@ export default function AdminPage() {
                   required
                 />
               </div>
-              <div className="flex items-center pt-5">
+
+              <div className="flex items-center pt-5 md:col-span-3">
                 <label className="flex items-center space-x-2 text-xs font-bold text-slate-700 cursor-pointer">
                   <input type="checkbox" checked={postIsPinned} onChange={(e) => setPostIsPinned(e.target.checked)} className="rounded text-blue-600" />
                   <span>Pin to Top of Student Feed</span>
@@ -876,7 +961,175 @@ export default function AdminPage() {
       )}
 
       {/* -------------------------------------------------------------------- */}
-      {/* TAB 2: BSPS & BSCA DAY-WISE PDF UPLOADER & MANAGER */}
+      {/* TAB 2: BSCA QUIZ BUILDER */}
+      {/* -------------------------------------------------------------------- */}
+      {activeTab === 'bsca_quiz_builder' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Step 1: Create Quiz Container */}
+            <form onSubmit={handleCreateQuiz} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+              <h2 className="text-base font-bold text-slate-800 border-b pb-2">Step 1: Create Daily Quiz Container</h2>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Quiz Title</label>
+                <input
+                  type="text"
+                  value={quizTitle}
+                  onChange={(e) => setQuizTitle(e.target.value)}
+                  placeholder="e.g. BSCA Daily GA Quiz - 02 August 2026"
+                  className="w-full border p-2.5 rounded-lg text-sm bg-white"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Quiz Date</label>
+                  <input
+                    type="date"
+                    value={quizDate}
+                    onChange={(e) => setQuizDate(e.target.value)}
+                    className="w-full border p-2.5 rounded-lg text-xs bg-white font-bold"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Duration (Mins)</label>
+                  <input
+                    type="number"
+                    value={quizDuration}
+                    onChange={(e) => setQuizDuration(Number(e.target.value))}
+                    className="w-full border p-2.5 rounded-lg text-xs bg-white"
+                    required
+                  />
+                </div>
+              </div>
+
+              <button type="submit" className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow">
+                Create Quiz Container
+              </button>
+            </form>
+
+            {/* Step 2: Add Question with Options & Explanation */}
+            <form onSubmit={handleAddQuizQuestion} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+              <h2 className="text-base font-bold text-slate-800 border-b pb-2">Step 2: Add Question & Explanation</h2>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Target Quiz Container</label>
+                <select
+                  value={selectedQuizId}
+                  onChange={(e) => setSelectedQuizId(e.target.value)}
+                  className="w-full border p-2.5 rounded-lg text-xs bg-white font-bold"
+                  required
+                >
+                  <option value="">-- Choose Quiz --</option>
+                  {existingQuizzes.map((q) => (
+                    <option key={q.id} value={q.id}>
+                      {q.title} ({q.quiz_date})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Question Statement</label>
+                <textarea
+                  rows={2}
+                  value={quizQuestionText}
+                  onChange={(e) => setQuizQuestionText(e.target.value)}
+                  placeholder="Enter question statement..."
+                  className="w-full border p-2 rounded-lg text-xs bg-white"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                {quizOptions.map((opt, idx) => (
+                  <div key={idx}>
+                    <label className="block text-[10px] font-bold text-slate-500">Option {String.fromCharCode(65 + idx)}</label>
+                    <input
+                      type="text"
+                      value={opt}
+                      onChange={(e) => {
+                        const updated = [...quizOptions];
+                        updated[idx] = e.target.value;
+                        setQuizOptions(updated);
+                      }}
+                      className="w-full border p-1.5 rounded text-xs bg-white"
+                      required
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Correct Answer Option</label>
+                <select
+                  value={quizCorrectOption}
+                  onChange={(e) => setQuizCorrectOption(Number(e.target.value))}
+                  className="w-full border p-2 rounded-lg text-xs bg-white font-bold"
+                >
+                  <option value={0}>Option A</option>
+                  <option value={1}>Option B</option>
+                  <option value={2}>Option C</option>
+                  <option value={3}>Option D</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Explanation</label>
+                <textarea
+                  rows={2}
+                  value={quizExplanation}
+                  onChange={(e) => setQuizExplanation(e.target.value)}
+                  placeholder="Detailed solution or facts..."
+                  className="w-full border p-2 rounded-lg text-xs bg-white"
+                />
+              </div>
+
+              <button type="submit" className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow">
+                Add Question to Quiz
+              </button>
+            </form>
+          </div>
+
+          {/* Manage Published Quizzes */}
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h2 className="text-base font-bold text-slate-800">Manage Published BSCA Quizzes ({existingQuizzes.length})</h2>
+              <Link href="/bsca-quiz" className="text-xs font-bold text-blue-600 hover:underline">View Live Quiz Page →</Link>
+            </div>
+
+            {existingQuizzes.length === 0 ? (
+              <p className="text-xs text-slate-500 p-2">No quizzes created yet.</p>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {existingQuizzes.map((q) => (
+                  <div key={q.id} className="py-3 flex justify-between items-center">
+                    <div>
+                      <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded mr-2">
+                        {q.quiz_date}
+                      </span>
+                      <span className="font-bold text-slate-800 text-sm">{q.title}</span>
+                      <span className="text-xs text-slate-500 ml-2">({q.duration_minutes} Mins)</span>
+                    </div>
+
+                    <button
+                      onClick={() => handleDeleteQuiz(q.id, q.title)}
+                      className="bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold text-xs px-3 py-1.5 rounded-lg transition"
+                    >
+                      Delete Quiz 🗑️
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* -------------------------------------------------------------------- */}
+      {/* TAB 3: BSPS & BSCA DAY-WISE PDF UPLOADER & MANAGER */}
       {/* -------------------------------------------------------------------- */}
       {activeTab === 'pdf_uploader' && (
         <div className="space-y-6">
@@ -1056,7 +1309,7 @@ export default function AdminPage() {
       )}
 
       {/* -------------------------------------------------------------------- */}
-      {/* TAB 3: DIRECT EXCEL MOCK UPLOADER */}
+      {/* TAB 4: DIRECT EXCEL MOCK UPLOADER */}
       {/* -------------------------------------------------------------------- */}
       {activeTab === 'direct_mock_upload' && (
         <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-6">
@@ -1130,7 +1383,7 @@ export default function AdminPage() {
       )}
 
       {/* -------------------------------------------------------------------- */}
-      {/* TAB 4: BUILD MOCK FROM QUESTION BANK */}
+      {/* TAB 5: BUILD MOCK FROM QUESTION BANK */}
       {/* -------------------------------------------------------------------- */}
       {activeTab === 'create_mock' && (
         <div className="space-y-6">
@@ -1280,7 +1533,7 @@ export default function AdminPage() {
       )}
 
       {/* -------------------------------------------------------------------- */}
-      {/* TAB 5: ADD SINGLE QUESTION TO MASTER BANK */}
+      {/* TAB 6: ADD SINGLE QUESTION TO MASTER BANK */}
       {/* -------------------------------------------------------------------- */}
       {activeTab === 'add_question' && (
         <form onSubmit={handleQuestionSubmit} className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-4">
@@ -1351,7 +1604,7 @@ export default function AdminPage() {
       )}
 
       {/* -------------------------------------------------------------------- */}
-      {/* TAB 6: BULK QUESTION BANK UPLOADER */}
+      {/* TAB 7: BULK QUESTION BANK UPLOADER */}
       {/* -------------------------------------------------------------------- */}
       {activeTab === 'bulk_upload' && (
         <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-4">
