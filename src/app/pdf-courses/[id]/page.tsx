@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
+import AuthModal from '@/components/AuthModal';
 
 interface CourseDetail {
   id: string;
@@ -29,12 +30,25 @@ export default function DayWisePdfPage() {
   const [pdfs, setPdfs] = useState<CoursePdf[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Auth Guard States
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+
   useEffect(() => {
+    // 1. Check session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setCurrentUser(session?.user || null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setCurrentUser(session?.user || null);
+    });
+
+    // 2. Fetch Course & PDFs
     async function fetchCourseAndPdfs() {
       if (!courseId) return;
       setLoading(true);
 
-      // Fetch Course Details
       const { data: courseData } = await supabase
         .from('pdf_courses')
         .select('*')
@@ -43,7 +57,6 @@ export default function DayWisePdfPage() {
 
       if (courseData) setCourse(courseData as CourseDetail);
 
-      // Fetch Day PDFs
       const { data: pdfData } = await supabase
         .from('course_pdfs')
         .select('*')
@@ -55,10 +68,22 @@ export default function DayWisePdfPage() {
     }
 
     fetchCourseAndPdfs();
+
+    return () => subscription.unsubscribe();
   }, [courseId]);
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 font-sans flex flex-col">
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        onSuccess={(user) => {
+          setCurrentUser(user);
+          setIsAuthOpen(false);
+        }}
+      />
+
       {/* Header */}
       <header className="bg-slate-950 border-b border-slate-800 px-6 py-4 flex justify-between items-center sticky top-0 z-40">
         <div>
@@ -85,7 +110,26 @@ export default function DayWisePdfPage() {
 
       {/* Main Schedule List */}
       <main className="max-w-4xl mx-auto px-6 py-10 flex-1 w-full space-y-6">
-        {loading ? (
+        {!currentUser ? (
+          /* AUTH LOCKED BANNER */
+          <div className="bg-slate-950 border border-slate-800 rounded-2xl p-10 text-center space-y-5 max-w-lg mx-auto shadow-2xl my-8">
+            <div className="w-16 h-16 bg-amber-400/10 text-amber-400 border border-amber-400/30 rounded-2xl flex items-center justify-center text-3xl mx-auto font-black">
+              🔒
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-xl font-bold text-white">Sign In Required to Download PDFs</h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Please log in or create an account to view and download Day {course?.title ? `sheets for ${course.title}` : 'PDFs'}.
+              </p>
+            </div>
+            <button
+              onClick={() => setIsAuthOpen(true)}
+              className="w-full py-3.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-lg uppercase tracking-wider transition"
+            >
+              🔑 Sign In / Register Now
+            </button>
+          </div>
+        ) : loading ? (
           <div className="flex justify-center py-16">
             <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
           </div>
@@ -98,7 +142,6 @@ export default function DayWisePdfPage() {
         ) : (
           <div className="space-y-4">
             {pdfs.map((pdf) => {
-              // Format topics list lines
               const topics = pdf.topic_list
                 ? pdf.topic_list.split('\n').filter((line) => line.trim().length > 0)
                 : [pdf.title];
@@ -108,14 +151,12 @@ export default function DayWisePdfPage() {
                   key={pdf.id}
                   className="bg-slate-950/80 border border-slate-800 rounded-2xl p-6 md:p-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 shadow-xl hover:border-slate-700 transition"
                 >
-                  {/* LEFT: DAY LABEL */}
                   <div className="md:w-32 flex-shrink-0">
                     <span className="text-lg md:text-xl font-black text-white block">
                       Day {pdf.day_number}
                     </span>
                   </div>
 
-                  {/* MIDDLE: BULLETED TOPICS BREAKDOWN */}
                   <div className="flex-1 space-y-2">
                     <ul className="space-y-1.5 text-xs text-slate-300 font-medium">
                       {topics.map((item, idx) => (
@@ -126,7 +167,6 @@ export default function DayWisePdfPage() {
                     </ul>
                   </div>
 
-                  {/* RIGHT: SINGLE CLEAN PDF DOWNLOAD BUTTON */}
                   <div className="md:w-auto w-full flex-shrink-0 pt-2 md:pt-0">
                     <a
                       href={pdf.pdf_url}

@@ -4,6 +4,7 @@ import React, { useEffect, useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import AuthModal from '@/components/AuthModal';
 
 interface PdfCourse {
   id: string;
@@ -20,8 +21,22 @@ function CourseCatalogContent() {
   const [courses, setCourses] = useState<PdfCourse[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string>(initialCategory);
+  
+  // Auth Guard States
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
 
   useEffect(() => {
+    // 1. Check current Auth session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setCurrentUser(session?.user || null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setCurrentUser(session?.user || null);
+    });
+
+    // 2. Fetch courses
     async function fetchCourses() {
       setLoading(true);
       const { data, error } = await supabase
@@ -36,6 +51,8 @@ function CourseCatalogContent() {
     }
 
     fetchCourses();
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const filteredCourses = courses.filter((c) =>
@@ -44,10 +61,20 @@ function CourseCatalogContent() {
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 font-sans flex flex-col">
-      {/* Header */}
+      {/* Auth Modal Popup */}
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        onSuccess={(user) => {
+          setCurrentUser(user);
+          setIsAuthOpen(false);
+        }}
+      />
+
+      {/* Header Bar */}
       <header className="bg-slate-950 border-b border-slate-800 px-6 py-4 flex justify-between items-center sticky top-0 z-40">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-pink-600 rounded-xl flex items-center justify-center font-black text-base text-white shadow-lg">
+          <div className="w-10 h-10 bg-amber-400 rounded-xl flex items-center justify-center font-black text-slate-950 text-base shadow-lg">
             BS
           </div>
           <div>
@@ -56,12 +83,27 @@ function CourseCatalogContent() {
           </div>
         </div>
 
-        <Link
-          href="/"
-          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition"
-        >
-          ← Return Home
-        </Link>
+        <div className="flex items-center gap-3">
+          {currentUser ? (
+            <span className="text-xs text-amber-400 font-bold hidden sm:block">
+              Hi, {currentUser.user_metadata?.full_name || currentUser.email?.split('@')[0]}
+            </span>
+          ) : (
+            <button
+              onClick={() => setIsAuthOpen(true)}
+              className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs rounded-xl transition"
+            >
+              Sign In
+            </button>
+          )}
+
+          <Link
+            href="/"
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition"
+          >
+            ← Return Home
+          </Link>
+        </div>
       </header>
 
       {/* Hero Header & Filters */}
@@ -92,9 +134,28 @@ function CourseCatalogContent() {
         </div>
       </section>
 
-      {/* Course Catalog Grid */}
+      {/* Main Grid or Auth Banner */}
       <main className="max-w-6xl mx-auto px-6 py-10 flex-1 w-full">
-        {loading ? (
+        {!currentUser ? (
+          /* AUTH LOCKED BANNER */
+          <div className="bg-slate-950 border border-slate-800 rounded-2xl p-10 text-center space-y-5 max-w-lg mx-auto shadow-2xl my-8">
+            <div className="w-16 h-16 bg-amber-400/10 text-amber-400 border border-amber-400/30 rounded-2xl flex items-center justify-center text-3xl mx-auto font-black">
+              🔒
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-xl font-bold text-white">Sign In Required to Access PDFs</h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Please log in or create a free account to access daily BSPS Practice Sheets and BSCA Current Affairs PDFs.
+              </p>
+            </div>
+            <button
+              onClick={() => setIsAuthOpen(true)}
+              className="w-full py-3.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-lg uppercase tracking-wider transition"
+            >
+              🔑 Sign In / Register Now
+            </button>
+          </div>
+        ) : loading ? (
           <div className="flex flex-col items-center justify-center py-16 space-y-3">
             <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
             <p className="text-xs text-slate-400 font-bold">Loading PDF Courses...</p>

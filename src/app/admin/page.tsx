@@ -115,6 +115,7 @@ export default function AdminPage() {
   const [postExamTag, setPostExamTag] = useState('SBI PO');
   const [postIsPinned, setPostIsPinned] = useState(false);
   const [publishedFeed, setPublishedFeed] = useState<UpdatePost[]>([]);
+  const [postDate, setPostDate] = useState(new Date().toISOString().split('T')[0]);
 
   // Check auth & profile on mount
   useEffect(() => {
@@ -228,6 +229,7 @@ export default function AdminPage() {
         content: postContent,
         exam_tag: postExamTag,
         is_pinned: postIsPinned,
+        post_date: postDate,
       },
     ]);
 
@@ -799,7 +801,17 @@ export default function AdminPage() {
                   <option value="General">General / All Exams</option>
                 </select>
               </div>
-
+              {/* Date Picker*/}
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Target Date</label>
+                <input
+                  type="date"
+                  value={postDate}
+                  onChange={(e) => setPostDate(e.target.value)}
+                  className="w-full border p-2.5 rounded-lg text-xs bg-white font-bold text-slate-800"
+                  required
+                />
+              </div>
               <div className="flex items-center pt-5">
                 <label className="flex items-center space-x-2 text-xs font-bold text-slate-700 cursor-pointer">
                   <input type="checkbox" checked={postIsPinned} onChange={(e) => setPostIsPinned(e.target.checked)} className="rounded text-blue-600" />
