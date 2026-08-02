@@ -37,10 +37,29 @@ interface PdfCourse {
   description?: string;
 }
 
+interface CoursePdf {
+  id: string;
+  course_id: string;
+  day_number: number;
+  title: string;
+  topic_list?: string;
+  pdf_url: string;
+}
+
+interface UpdatePost {
+  id: string;
+  category: 'ONE_LINER' | 'NOTIFICATION' | 'RESULT' | 'EXPECTED_CUTOFF' | 'EXAM_ANALYSIS';
+  title: string;
+  content: string;
+  exam_tag: string;
+  is_pinned: boolean;
+  created_at: string;
+}
+
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<
-    'direct_mock_upload' | 'pdf_uploader' | 'create_mock' | 'add_question' | 'bulk_upload'
-  >('direct_mock_upload');
+    'updates_publisher' | 'pdf_uploader' | 'direct_mock_upload' | 'create_mock' | 'add_question' | 'bulk_upload'
+  >('updates_publisher');
 
   // Admin Security States
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -85,7 +104,17 @@ export default function AdminPage() {
   const [selectedCourseId, setSelectedCourseId] = useState('');
   const [dayNumber, setDayNumber] = useState(1);
   const [pdfTitle, setPdfTitle] = useState('');
+  const [topicList, setTopicList] = useState('');
   const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [uploadedPdfs, setUploadedPdfs] = useState<CoursePdf[]>([]);
+
+  // Updates & One-Liners Publisher States
+  const [postCategory, setPostCategory] = useState<'ONE_LINER' | 'NOTIFICATION' | 'RESULT' | 'EXPECTED_CUTOFF' | 'EXAM_ANALYSIS'>('ONE_LINER');
+  const [postTitle, setPostTitle] = useState('');
+  const [postContent, setPostContent] = useState('');
+  const [postExamTag, setPostExamTag] = useState('SBI PO');
+  const [postIsPinned, setPostIsPinned] = useState(false);
+  const [publishedFeed, setPublishedFeed] = useState<UpdatePost[]>([]);
 
   // Check auth & profile on mount
   useEffect(() => {
@@ -170,9 +199,61 @@ export default function AdminPage() {
       .select('*')
       .order('created_at', { ascending: false });
     if (cData) setExistingCourses(cData as PdfCourse[]);
+
+    // 5. Fetch Day-Wise PDFs
+    const { data: pData } = await supabase
+      .from('course_pdfs')
+      .select('*')
+      .order('day_number', { ascending: true });
+    if (pData) setUploadedPdfs(pData as CoursePdf[]);
+
+    // 6. Fetch Updates Feed
+    const { data: uData } = await supabase
+      .from('updates_feed')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (uData) setPublishedFeed(uData as UpdatePost[]);
   }
 
-  // --- 1. SINGLE QUESTION SUBMIT ---
+  // --- PUBLISH ONE-LINER OR EXAM UPDATE ---
+  async function handlePublishPost(e: React.FormEvent) {
+    e.preventDefault();
+    if (!postTitle.trim() || !postContent.trim()) return setStatusMsg('⚠️ Please enter Title and Content!');
+
+    setStatusMsg('Publishing update...');
+    const { error } = await supabase.from('updates_feed').insert([
+      {
+        category: postCategory,
+        title: postTitle.trim(),
+        content: postContent,
+        exam_tag: postExamTag,
+        is_pinned: postIsPinned,
+      },
+    ]);
+
+    if (error) {
+      setStatusMsg(`Publish Error: ${error.message}`);
+    } else {
+      setStatusMsg(`🎉 Published ${postCategory}: "${postTitle}"`);
+      setPostTitle('');
+      setPostContent('');
+      setPostIsPinned(false);
+      fetchInitialData();
+    }
+  }
+
+  // --- DELETE UPDATE POST ---
+  async function handleDeletePost(postId: string, title: string) {
+    if (!confirm(`Are you sure you want to delete "${title}"?`)) return;
+
+    const { error } = await supabase.from('updates_feed').delete().eq('id', postId);
+    if (!error) {
+      setStatusMsg(`🗑️ Deleted update.`);
+      fetchInitialData();
+    }
+  }
+
+  // --- SINGLE QUESTION SUBMIT ---
   async function handleQuestionSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedSubject) return;
@@ -201,7 +282,7 @@ export default function AdminPage() {
     }
   }
 
-  // --- 2. EXCEL BULK UPLOAD FOR QUESTION BANK ---
+  // --- EXCEL BULK UPLOAD FOR QUESTION BANK ---
   const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -264,7 +345,7 @@ export default function AdminPage() {
     reader.readAsArrayBuffer(file);
   };
 
-  // --- 3. CREATE MOCK FROM QUESTION BANK ---
+  // --- CREATE MOCK FROM QUESTION BANK ---
   async function handleMockFromQuestionBankSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!mockTitle.trim()) return setStatusMsg('⚠️ Please enter a Mock Test Title!');
@@ -318,7 +399,7 @@ export default function AdminPage() {
     fetchInitialData();
   }
 
-  // --- 4. DIRECT 1-CLICK EXCEL MOCK UPLOADER ---
+  // --- DIRECT 1-CLICK EXCEL MOCK UPLOADER ---
   const handleDirectMockUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -395,7 +476,7 @@ export default function AdminPage() {
     reader.readAsArrayBuffer(file);
   };
 
-  // --- 5. CREATE BSPS / BSCA COURSE CONTAINER ---
+  // --- CREATE BSPS / BSCA COURSE CONTAINER ---
   async function handleCreateCourseContainer(e: React.FormEvent) {
     e.preventDefault();
     if (!courseTitle.trim()) return setStatusMsg('⚠️ Please enter a Course Title!');
@@ -419,7 +500,7 @@ export default function AdminPage() {
     }
   }
 
-  // --- 6. UPLOAD DAY-WISE PDF FOR BSPS / BSCA ---
+  // --- UPLOAD DAY-WISE PDF FOR BSPS / BSCA WITH TOPICS ---
   async function handlePdfUpload(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedCourseId) return setStatusMsg('⚠️ Please select a Course Container first!');
@@ -440,6 +521,7 @@ export default function AdminPage() {
           course_id: selectedCourseId,
           day_number: Number(dayNumber),
           title: pdfTitle || `Day ${dayNumber} PDF Sheet`,
+          topic_list: topicList,
           pdf_url: publicUrlData.publicUrl,
         },
       ]);
@@ -448,10 +530,42 @@ export default function AdminPage() {
 
       setStatusMsg(`🎉 Uploaded Day ${dayNumber} PDF successfully!`);
       setPdfTitle('');
+      setTopicList('');
       setPdfFile(null);
       setDayNumber((prev) => prev + 1);
+      fetchInitialData();
     } catch (err: any) {
       setStatusMsg(`Upload Error: ${err.message}`);
+    }
+  }
+
+  // --- DELETE SINGLE DAY PDF ---
+  async function handleDeletePdf(pdfId: string, title: string) {
+    if (!confirm(`Are you sure you want to delete "${title}"?`)) return;
+
+    setStatusMsg('Deleting Day PDF...');
+    const { error } = await supabase.from('course_pdfs').delete().eq('id', pdfId);
+
+    if (error) {
+      setStatusMsg(`Delete Error: ${error.message}`);
+    } else {
+      setStatusMsg(`🗑️ Deleted "${title}" successfully.`);
+      fetchInitialData();
+    }
+  }
+
+  // --- DELETE ENTIRE COURSE ---
+  async function handleDeleteCourse(courseId: string, title: string) {
+    if (!confirm(`Delete entire course "${title}" and all its Day PDFs?`)) return;
+
+    setStatusMsg('Deleting Course...');
+    const { error } = await supabase.from('pdf_courses').delete().eq('id', courseId);
+
+    if (error) {
+      setStatusMsg(`Delete Error: ${error.message}`);
+    } else {
+      setStatusMsg(`🗑️ Deleted Course "${title}".`);
+      fetchInitialData();
     }
   }
 
@@ -584,19 +698,19 @@ export default function AdminPage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-4 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">BankingSolutions Admin Portal</h1>
-          <p className="text-xs text-slate-500">Manage Excel Mock Tests, BSPS Practice Sheets & BSCA Current Affairs PDFs</p>
+          <p className="text-xs text-slate-500">Manage One-Liners, Exam Updates, Excel Mocks, BSPS & BSCA PDFs</p>
         </div>
 
         <div className="flex items-center gap-3">
           {/* TABS NAVBAR */}
           <div className="flex space-x-1 bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs flex-wrap gap-y-1">
             <button
-              onClick={() => setActiveTab('direct_mock_upload')}
+              onClick={() => setActiveTab('updates_publisher')}
               className={`px-3 py-1.5 font-bold rounded-md transition ${
-                activeTab === 'direct_mock_upload' ? 'bg-[#1D63B8] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                activeTab === 'updates_publisher' ? 'bg-[#1D63B8] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              🚀 Direct Mock Upload
+              📢 One-Liners & Updates
             </button>
             <button
               onClick={() => setActiveTab('pdf_uploader')}
@@ -604,7 +718,15 @@ export default function AdminPage() {
                 activeTab === 'pdf_uploader' ? 'bg-[#1D63B8] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              📄 BSPS & BSCA PDF Uploader
+              📄 BSPS & BSCA Manager
+            </button>
+            <button
+              onClick={() => setActiveTab('direct_mock_upload')}
+              className={`px-3 py-1.5 font-bold rounded-md transition ${
+                activeTab === 'direct_mock_upload' ? 'bg-[#1D63B8] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              🚀 Direct Mock Upload
             </button>
             <button
               onClick={() => setActiveTab('create_mock')}
@@ -648,7 +770,281 @@ export default function AdminPage() {
       )}
 
       {/* -------------------------------------------------------------------- */}
-      {/* TAB 1: DIRECT EXCEL MOCK UPLOADER */}
+      {/* TAB 1: UPDATES & CURRENT AFFAIRS ONE-LINERS PUBLISHER */}
+      {/* -------------------------------------------------------------------- */}
+      {activeTab === 'updates_publisher' && (
+        <div className="space-y-6">
+          <form onSubmit={handlePublishPost} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+            <h2 className="text-base font-bold text-slate-800 border-b pb-2">Publish One-Liner or Exam Update</h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Update Category</label>
+                <select value={postCategory} onChange={(e: any) => setPostCategory(e.target.value)} className="w-full border p-2.5 rounded-lg text-xs bg-white font-bold">
+                  <option value="ONE_LINER">📌 CA One-Liner</option>
+                  <option value="NOTIFICATION">📢 Exam Notification</option>
+                  <option value="EXPECTED_CUTOFF">🎯 Expected Cut-Off</option>
+                  <option value="EXAM_ANALYSIS">📊 Shift Exam Analysis</option>
+                  <option value="RESULT">🏆 Exam Result Out</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Target Exam Tag</label>
+                <select value={postExamTag} onChange={(e) => setPostExamTag(e.target.value)} className="w-full border p-2.5 rounded-lg text-xs bg-white font-bold">
+                  <option value="SBI PO">SBI PO</option>
+                  <option value="IBPS PO">IBPS PO</option>
+                  <option value="IBPS RRB PO">IBPS RRB PO / Clerk</option>
+                  <option value="RBI Grade B">RBI Grade B / Assistant</option>
+                  <option value="General">General / All Exams</option>
+                </select>
+              </div>
+
+              <div className="flex items-center pt-5">
+                <label className="flex items-center space-x-2 text-xs font-bold text-slate-700 cursor-pointer">
+                  <input type="checkbox" checked={postIsPinned} onChange={(e) => setPostIsPinned(e.target.checked)} className="rounded text-blue-600" />
+                  <span>Pin to Top of Student Feed</span>
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Update Title</label>
+              <input type="text" value={postTitle} onChange={(e) => setPostTitle(e.target.value)} placeholder="e.g. SBI PO Prelims Today Shift 1 Analysis - Quantitative Aptitude Moderate" className="w-full border p-2.5 rounded-lg text-sm bg-white" required />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Content / One-Liners (One bullet per line)</label>
+              <textarea
+                rows={5}
+                value={postContent}
+                onChange={(e) => setPostContent(e.target.value)}
+                placeholder={"• World Bank boosts India's GDP growth forecast to 7.0% for FY26.\n• RBI issues new guidelines regarding digital lending compliance.\n• SBI PO Prelims Good Attempts: English 22-26, Quant 18-22, Reasoning 20-25."}
+                className="w-full border p-2.5 rounded-lg text-xs font-mono bg-white"
+                required
+              />
+            </div>
+
+            <button type="submit" className="w-full py-3 bg-[#1D63B8] hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow">
+              Publish Update to Live Feed
+            </button>
+          </form>
+
+          {/* PUBLISHED FEED LIST */}
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h2 className="text-base font-bold text-slate-800">Manage Live Updates Feed ({publishedFeed.length})</h2>
+              <Link href="/updates" className="text-xs font-bold text-blue-600 hover:underline">View Live Feed Page →</Link>
+            </div>
+
+            <div className="divide-y divide-slate-100">
+              {publishedFeed.length === 0 ? (
+                <p className="text-xs text-slate-500 p-2">No updates published yet.</p>
+              ) : (
+                publishedFeed.map((post) => (
+                  <div key={post.id} className="py-3 flex justify-between items-start gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded">{post.category}</span>
+                        <span className="text-[10px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded">{post.exam_tag}</span>
+                        <h3 className="font-bold text-slate-800 text-sm">{post.title}</h3>
+                      </div>
+                      <p className="text-xs text-slate-500 line-clamp-2">{post.content}</p>
+                    </div>
+
+                    <button onClick={() => handleDeletePost(post.id, post.title)} className="bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold text-xs px-3 py-1 rounded-lg transition flex-shrink-0">
+                      Delete 🗑️
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------------------------------------------------------- */}
+      {/* TAB 2: BSPS & BSCA DAY-WISE PDF UPLOADER & MANAGER */}
+      {/* -------------------------------------------------------------------- */}
+      {activeTab === 'pdf_uploader' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* CREATE COURSE CONTAINER */}
+            <form onSubmit={handleCreateCourseContainer} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+              <h2 className="text-base font-bold text-slate-800 border-b pb-2">Step 1: Create Course Container</h2>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Module Type</label>
+                <select
+                  value={courseCategory}
+                  onChange={(e: any) => setCourseCategory(e.target.value)}
+                  className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold"
+                >
+                  <option value="BSPS">BSPS – BankingSolutions Practice Sheet</option>
+                  <option value="BSCA">BSCA – BankingSolutions Current Affairs</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Course Title</label>
+                <input
+                  type="text"
+                  value={courseTitle}
+                  onChange={(e) => setCourseTitle(e.target.value)}
+                  placeholder={courseCategory === 'BSPS' ? 'e.g. BSPS 2026 - Reasoning Daily Sheets' : 'e.g. BSCA August 2026 Daily Banking GA'}
+                  className="w-full border p-2.5 rounded-lg text-sm bg-white"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Description</label>
+                <textarea
+                  rows={2}
+                  value={courseDesc}
+                  onChange={(e) => setCourseDesc(e.target.value)}
+                  placeholder="Course details and day-wise release info..."
+                  className="w-full border p-2.5 rounded-lg text-sm bg-white"
+                />
+              </div>
+
+              <button type="submit" className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow">
+                Create Course Container
+              </button>
+            </form>
+
+            {/* UPLOAD DAY-WISE PDF WITH SUB-TOPICS */}
+            <form onSubmit={handlePdfUpload} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+              <h2 className="text-base font-bold text-slate-800 border-b pb-2">Step 2: Upload Day-Wise PDF File</h2>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Target Course</label>
+                <select
+                  value={selectedCourseId}
+                  onChange={(e) => setSelectedCourseId(e.target.value)}
+                  className="w-full border p-2.5 rounded-lg text-sm bg-white font-semibold"
+                  required
+                >
+                  <option value="">-- Choose BSPS or BSCA Course --</option>
+                  {existingCourses.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      [{c.category}] {c.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Day No.</label>
+                  <input
+                    type="number"
+                    value={dayNumber}
+                    onChange={(e) => setDayNumber(Number(e.target.value))}
+                    className="w-full border p-2.5 rounded-lg text-sm bg-white"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">PDF Title</label>
+                  <input
+                    type="text"
+                    value={pdfTitle}
+                    onChange={(e) => setPdfTitle(e.target.value)}
+                    placeholder="e.g. Day 1 Practice Sheet"
+                    className="w-full border p-2.5 rounded-lg text-sm bg-white"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Topics Breakdown (One item per line)</label>
+                <textarea
+                  rows={4}
+                  value={topicList}
+                  onChange={(e) => setTopicList(e.target.value)}
+                  placeholder={"1. Circular seating arrangement (2 variable) -5ques\n2. Square seating arrangement-5ques\n3. Floor with flat based puzzle-5ques"}
+                  className="w-full border p-2.5 rounded-lg text-xs bg-white font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Select PDF File (.pdf)</label>
+                <input
+                  type="file"
+                  accept=".pdf"
+                  onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
+                  className="w-full border p-2 rounded-lg text-xs bg-white"
+                  required
+                />
+              </div>
+
+              <button type="submit" className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow">
+                Publish Day PDF
+              </button>
+            </form>
+          </div>
+
+          {/* LIST & DELETE COURSES & DAY PDFs */}
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+            <h2 className="text-base font-bold text-slate-800 border-b pb-3">Manage & Remove Published PDFs</h2>
+
+            {existingCourses.length === 0 ? (
+              <p className="text-xs text-slate-500">No PDF courses created yet.</p>
+            ) : (
+              <div className="space-y-6">
+                {existingCourses.map((course) => {
+                  const coursePdfs = uploadedPdfs.filter((p) => p.course_id === course.id);
+                  return (
+                    <div key={course.id} className="border border-slate-200 rounded-xl p-4 bg-slate-50 space-y-3">
+                      <div className="flex justify-between items-center border-b pb-2">
+                        <div>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase mr-2 ${course.category === 'BSCA' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}`}>
+                            {course.category}
+                          </span>
+                          <span className="font-bold text-slate-800 text-sm">{course.title}</span>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteCourse(course.id, course.title)}
+                          className="bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold text-xs px-3 py-1.5 rounded-lg transition"
+                        >
+                          Delete Course 🗑️
+                        </button>
+                      </div>
+
+                      {/* Day PDFs List */}
+                      <div className="divide-y divide-slate-200 bg-white rounded-lg border border-slate-200 p-2">
+                        {coursePdfs.length === 0 ? (
+                          <p className="text-xs text-slate-400 p-2">No Day PDFs uploaded for this course yet.</p>
+                        ) : (
+                          coursePdfs.map((pdf) => (
+                            <div key={pdf.id} className="py-2.5 px-3 flex justify-between items-center text-xs">
+                              <div>
+                                <span className="font-bold text-slate-800 mr-2">Day {pdf.day_number}:</span>
+                                <span className="text-slate-600">{pdf.title}</span>
+                              </div>
+                              <button
+                                onClick={() => handleDeletePdf(pdf.id, pdf.title)}
+                                className="text-rose-600 hover:text-rose-800 font-bold px-2 py-1 hover:bg-rose-50 rounded transition"
+                              >
+                                Delete PDF 🗑️
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* -------------------------------------------------------------------- */}
+      {/* TAB 3: DIRECT EXCEL MOCK UPLOADER */}
       {/* -------------------------------------------------------------------- */}
       {activeTab === 'direct_mock_upload' && (
         <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-6">
@@ -722,119 +1118,7 @@ export default function AdminPage() {
       )}
 
       {/* -------------------------------------------------------------------- */}
-      {/* TAB 2: BSPS & BSCA DAY-WISE PDF UPLOADER */}
-      {/* -------------------------------------------------------------------- */}
-      {activeTab === 'pdf_uploader' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* CREATE COURSE CONTAINER */}
-          <form onSubmit={handleCreateCourseContainer} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
-            <h2 className="text-base font-bold text-slate-800 border-b pb-2">Step 1: Create Course Container</h2>
-
-            <div>
-              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Module Type</label>
-              <select
-                value={courseCategory}
-                onChange={(e: any) => setCourseCategory(e.target.value)}
-                className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold"
-              >
-                <option value="BSPS">BSPS – BankingSolutions Practice Sheet</option>
-                <option value="BSCA">BSCA – BankingSolutions Current Affairs</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Course Title</label>
-              <input
-                type="text"
-                value={courseTitle}
-                onChange={(e) => setCourseTitle(e.target.value)}
-                placeholder={courseCategory === 'BSPS' ? 'e.g. BSPS 2026 - Quants & Reasoning Daily Sheets' : 'e.g. BSCA August 2026 Daily Banking GA'}
-                className="w-full border p-2.5 rounded-lg text-sm bg-white"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Description</label>
-              <textarea
-                rows={2}
-                value={courseDesc}
-                onChange={(e) => setCourseDesc(e.target.value)}
-                placeholder="Course details and day-wise release info..."
-                className="w-full border p-2.5 rounded-lg text-sm bg-white"
-              />
-            </div>
-
-            <button type="submit" className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow">
-              Create Course Container
-            </button>
-          </form>
-
-          {/* UPLOAD DAY-WISE PDF */}
-          <form onSubmit={handlePdfUpload} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
-            <h2 className="text-base font-bold text-slate-800 border-b pb-2">Step 2: Upload Day-Wise PDF File</h2>
-
-            <div>
-              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Target Course</label>
-              <select
-                value={selectedCourseId}
-                onChange={(e) => setSelectedCourseId(e.target.value)}
-                className="w-full border p-2.5 rounded-lg text-sm bg-white font-semibold"
-                required
-              >
-                <option value="">-- Choose BSPS or BSCA Course --</option>
-                {existingCourses.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    [{c.category}] {c.title}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Day No.</label>
-                <input
-                  type="number"
-                  value={dayNumber}
-                  onChange={(e) => setDayNumber(Number(e.target.value))}
-                  className="w-full border p-2.5 rounded-lg text-sm bg-white"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">PDF Title</label>
-                <input
-                  type="text"
-                  value={pdfTitle}
-                  onChange={(e) => setPdfTitle(e.target.value)}
-                  placeholder="e.g. Day 1 - DI & Puzzle Sheet"
-                  className="w-full border p-2.5 rounded-lg text-sm bg-white"
-                  required
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Select PDF File (.pdf)</label>
-              <input
-                type="file"
-                accept=".pdf"
-                onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
-                className="w-full border p-2 rounded-lg text-xs bg-white"
-                required
-              />
-            </div>
-
-            <button type="submit" className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow">
-              Publish Day PDF
-            </button>
-          </form>
-        </div>
-      )}
-
-      {/* -------------------------------------------------------------------- */}
-      {/* TAB 3: BUILD MOCK FROM QUESTION BANK */}
+      {/* TAB 4: BUILD MOCK FROM QUESTION BANK */}
       {/* -------------------------------------------------------------------- */}
       {activeTab === 'create_mock' && (
         <div className="space-y-6">
@@ -984,7 +1268,7 @@ export default function AdminPage() {
       )}
 
       {/* -------------------------------------------------------------------- */}
-      {/* TAB 4: ADD SINGLE QUESTION TO MASTER BANK */}
+      {/* TAB 5: ADD SINGLE QUESTION TO MASTER BANK */}
       {/* -------------------------------------------------------------------- */}
       {activeTab === 'add_question' && (
         <form onSubmit={handleQuestionSubmit} className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-4">
@@ -1055,7 +1339,7 @@ export default function AdminPage() {
       )}
 
       {/* -------------------------------------------------------------------- */}
-      {/* TAB 5: BULK QUESTION BANK UPLOADER */}
+      {/* TAB 6: BULK QUESTION BANK UPLOADER */}
       {/* -------------------------------------------------------------------- */}
       {activeTab === 'bulk_upload' && (
         <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-4">

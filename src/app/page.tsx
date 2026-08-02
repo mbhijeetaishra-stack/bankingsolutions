@@ -33,7 +33,6 @@ export default function BankingSolutionsHomePage() {
   }, []);
 
   const checkAdminStatus = (user: any) => {
-    // Check if user has admin flag in metadata or check admin role
     const isUserAdmin = user.user_metadata?.is_admin === true || user.app_metadata?.role === 'admin';
     setIsAdmin(isUserAdmin);
   };
@@ -86,14 +85,8 @@ export default function BankingSolutionsHomePage() {
             </div>
           </div>
 
-          {/* Navigation & Auth Buttons */}
+          {/* Navigation Links */}
           <div className="flex items-center space-x-3">
-            <Link
-              href="/tests"
-              className="text-xs font-semibold text-slate-300 hover:text-white px-3 py-2 rounded-lg transition hidden md:block"
-            >
-              Mock Tests
-            </Link>
             <Link
               href="/pdf-courses?category=BSPS"
               className="text-xs font-semibold text-blue-400 hover:text-blue-300 px-3 py-2 rounded-lg transition hidden md:block"
@@ -101,10 +94,10 @@ export default function BankingSolutionsHomePage() {
               BSPS Sheets 📄
             </Link>
             <Link
-              href="/pdf-courses?category=BSCA"
-              className="text-xs font-semibold text-amber-400 hover:text-amber-300 px-3 py-2 rounded-lg transition hidden md:block"
+              href="/tests"
+              className="text-xs font-semibold text-slate-300 hover:text-white px-3 py-2 rounded-lg transition hidden md:block"
             >
-              BSCA Current Affairs 📰
+              Mock Tests
             </Link>
             <Link
               href="/calc-lab"
@@ -113,7 +106,7 @@ export default function BankingSolutionsHomePage() {
               Calculation Lab ⚡
             </Link>
 
-            {/* Admin Panel Link - ONLY VISIBLE TO ADMINS */}
+            {/* Admin Panel Link */}
             {isAdmin && (
               <Link
                 href="/admin"
@@ -159,7 +152,7 @@ export default function BankingSolutionsHomePage() {
       {/* HERO SECTION */}
       <section className="relative pt-16 pb-20 px-6 max-w-6xl mx-auto text-center">
         <div className="inline-flex items-center space-x-2 bg-amber-400/10 border border-amber-400/30 text-amber-400 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider mb-8">
-          <span>🔥 SBI PO & IBPS PO 2026 Ready</span>
+          <span>🔥 SBI PO/CLERK, IBPS PO/CLERK & RRB PO/CLERK 2026 Ready</span>
         </div>
 
         <h1 className="text-4xl md:text-6xl font-black tracking-tight text-white mb-6 leading-tight max-w-4xl mx-auto">
@@ -167,33 +160,49 @@ export default function BankingSolutionsHomePage() {
         </h1>
 
         <p className="text-slate-400 text-base md:text-lg max-w-2xl mx-auto mb-10 leading-relaxed font-normal">
-          Master Quant, Reasoning, and General Awareness with daily BankingSolutions Practice Sheets (BSPS), Current Affairs (BSCA) PDFs, full-length timed mock tests, and calculation drills.
+          Master Quant, Reasoning, and General Awareness with daily BankingSolutions Practice Sheets (BSPS), Current Affairs (BSCA) PDFs, daily One-Liners, and mock tests.
         </p>
 
-        <div className="flex flex-wrap justify-center items-center gap-4 mb-16">
+        {/* HERO CTA BUTTONS (MATCHING YOUR PINNED DESIGN) */}
+        <div className="flex flex-wrap justify-center items-center gap-3 mb-16">
           <Link
             href="/pdf-courses?category=BSPS"
-            className="w-full sm:w-auto bg-blue-600 hover:bg-blue-500 text-white font-black text-sm px-7 py-4 rounded-xl transition shadow-xl shadow-blue-600/20 uppercase tracking-wider block"
+            className="px-6 py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs rounded-xl transition shadow-xl shadow-blue-600/20 uppercase tracking-wider flex items-center gap-2"
           >
-            📄 BSPS Practice Sheets
+            <span>📄</span>
+            <span>BSPS PRACTICE SHEETS</span>
           </Link>
+
           <Link
             href="/pdf-courses?category=BSCA"
-            className="w-full sm:w-auto bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-sm px-7 py-4 rounded-xl transition shadow-xl shadow-amber-400/20 uppercase tracking-wider block"
+            className="px-6 py-3.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl transition shadow-xl shadow-amber-400/20 uppercase tracking-wider flex items-center gap-2"
           >
-            📰 BSCA Current Affairs
+            <span>📰</span>
+            <span>BSCA CURRENT AFFAIRS</span>
           </Link>
+
+          <Link
+            href="/updates"
+            className="px-6 py-3.5 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs rounded-xl transition shadow-xl shadow-rose-600/20 uppercase tracking-wider flex items-center gap-2"
+          >
+            <span>📌</span>
+            <span>CA ONE-LINERS & UPDATES</span>
+          </Link>
+
           <Link
             href="/tests"
-            className="w-full sm:w-auto bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 font-bold text-sm px-7 py-4 rounded-xl transition block"
+            className="px-6 py-3.5 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 font-bold text-xs rounded-xl transition uppercase tracking-wider flex items-center gap-2"
           >
-            🚀 Full Mock Tests
+            <span>🚀</span>
+            <span>Full Mock Tests</span>
           </Link>
+
           <Link
             href="/calc-lab"
-            className="w-full sm:w-auto bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 font-bold text-sm px-7 py-4 rounded-xl transition block"
+            className="px-6 py-3.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 font-bold text-xs rounded-xl transition flex items-center gap-2"
           >
-            ⚡ Calculation Lab
+            <span>⚡</span>
+            <span>Calculation Lab</span>
           </Link>
         </div>
 
@@ -208,7 +217,7 @@ export default function BankingSolutionsHomePage() {
           </div>
           <div>
             <span className="text-2xl md:text-3xl font-black text-amber-400 block">BSCA</span>
-            <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">Daily Banking GA</span>
+            <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">Banking GA</span>
           </div>
           <div>
             <span className="text-2xl md:text-3xl font-black text-emerald-400 block">TCS iON</span>
@@ -217,25 +226,25 @@ export default function BankingSolutionsHomePage() {
         </div>
       </section>
 
-      {/* CORE HUBS */}
-      <section className="py-16 px-6 max-w-6xl mx-auto border-t border-slate-800/80">
+      {/* CORE HUBS SECTION */}
+      <section className="py-16 px-6 max-w-7xl mx-auto border-t border-slate-800/80">
         <div className="text-center mb-12">
           <h2 className="text-2xl md:text-3xl font-extrabold text-white">Core Practice Hubs</h2>
           <p className="text-xs text-slate-400 mt-2 uppercase tracking-widest font-semibold">Choose your preparation mode</p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
           {/* Card 1: BSPS Practice Sheets */}
           <div className="bg-slate-950 border border-slate-800 hover:border-blue-500/50 rounded-2xl p-6 transition flex flex-col justify-between group">
             <div>
               <div className="h-12 w-12 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-xl flex items-center justify-center text-2xl mb-4 font-bold">
                 📄
               </div>
-              <h3 className="text-xl font-bold text-white mb-2 group-hover:text-blue-400 transition">
+              <h3 className="text-lg font-bold text-white mb-2 group-hover:text-blue-400 transition leading-snug">
                 BSPS Practice Sheets
               </h3>
               <p className="text-xs text-slate-400 leading-relaxed mb-6">
-                Day-wise structured practice PDFs for Quant & Reasoning. DI sets, Puzzles, Arithmetic, and Speed Math sheets with step-by-step solutions.
+                Day-wise structured practice PDFs for Quant & Reasoning. DI sets, Puzzles, Arithmetic, and Speed Math sheets.
               </p>
             </div>
             <Link
@@ -252,11 +261,11 @@ export default function BankingSolutionsHomePage() {
               <div className="h-12 w-12 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-xl flex items-center justify-center text-2xl mb-4 font-bold">
                 📰
               </div>
-              <h3 className="text-xl font-bold text-white mb-2 group-hover:text-amber-400 transition">
+              <h3 className="text-lg font-bold text-white mb-2 group-hover:text-amber-400 transition leading-snug">
                 BSCA Current Affairs
               </h3>
               <p className="text-xs text-slate-400 leading-relaxed mb-6">
-                Daily & monthly General Awareness PDFs curated specifically for Banking, Financial News, RBI Notifications, and Static GK for Mains.
+                Daily & monthly General Awareness PDFs curated for Banking, Financial News, RBI Notifications, and Static GK.
               </p>
             </div>
             <Link
@@ -267,17 +276,38 @@ export default function BankingSolutionsHomePage() {
             </Link>
           </div>
 
-          {/* Card 3: Mock Tests */}
-          <div className="bg-slate-950 border border-slate-800 hover:border-blue-500/50 rounded-2xl p-6 transition flex flex-col justify-between group">
+          {/* Card 3: CA One-Liners & Exam Updates */}
+          <div className="bg-slate-950 border border-slate-800 hover:border-rose-500/50 rounded-2xl p-6 transition flex flex-col justify-between group">
+            <div>
+              <div className="h-12 w-12 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-xl flex items-center justify-center text-2xl mb-4 font-bold">
+                📌
+              </div>
+              <h3 className="text-lg font-bold text-white mb-2 group-hover:text-rose-400 transition leading-snug">
+                CA One-Liners & Updates
+              </h3>
+              <p className="text-xs text-slate-400 leading-relaxed mb-6">
+                Live exam notifications, shift analyses, cut-off predictions, result announcements, and daily current affairs one-liners.
+              </p>
+            </div>
+            <Link
+              href="/updates"
+              className="w-full bg-slate-800 hover:bg-rose-600 text-white font-bold text-xs py-3 rounded-xl transition text-center block"
+            >
+              View Exam Updates →
+            </Link>
+          </div>
+
+          {/* Card 4: Mock Tests */}
+          <div className="bg-slate-950 border border-slate-800 hover:border-purple-500/50 rounded-2xl p-6 transition flex flex-col justify-between group">
             <div>
               <div className="h-12 w-12 bg-purple-500/10 text-purple-400 border border-purple-500/20 rounded-xl flex items-center justify-center text-2xl mb-4 font-bold">
                 📋
               </div>
-              <h3 className="text-xl font-bold text-white mb-2 group-hover:text-amber-400 transition">
+              <h3 className="text-lg font-bold text-white mb-2 group-hover:text-purple-400 transition leading-snug">
                 Full-Length Mock Tests
               </h3>
               <p className="text-xs text-slate-400 leading-relaxed mb-6">
-                Attempt complete SBI PO & IBPS PO prelims mocks with real timers, full question palette, auto-submission, and step-by-step solutions.
+                Attempt complete SBI PO & IBPS PO prelims mocks with real timers, question palette, and step-by-step solutions.
               </p>
             </div>
             <Link
@@ -288,17 +318,17 @@ export default function BankingSolutionsHomePage() {
             </Link>
           </div>
 
-          {/* Card 4: Calculation Lab */}
-          <div className="bg-slate-950 border border-slate-800 hover:border-amber-400/50 rounded-2xl p-6 transition flex flex-col justify-between group">
+          {/* Card 5: Calculation Lab */}
+          <div className="bg-slate-950 border border-slate-800 hover:border-emerald-500/50 rounded-2xl p-6 transition flex flex-col justify-between group">
             <div>
               <div className="h-12 w-12 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-xl flex items-center justify-center text-2xl mb-4 font-bold">
                 ⚡
               </div>
-              <h3 className="text-xl font-bold text-white mb-2 group-hover:text-amber-400 transition">
+              <h3 className="text-lg font-bold text-white mb-2 group-hover:text-emerald-400 transition leading-snug">
                 Calculation Speed Lab
               </h3>
               <p className="text-xs text-slate-400 leading-relaxed mb-6">
-                Build high-speed mental math agility with 60-second blitz drills on Tables (1–30), Squares (1–50), Cubes (1–30), and Fraction % conversions.
+                Build mental math agility with 60-second blitz drills on Tables, Squares, Cubes, and Fraction % conversions.
               </p>
             </div>
             <Link
@@ -310,17 +340,17 @@ export default function BankingSolutionsHomePage() {
           </div>
         </div>
 
-        {/* Card 5: Admin Portal - ONLY VISIBLE TO ADMINS */}
+        {/* Admin Portal Button */}
         {isAdmin && (
-          <div className="mt-6 bg-slate-950 border border-amber-400/30 hover:border-amber-400 rounded-2xl p-6 transition flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="mt-8 bg-slate-950 border border-amber-400/30 hover:border-amber-400 rounded-2xl p-6 transition flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center space-x-4">
               <div className="h-12 w-12 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-xl flex items-center justify-center text-2xl font-bold flex-shrink-0">
                 ⚙️
               </div>
               <div>
-                <h3 className="text-lg font-bold text-white">Admin Test & PDF Portal</h3>
+                <h3 className="text-lg font-bold text-white">Admin Test & Content Portal</h3>
                 <p className="text-xs text-slate-400">
-                  Upload Excel Mock Tests, manage Question Bank, upload day-wise BSPS / BSCA PDFs, and manage releases.
+                  Publish One-Liners & Updates, upload Excel Mock Tests, and manage day-wise BSPS / BSCA PDFs.
                 </p>
               </div>
             </div>
@@ -351,6 +381,7 @@ export default function BankingSolutionsHomePage() {
           <div className="flex space-x-4 font-semibold text-slate-400">
             <Link href="/pdf-courses?category=BSPS" className="hover:text-blue-400 transition">BSPS</Link>
             <Link href="/pdf-courses?category=BSCA" className="hover:text-amber-400 transition">BSCA</Link>
+            <Link href="/updates" className="hover:text-rose-400 transition">Updates</Link>
             <Link href="/tests" className="hover:text-amber-400 transition">Tests</Link>
             <Link href="/calc-lab" className="hover:text-emerald-400 transition">Calc Lab</Link>
             {isAdmin && <Link href="/admin" className="hover:text-amber-400 transition">Admin</Link>}
