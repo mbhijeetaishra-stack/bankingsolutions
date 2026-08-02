@@ -879,8 +879,11 @@ export default function AdminPage() {
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Target Exam Tag</label>
                 <select value={postExamTag} onChange={(e) => setPostExamTag(e.target.value)} className="w-full border p-2.5 rounded-lg text-xs bg-white font-bold">
                   <option value="SBI PO">SBI PO</option>
-                  <option value="IBPS PO">IBPS PO</option>
-                  <option value="IBPS RRB PO">IBPS RRB PO / Clerk</option>
+                   <option value="SBI CLERK">SBI CLERK</option>
+                   <option value="IBPS PO">IBPS PO</option>
+                   <option value="IBPS CLERK">IBPS CLERK</option>
+                   <option value="IBPS RRB PO">IBPS RRB PO</option>
+                   <option value="IBPS RRB CLERK">IBPS RRB CLERK</option>
                   <option value="RBI Grade B">RBI Grade B / Assistant</option>
                   <option value="General">General / All Exams</option>
                 </select>
