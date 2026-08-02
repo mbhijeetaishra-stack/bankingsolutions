@@ -13,6 +13,8 @@ interface UpdatePost {
   exam_tag: string;
   is_pinned: boolean;
   post_date: string;
+  image_url?: string;
+  external_link?: string;
   created_at: string;
 }
 
@@ -174,7 +176,7 @@ function UpdatesContent() {
                   return (
                     <div
                       key={post.id}
-                      className={`bg-slate-950/80 border rounded-2xl p-6 space-y-3 shadow-lg transition ${
+                      className={`bg-slate-950/80 border rounded-2xl p-6 space-y-4 shadow-lg transition ${
                         post.is_pinned ? 'border-amber-400/60 shadow-amber-400/10' : 'border-slate-800 hover:border-slate-700'
                       }`}
                     >
@@ -196,14 +198,55 @@ function UpdatesContent() {
 
                       <h3 className="text-base font-bold text-white leading-snug">{post.title}</h3>
 
+                      {/* EMBEDDED BANNER IMAGE */}
+                      {post.image_url && (
+                        <div className="rounded-xl overflow-hidden border border-slate-800 max-h-96 my-2 bg-slate-900">
+                          <img
+                            src={post.image_url}
+                            alt={post.title}
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
+                      )}
+
+                      {/* CONTENT LINES & MARKDOWN TABLE RENDERER */}
                       <div className="space-y-1.5 text-xs text-slate-300 leading-relaxed font-normal">
-                        {contentLines.map((line, idx) => (
-                          <p key={idx} className="flex items-start gap-1.5">
-                            <span className="text-amber-400 font-bold">•</span>
-                            <span>{line.replace(/^[•\-\*]\s*/, '')}</span>
-                          </p>
-                        ))}
+                        {contentLines.map((line, idx) => {
+                          // Markdown Table Row Detector
+                          if (line.includes('|')) {
+                            const cells = line.split('|').filter((c) => c.trim().length > 0);
+                            return (
+                              <div key={idx} className="grid grid-cols-3 gap-2 bg-slate-900 p-2.5 rounded-lg border border-slate-800 text-[11px] font-mono my-1">
+                                {cells.map((cell, cIdx) => (
+                                  <span key={cIdx} className="font-semibold text-slate-200">{cell.trim()}</span>
+                                ))}
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <p key={idx} className="flex items-start gap-1.5">
+                              <span className="text-amber-400 font-bold">•</span>
+                              <span>{line.replace(/^[•\-\*]\s*/, '')}</span>
+                            </p>
+                          );
+                        })}
                       </div>
+
+                      {/* ACTION LINK BUTTON */}
+                      {post.external_link && (
+                        <div className="pt-2">
+                          <a
+                            href={post.external_link}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl shadow transition"
+                          >
+                            <span>🔗 Open Official Link / Document</span>
+                            <span>→</span>
+                          </a>
+                        </div>
+                      )}
                     </div>
                   );
                 })}

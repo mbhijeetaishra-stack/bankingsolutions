@@ -53,6 +53,9 @@ interface UpdatePost {
   content: string;
   exam_tag: string;
   is_pinned: boolean;
+  post_date: string;
+  image_url?: string;
+  external_link?: string;
   created_at: string;
 }
 
@@ -108,7 +111,7 @@ export default function AdminPage() {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [uploadedPdfs, setUploadedPdfs] = useState<CoursePdf[]>([]);
 
-  // Updates & One-Liners Publisher States
+  // Updates & One-Liners Publisher States (Enhanced with Media & Link Support)
   const [postCategory, setPostCategory] = useState<'ONE_LINER' | 'NOTIFICATION' | 'RESULT' | 'EXPECTED_CUTOFF' | 'EXAM_ANALYSIS'>('ONE_LINER');
   const [postTitle, setPostTitle] = useState('');
   const [postContent, setPostContent] = useState('');
@@ -116,6 +119,9 @@ export default function AdminPage() {
   const [postIsPinned, setPostIsPinned] = useState(false);
   const [publishedFeed, setPublishedFeed] = useState<UpdatePost[]>([]);
   const [postDate, setPostDate] = useState(new Date().toISOString().split('T')[0]);
+  const [postImageUrl, setPostImageUrl] = useState('');
+  const [postExternalLink, setPostExternalLink] = useState('');
+  const [imageFile, setImageFile] = useState<File | null>(null);
 
   // BSCA Quiz Builder States
   const [quizTitle, setQuizTitle] = useState('');
@@ -235,6 +241,66 @@ export default function AdminPage() {
     if (quizData) setExistingQuizzes(quizData);
   }
 
+  // --- PUBLISH ONE-LINER OR EXAM UPDATE (WITH IMAGE & LINK SUPPORT) ---
+  async function handlePublishPost(e: React.FormEvent) {
+    e.preventDefault();
+    if (!postTitle.trim() || !postContent.trim()) return setStatusMsg('⚠️ Please enter Title and Content!');
+
+    setStatusMsg('Publishing update...');
+    let finalImageUrl = postImageUrl.trim();
+
+    // Upload image file if attached
+    if (imageFile) {
+      try {
+        const filePath = `updates/${Date.now()}_${imageFile.name}`;
+        const { error: uploadErr } = await supabase.storage.from('course_pdfs').upload(filePath, imageFile);
+        if (!uploadErr) {
+          const { data: publicUrlData } = supabase.storage.from('course_pdfs').getPublicUrl(filePath);
+          finalImageUrl = publicUrlData.publicUrl;
+        }
+      } catch (err) {
+        console.error('Image Upload Error:', err);
+      }
+    }
+
+    const { error } = await supabase.from('updates_feed').insert([
+      {
+        category: postCategory,
+        title: postTitle.trim(),
+        content: postContent,
+        exam_tag: postExamTag,
+        is_pinned: postIsPinned,
+        post_date: postDate,
+        image_url: finalImageUrl || null,
+        external_link: postExternalLink.trim() || null,
+      },
+    ]);
+
+    if (error) {
+      setStatusMsg(`Publish Error: ${error.message}`);
+    } else {
+      setStatusMsg(`🎉 Published ${postCategory}: "${postTitle}"`);
+      setPostTitle('');
+      setPostContent('');
+      setPostImageUrl('');
+      setPostExternalLink('');
+      setImageFile(null);
+      setPostIsPinned(false);
+      fetchInitialData();
+    }
+  }
+
+  // --- DELETE UPDATE POST ---
+  async function handleDeletePost(postId: string, title: string) {
+    if (!confirm(`Are you sure you want to delete "${title}"?`)) return;
+
+    const { error } = await supabase.from('updates_feed').delete().eq('id', postId);
+    if (!error) {
+      setStatusMsg(`🗑️ Deleted update.`);
+      fetchInitialData();
+    }
+  }
+
   // --- CREATE BSCA QUIZ CONTAINER ---
   async function handleCreateQuiz(e: React.FormEvent) {
     e.preventDefault();
@@ -288,45 +354,6 @@ export default function AdminPage() {
     const { error } = await supabase.from('bsca_quizzes').delete().eq('id', quizId);
     if (!error) {
       setStatusMsg(`🗑️ Deleted Quiz "${title}".`);
-      fetchInitialData();
-    }
-  }
-
-  // --- PUBLISH ONE-LINER OR EXAM UPDATE ---
-  async function handlePublishPost(e: React.FormEvent) {
-    e.preventDefault();
-    if (!postTitle.trim() || !postContent.trim()) return setStatusMsg('⚠️ Please enter Title and Content!');
-
-    setStatusMsg('Publishing update...');
-    const { error } = await supabase.from('updates_feed').insert([
-      {
-        category: postCategory,
-        title: postTitle.trim(),
-        content: postContent,
-        exam_tag: postExamTag,
-        is_pinned: postIsPinned,
-        post_date: postDate,
-      },
-    ]);
-
-    if (error) {
-      setStatusMsg(`Publish Error: ${error.message}`);
-    } else {
-      setStatusMsg(`🎉 Published ${postCategory}: "${postTitle}"`);
-      setPostTitle('');
-      setPostContent('');
-      setPostIsPinned(false);
-      fetchInitialData();
-    }
-  }
-
-  // --- DELETE UPDATE POST ---
-  async function handleDeletePost(postId: string, title: string) {
-    if (!confirm(`Are you sure you want to delete "${title}"?`)) return;
-
-    const { error } = await supabase.from('updates_feed').delete().eq('id', postId);
-    if (!error) {
-      setStatusMsg(`🗑️ Deleted update.`);
       fetchInitialData();
     }
   }
@@ -879,11 +906,11 @@ export default function AdminPage() {
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Target Exam Tag</label>
                 <select value={postExamTag} onChange={(e) => setPostExamTag(e.target.value)} className="w-full border p-2.5 rounded-lg text-xs bg-white font-bold">
                   <option value="SBI PO">SBI PO</option>
-                   <option value="SBI CLERK">SBI CLERK</option>
-                   <option value="IBPS PO">IBPS PO</option>
-                   <option value="IBPS CLERK">IBPS CLERK</option>
-                   <option value="IBPS RRB PO">IBPS RRB PO</option>
-                   <option value="IBPS RRB CLERK">IBPS RRB CLERK</option>
+                  <option value="SBI CLERK">SBI CLERK</option>
+                  <option value="IBPS PO">IBPS PO</option>
+                  <option value="IBPS CLERK">IBPS CLERK</option>
+                  <option value="IBPS RRB PO">IBPS RRB PO</option>
+                  <option value="IBPS RRB CLERK">IBPS RRB CLERK</option>
                   <option value="RBI Grade B">RBI Grade B / Assistant</option>
                   <option value="General">General / All Exams</option>
                 </select>
@@ -899,13 +926,41 @@ export default function AdminPage() {
                   required
                 />
               </div>
+            </div>
 
-              <div className="flex items-center pt-5 md:col-span-3">
-                <label className="flex items-center space-x-2 text-xs font-bold text-slate-700 cursor-pointer">
-                  <input type="checkbox" checked={postIsPinned} onChange={(e) => setPostIsPinned(e.target.checked)} className="rounded text-blue-600" />
-                  <span>Pin to Top of Student Feed</span>
+            {/* ATTACH IMAGE & LINK INPUTS */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">
+                  Attach Banner / Cut-Off Image File
                 </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setImageFile(e.target.files?.[0] || null)}
+                  className="w-full border p-2 rounded-lg text-xs bg-white"
+                />
               </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">
+                  Official PDF / Notification Link URL
+                </label>
+                <input
+                  type="url"
+                  value={postExternalLink}
+                  onChange={(e) => setPostExternalLink(e.target.value)}
+                  placeholder="https://sbi.co.in/careers/notification.pdf"
+                  className="w-full border p-2.5 rounded-lg text-xs bg-white"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center pt-2">
+              <label className="flex items-center space-x-2 text-xs font-bold text-slate-700 cursor-pointer">
+                <input type="checkbox" checked={postIsPinned} onChange={(e) => setPostIsPinned(e.target.checked)} className="rounded text-blue-600" />
+                <span>Pin to Top of Student Feed</span>
+              </label>
             </div>
 
             <div>
@@ -914,12 +969,14 @@ export default function AdminPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Content / One-Liners (One bullet per line)</label>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">
+                Content / One-Liners or Markdown Table (Use | for table columns)
+              </label>
               <textarea
-                rows={5}
+                rows={6}
                 value={postContent}
                 onChange={(e) => setPostContent(e.target.value)}
-                placeholder={"• World Bank boosts India's GDP growth forecast to 7.0% for FY26.\n• RBI issues new guidelines regarding digital lending compliance.\n• SBI PO Prelims Good Attempts: English 22-26, Quant 18-22, Reasoning 20-25."}
+                placeholder={"• World Bank boosts India's GDP growth forecast to 7.0% for FY26.\n\n| Section | Good Attempts | Difficulty |\n| Quant | 18 - 22 | Moderate |\n| Reasoning | 22 - 25 | Easy-Mod |"}
                 className="w-full border p-2.5 rounded-lg text-xs font-mono bg-white"
                 required
               />
