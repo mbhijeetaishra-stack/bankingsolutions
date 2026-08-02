@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { supabase } from '../lib/supabase';
 import AuthModal from '../components/AuthModal';
-
+import ReviewsSection from '@/components/ReviewsSection';
 export default function BankingSolutionsHomePage() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -399,7 +399,8 @@ export default function BankingSolutionsHomePage() {
           </div>
         )}
       </section>
-
+        
+        
       {/* FOOTER */}
       <footer className="border-t border-slate-800 bg-slate-950 py-10 px-6 text-center text-slate-500 text-xs">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
@@ -424,6 +425,11 @@ export default function BankingSolutionsHomePage() {
             {isAdmin && <Link href="/admin" className="hover:text-amber-400 transition">Admin</Link>}
           </div>
         </div>
+        {/* REVIEW & RATING CARD SECTION */}
+        <ReviewsSection
+          currentUser={currentUser}
+          onOpenAuth={() => setIsAuthOpen(true)}
+        />
       </footer>
     </div>
   );
