@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
+import AuthModal from '@/components/AuthModal';
 
 interface Quiz {
   id: string;
@@ -19,9 +20,23 @@ interface QuizQuestion {
   explanation?: string;
 }
 
+interface QuizAttempt {
+  quiz_id: string;
+  answers: Record<number, number>;
+  score: number;
+  total_questions: number;
+}
+
 export default function BscaQuizPage() {
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Auth State
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+
+  // User Completed Attempts Map (Mapped by Quiz ID)
+  const [completedAttempts, setCompletedAttempts] = useState<Record<string, QuizAttempt>>({});
 
   // Active Quiz State
   const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null);
@@ -40,11 +55,23 @@ export default function BscaQuizPage() {
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Post-submission Toggle (Default: ON)
+  // Post-submission Toggle
   const [showAnswersToggle, setShowAnswersToggle] = useState<boolean>(true);
 
   useEffect(() => {
-    fetchQuizzes();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      const user = session?.user || null;
+      setCurrentUser(user);
+      fetchQuizzesAndAttempts(user?.id);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const user = session?.user || null;
+      setCurrentUser(user);
+      fetchQuizzesAndAttempts(user?.id);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   // Timer Effect
@@ -67,23 +94,56 @@ export default function BscaQuizPage() {
     };
   }, [activeQuiz, quizSubmitted, timeLeft]);
 
-  async function fetchQuizzes() {
+  // Fetch Quizzes and restore completed attempts from both LocalStorage & Supabase
+  async function fetchQuizzesAndAttempts(userId?: string) {
     setLoading(true);
-    const { data } = await supabase
+
+    // 1. Fetch Quizzes
+    const { data: quizData } = await supabase
       .from('bsca_quizzes')
       .select('*')
       .order('quiz_date', { ascending: false });
 
-    if (data) setQuizzes(data as Quiz[]);
+    if (quizData) setQuizzes(quizData as Quiz[]);
+
+    // 2. Read LocalStorage attempts first
+    let attemptsMap: Record<string, QuizAttempt> = {};
+    try {
+      const localSaved = JSON.parse(localStorage.getItem('bsca_quiz_attempts') || '{}');
+      attemptsMap = { ...localSaved };
+    } catch (e) {
+      console.error('Error reading local attempts:', e);
+    }
+
+    // 3. Fetch Supabase DB attempts if user is signed in
+    if (userId) {
+      const { data: attemptData } = await supabase
+        .from('bsca_quiz_attempts')
+        .select('*')
+        .eq('user_id', userId);
+
+      if (attemptData) {
+        attemptData.forEach((att: any) => {
+          attemptsMap[att.quiz_id] = {
+            quiz_id: att.quiz_id,
+            answers: att.answers,
+            score: att.score,
+            total_questions: att.total_questions,
+          };
+        });
+      }
+    }
+
+    setCompletedAttempts(attemptsMap);
     setLoading(false);
   }
 
-  // First Attempt Start
+  // Start Fresh Quiz
   async function handleStartQuiz(quiz: Quiz) {
     setActiveQuiz(quiz);
     setLoading(true);
     setCurrentAnswers({});
-    setPreviousAnswers(null);
+    setPreviousAnswers(completedAttempts[quiz.id]?.answers || null);
     setInteractiveChecked({});
     setQuizSubmitted(false);
     setShowAnswersToggle(true);
@@ -101,34 +161,106 @@ export default function BscaQuizPage() {
     setLoading(false);
   }
 
-  // Reattempt Quiz (Saves current answers to previousAnswers state)
-  const handleReattemptQuiz = () => {
-    setPreviousAnswers(currentAnswers); // Save old attempt
-    setCurrentAnswers({});
-    setInteractiveChecked({});
-    setQuizSubmitted(false);
+  // Open Solution Mode Directly
+  async function handleViewSolution(quiz: Quiz) {
+    setActiveQuiz(quiz);
+    setLoading(true);
+    setQuizSubmitted(true);
     setShowAnswersToggle(true);
-    const totalSeconds = (activeQuiz?.duration_minutes || 10) * 60;
-    setTimeLeft(totalSeconds);
+    setInteractiveChecked({});
+
+    const pastAttempt = completedAttempts[quiz.id];
+    setCurrentAnswers(pastAttempt?.answers || {});
+    setPreviousAnswers(pastAttempt?.answers || null);
+
+    const { data } = await supabase
+      .from('bsca_quiz_questions')
+      .select('*')
+      .eq('quiz_id', quiz.id)
+      .order('created_at', { ascending: true });
+
+    if (data) setQuestions(data as QuizQuestion[]);
+    setLoading(false);
+  }
+
+  // Reattempt Quiz
+  const handleReattemptQuiz = () => {
+    if (activeQuiz) {
+      setPreviousAnswers(currentAnswers);
+      setCurrentAnswers({});
+      setInteractiveChecked({});
+      setQuizSubmitted(false);
+      setShowAnswersToggle(true);
+      const totalSeconds = (activeQuiz.duration_minutes || 10) * 60;
+      setTimeLeft(totalSeconds);
+    }
+  };
+
+  // Save attempt to UI State, LocalStorage & Supabase DB
+  const saveAttemptToDb = async (answers: Record<number, number>) => {
+    if (!activeQuiz) return;
+
+    let score = 0;
+    questions.forEach((q, idx) => {
+      if (answers[idx] === q.correct_option_index) {
+        score += 1;
+      }
+    });
+
+    const attemptData: QuizAttempt = {
+      quiz_id: activeQuiz.id,
+      answers: answers,
+      score: score,
+      total_questions: questions.length,
+    };
+
+    // 1. Instantly update local UI state so cards reflect "✓ Completed"
+    setCompletedAttempts((prev) => ({
+      ...prev,
+      [activeQuiz.id]: attemptData,
+    }));
+
+    // 2. Persist in LocalStorage
+    try {
+      const localSaved = JSON.parse(localStorage.getItem('bsca_quiz_attempts') || '{}');
+      localSaved[activeQuiz.id] = attemptData;
+      localStorage.setItem('bsca_quiz_attempts', JSON.stringify(localSaved));
+    } catch (err) {
+      console.error('LocalStorage error:', err);
+    }
+
+    // 3. Persist in Supabase if logged in
+    if (currentUser?.id) {
+      const payload = {
+        user_id: currentUser.id,
+        quiz_id: activeQuiz.id,
+        answers: answers,
+        score: score,
+        total_questions: questions.length,
+        completed_at: new Date().toISOString(),
+      };
+
+      await supabase.from('bsca_quiz_attempts').upsert([payload], { onConflict: 'user_id,quiz_id' });
+    }
   };
 
   const handleAutoSubmit = () => {
     setQuizSubmitted(true);
     if (timerRef.current) clearInterval(timerRef.current);
+    saveAttemptToDb(currentAnswers);
   };
 
   const handleSubmitQuiz = () => {
     setQuizSubmitted(true);
     if (timerRef.current) clearInterval(timerRef.current);
+    saveAttemptToDb(currentAnswers);
   };
 
   // Option selection logic
   const handleSelectOption = (questionIdx: number, optionIdx: number) => {
     if (!quizSubmitted) {
-      // Standard quiz attempt before submission
       setCurrentAnswers((prev) => ({ ...prev, [questionIdx]: optionIdx }));
     } else if (!showAnswersToggle) {
-      // Interactive Mode when solution toggle is OFF after submission
       setCurrentAnswers((prev) => ({ ...prev, [questionIdx]: optionIdx }));
       setInteractiveChecked((prev) => ({ ...prev, [questionIdx]: true }));
     }
@@ -152,6 +284,15 @@ export default function BscaQuizPage() {
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 font-sans flex flex-col">
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        onSuccess={(user) => {
+          setCurrentUser(user);
+          fetchQuizzesAndAttempts(user.id);
+        }}
+      />
+
       {/* Header */}
       <header className="bg-slate-950 border-b border-slate-800 px-6 py-4 flex justify-between items-center sticky top-0 z-40">
         <div className="flex items-center gap-3">
@@ -164,17 +305,32 @@ export default function BscaQuizPage() {
           </div>
         </div>
 
-        <Link
-          href="/"
-          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition"
-        >
-          ← Return Home
-        </Link>
+        <div className="flex items-center gap-3">
+          {currentUser ? (
+            <span className="text-xs text-amber-400 font-bold hidden sm:block">
+              Hi, {currentUser.user_metadata?.full_name || currentUser.email?.split('@')[0]}
+            </span>
+          ) : (
+            <button
+              onClick={() => setIsAuthOpen(true)}
+              className="px-4 py-2 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs rounded-xl transition"
+            >
+              Sign In
+            </button>
+          )}
+
+          <Link
+            href="/"
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition"
+          >
+            ← Return Home
+          </Link>
+        </div>
       </header>
 
       <main className="max-w-4xl mx-auto px-6 py-10 flex-1 w-full space-y-6">
         {!activeQuiz ? (
-          /* QUIZ CATALOG */
+          /* QUIZ CATALOG WITH COMPLETED STATUS & ACTION BUTTONS */
           <div className="space-y-6">
             <div className="bg-gradient-to-b from-slate-950 to-slate-900 border border-slate-800 p-8 rounded-2xl text-center space-y-2">
               <h2 className="text-2xl font-black text-white">Daily Banking GA Quizzes</h2>
@@ -195,27 +351,62 @@ export default function BscaQuizPage() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {quizzes.map((quiz) => (
-                  <div
-                    key={quiz.id}
-                    className="bg-slate-950 border border-slate-800 hover:border-amber-400/50 rounded-2xl p-6 flex justify-between items-center transition shadow-lg"
-                  >
-                    <div className="space-y-1">
-                      <span className="text-[10px] font-bold uppercase bg-amber-400/10 text-amber-400 border border-amber-400/20 px-2 py-0.5 rounded">
-                        📅 {new Date(quiz.quiz_date).toLocaleDateString()}
-                      </span>
-                      <h3 className="font-bold text-white text-base leading-snug">{quiz.title}</h3>
-                      <p className="text-[11px] text-slate-400">⏱️ Duration: {quiz.duration_minutes} Mins</p>
-                    </div>
+                {quizzes.map((quiz) => {
+                  const attempt = completedAttempts[quiz.id];
 
-                    <button
-                      onClick={() => handleStartQuiz(quiz)}
-                      className="px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-lg transition"
+                  return (
+                    <div
+                      key={quiz.id}
+                      className={`bg-slate-950 border rounded-2xl p-6 flex flex-col justify-between space-y-4 transition shadow-lg ${
+                        attempt ? 'border-emerald-500/40 bg-slate-950/90' : 'border-slate-800 hover:border-amber-400/50'
+                      }`}
                     >
-                      Start Quiz →
-                    </button>
-                  </div>
-                ))}
+                      <div className="space-y-1">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-bold uppercase bg-amber-400/10 text-amber-400 border border-amber-400/20 px-2 py-0.5 rounded">
+                            📅 {new Date(quiz.quiz_date).toLocaleDateString()}
+                          </span>
+
+                          {attempt && (
+                            <span className="text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded">
+                              ✓ Completed ({attempt.score}/{attempt.total_questions})
+                            </span>
+                          )}
+                        </div>
+
+                        <h3 className="font-bold text-white text-base leading-snug pt-1">{quiz.title}</h3>
+                        <p className="text-[11px] text-slate-400">⏱️ Duration: {quiz.duration_minutes} Mins</p>
+                      </div>
+
+                      {attempt ? (
+                        /* DUAL ACTION BUTTONS FOR ATTEMPTED QUIZZES */
+                        <div className="grid grid-cols-2 gap-2 pt-2">
+                          <button
+                            onClick={() => handleStartQuiz(quiz)}
+                            className="py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs rounded-xl shadow transition text-center"
+                          >
+                            🔄 Reattempt
+                          </button>
+
+                          <button
+                            onClick={() => handleViewSolution(quiz)}
+                            className="py-2.5 bg-slate-800 hover:bg-slate-700 text-amber-400 font-extrabold text-xs border border-amber-400/30 rounded-xl transition text-center"
+                          >
+                            👁️ View Solution
+                          </button>
+                        </div>
+                      ) : (
+                        /* SINGLE ACTION BUTTON FOR NEW QUIZZES */
+                        <button
+                          onClick={() => handleStartQuiz(quiz)}
+                          className="w-full py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs rounded-xl shadow-lg transition mt-2"
+                        >
+                          Start Quiz →
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -320,7 +511,6 @@ export default function BscaQuizPage() {
                   const currentOpt = currentAnswers[qIdx];
                   const previousOpt = previousAnswers ? previousAnswers[qIdx] : undefined;
 
-                  // Determine if this question should show its correct answer & solution
                   const showSolution =
                     quizSubmitted &&
                     (showAnswersToggle || interactiveChecked[qIdx]);
@@ -340,20 +530,16 @@ export default function BscaQuizPage() {
                           let btnStyle = 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700';
 
                           if (!quizSubmitted) {
-                            // 1. BEFORE SUBMISSION: Active selection (Yellow outline)
                             if (isCurrent) {
                               btnStyle = 'bg-amber-400/20 border-amber-400 text-amber-300 font-bold';
                             }
                           } else if (showSolution) {
-                            // 2. REVEALED SOLUTION: Correct (Emerald Green), Incorrect Choice (Rose Red)
                             if (isCorrect) {
                               btnStyle = 'bg-emerald-500/20 border-emerald-500 text-emerald-300 font-bold';
                             } else if (isCurrent && !isCorrect) {
                               btnStyle = 'bg-rose-500/20 border-rose-500 text-rose-300 font-bold';
                             }
                           }
-                          // 3. WHEN TOGGLE IS OFF & NOT CLICKED YET:
-                          // Remains in neutral dark style without any yellow highlight!
 
                           return (
                             <div key={optIdx} className="relative">
@@ -366,7 +552,6 @@ export default function BscaQuizPage() {
                                   {opt}
                                 </div>
 
-                                {/* ATTEMPT BADGES AFTER SOLUTION IS REVEALED */}
                                 {showSolution && (
                                   <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
                                     {isPrevious && (
@@ -392,7 +577,6 @@ export default function BscaQuizPage() {
                         })}
                       </div>
 
-                      {/* QUESTION-WISE EXPLANATION */}
                       {showSolution && q.explanation && (
                         <div className="mt-3 p-4 bg-slate-900 border border-slate-800 rounded-xl space-y-1">
                           <span className="text-[11px] font-black uppercase text-amber-400 block">💡 Solution & Explanation:</span>
