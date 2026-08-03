@@ -138,17 +138,17 @@ export default function BankingSolutionsHomePage() {
               </div>
             ) : (
               <div className="flex items-center space-x-2 pl-2 border-l border-slate-800">
-                <button
+                {/*<button
                   onClick={() => setIsAuthOpen(true)}
                   className="text-xs text-slate-300 hover:text-white font-semibold px-3 py-2 transition"
                 >
                   Log In
-                </button>
+                </button>*/}
                 <button
                   onClick={() => setIsAuthOpen(true)}
                   className="text-xs bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold px-4 py-2 rounded-lg transition shadow-md shadow-amber-400/20"
                 >
-                  Sign Up
+                  Log In/Sign Up
                 </button>
               </div>
             )}
