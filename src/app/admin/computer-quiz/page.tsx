@@ -14,6 +14,14 @@ interface QuizContainer {
 }
 
 export default function AdminComputerQuizPage() {
+  // --- ADMIN SECURITY STATES ---
+  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+
+  // --- QUIZ BUILDER STATES ---
   const [activeTab, setActiveTab] = useState<'create_container' | 'bulk_upload' | 'add_question'>('create_container');
   const [containers, setContainers] = useState<QuizContainer[]>([]);
   const [loading, setLoading] = useState(false);
@@ -40,10 +48,58 @@ export default function AdminComputerQuizPage() {
   // 3. Bulk Upload States
   const [excelFile, setExcelFile] = useState<File | null>(null);
 
+  // --- AUTH CHECK ON MOUNT ---
   useEffect(() => {
-    fetchContainers();
+    checkAdminAuth();
   }, []);
 
+  async function checkAdminAuth() {
+    setCheckingAuth(true);
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (!session?.user) {
+      setIsAdmin(false);
+      setCheckingAuth(false);
+      return;
+    }
+
+    const user = session.user;
+    if (user.user_metadata?.is_admin === true || user.app_metadata?.role === 'admin') {
+      setIsAdmin(true);
+      fetchContainers();
+    } else {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('is_admin')
+        .eq('id', user.id)
+        .single();
+
+      if (profile?.is_admin === true) {
+        setIsAdmin(true);
+        fetchContainers();
+      } else {
+        setIsAdmin(false);
+      }
+    }
+    setCheckingAuth(false);
+  }
+
+  async function handleAdminLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setAuthError('');
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: authEmail,
+      password: authPassword,
+    });
+
+    if (error) {
+      setAuthError(error.message);
+    } else if (data.user) {
+      checkAdminAuth();
+    }
+  }
+
+  // --- FETCH CONTAINERS ---
   const fetchContainers = async () => {
     const { data, error } = await supabase
       .from('computer_quiz_containers')
@@ -58,7 +114,7 @@ export default function AdminComputerQuizPage() {
     }
   };
 
-  // Create Quiz Container
+  // --- CREATE QUIZ CONTAINER ---
   const handleCreateContainer = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -90,7 +146,7 @@ export default function AdminComputerQuizPage() {
     setLoading(false);
   };
 
-  // Delete Quiz Container & All Its Questions
+  // --- DELETE QUIZ CONTAINER & ALL QUESTIONS ---
   const handleDeleteContainer = async (id: string, title: string) => {
     const confirmDelete = confirm(
       `⚠️ Are you sure you want to delete "${title}" (${id})?\n\nThis will also permanently delete ALL questions inside this quiz.`
@@ -101,7 +157,7 @@ export default function AdminComputerQuizPage() {
     setLoading(true);
     setMsg('⏳ Deleting quiz container and associated questions...');
 
-    // 1. Delete associated questions first
+    // Delete questions first
     const { error: qError } = await supabase
       .from('computer_quiz_questions')
       .delete()
@@ -113,7 +169,7 @@ export default function AdminComputerQuizPage() {
       return;
     }
 
-    // 2. Delete the container itself
+    // Delete container
     const { error: cError } = await supabase
       .from('computer_quiz_containers')
       .delete()
@@ -128,7 +184,7 @@ export default function AdminComputerQuizPage() {
     setLoading(false);
   };
 
-  // Add Single Question
+  // --- ADD SINGLE QUESTION ---
   const handleAddQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -165,7 +221,7 @@ export default function AdminComputerQuizPage() {
     setLoading(false);
   };
 
-  // Bulk Excel Upload
+  // --- BULK EXCEL UPLOAD ---
   const handleBulkExcelUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!excelFile) {
@@ -234,6 +290,83 @@ export default function AdminComputerQuizPage() {
     reader.readAsBinaryString(excelFile);
   };
 
+  // =========================================================
+  // VIEW 1: AUTH GUARD / LOGIN
+  // =========================================================
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center font-bold">
+        Verifying Admin Credentials...
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6 font-sans">
+        <div className="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-8 space-y-6 shadow-2xl">
+          <div className="text-center space-y-2">
+            <div className="w-12 h-12 bg-blue-600/20 text-blue-400 border border-blue-500/30 rounded-2xl flex items-center justify-center text-2xl mx-auto">
+              🔒
+            </div>
+            <h1 className="text-xl font-bold text-white">Admin Login Required</h1>
+            <p className="text-xs text-slate-400">
+              Access to Computer Quiz Builder is restricted to BankingSolutions admins.
+            </p>
+          </div>
+
+          <form onSubmit={handleAdminLogin} className="space-y-4 text-left">
+            {authError && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs rounded-xl font-bold">
+                {authError}
+              </div>
+            )}
+
+            <div>
+              <label className="text-xs font-bold text-slate-400 uppercase block mb-1">Admin Email</label>
+              <input
+                type="email"
+                value={authEmail}
+                onChange={(e) => setAuthEmail(e.target.value)}
+                placeholder="admin@bankingsolutions.com"
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-400 uppercase block mb-1">Password</label>
+              <input
+                type="password"
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-3 bg-[#1D63B8] hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-lg transition"
+            >
+              Sign In as Admin
+            </button>
+          </form>
+
+          <div className="text-center pt-2">
+            <Link href="/" className="text-xs text-slate-400 hover:text-white transition">
+              ← Return to Homepage
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // =========================================================
+  // VIEW 2: COMPUTER QUIZ ADMIN PORTAL
+  // =========================================================
   return (
     <div className="min-h-screen bg-slate-950 text-white font-sans p-6">
       <div className="max-w-3xl mx-auto space-y-6">
@@ -244,12 +377,20 @@ export default function AdminComputerQuizPage() {
             <h1 className="text-xl font-black text-amber-400">⚡ Computer Quiz Admin Portal</h1>
             <p className="text-xs text-slate-400">Manage Containers, Questions & Excel Uploads</p>
           </div>
-          <Link
-            href="/computer-quiz"
-            className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold px-4 py-2 rounded-xl border border-slate-700 transition"
-          >
-            👁️ View Student Cards
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/admin"
+              className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold px-3 py-2 rounded-xl border border-slate-700 transition"
+            >
+              ← Main Admin
+            </Link>
+            <Link
+              href="/computer-quiz"
+              className="text-xs bg-amber-400 text-slate-950 font-bold px-3 py-2 rounded-xl transition"
+            >
+              👁️ View Student Cards
+            </Link>
+          </div>
         </div>
 
         {/* FEEDBACK MSG */}
@@ -299,7 +440,6 @@ export default function AdminComputerQuizPage() {
         {/* TAB 1: CREATE CONTAINER & EXISTING CONTAINERS LIST */}
         {activeTab === 'create_container' && (
           <div className="space-y-6">
-            {/* CREATE CONTAINER FORM */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
               <h2 className="text-sm font-bold text-slate-300 uppercase tracking-wider">Define New Quiz Container</h2>
               
@@ -379,7 +519,7 @@ export default function AdminComputerQuizPage() {
               </form>
             </div>
 
-            {/* EXISTING CONTAINERS MANAGER LIST */}
+            {/* EXISTING CONTAINERS LIST */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
               <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider flex justify-between items-center">
                 <span>📦 Existing Quiz Containers ({containers.length})</span>
@@ -404,7 +544,6 @@ export default function AdminComputerQuizPage() {
                         <p className="text-slate-400 text-[11px] mt-0.5">{c.description}</p>
                       </div>
 
-                      {/* DELETE BUTTON */}
                       <button
                         onClick={() => handleDeleteContainer(c.id, c.title)}
                         disabled={loading}
@@ -459,13 +598,7 @@ export default function AdminComputerQuizPage() {
                   </span>
                 </label>
               </div>
-                  {/* FORMAT GUIDANCE */}
-              <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 text-[11px] space-y-1 text-slate-400">
-                <span className="font-bold text-amber-400 block uppercase">Required Excel Column Names:</span>
-                <p>
-                  <code className="text-slate-200 font-mono">question</code> | <code className="text-slate-200 font-mono">option_a</code> | <code className="text-slate-200 font-mono">option_b</code> | <code className="text-slate-200 font-mono">option_c</code> | <code className="text-slate-200 font-mono">option_d</code> | <code className="text-slate-200 font-mono">correct_option_index</code> (0-3) | <code className="text-slate-200 font-mono">explanation</code> | <code className="text-slate-200 font-mono">category</code>
-                </p>
-              </div>
+
               <button
                 type="submit"
                 disabled={loading || !excelFile}

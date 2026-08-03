@@ -212,7 +212,7 @@ export default function BankingSolutionsHomePage() {
             <span>Full Mock Tests</span>
           </Link>
             <Link
-            href="/admin/computer-quiz"
+            href="/computer-quiz"
             className="px-6 py-3.5 bg-purple-400 hover:bg-purple-200 text-slate-950 font-black text-xs rounded-xl transition shadow-xl shadow-purple-400/30 uppercase tracking-wider flex items-center gap-2"
           >
             <span>💻</span>
