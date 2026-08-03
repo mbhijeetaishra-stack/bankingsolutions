@@ -14,6 +14,12 @@ interface MockItem {
   created_at: string;
 }
 
+interface MockAttempt {
+  test_id: string;
+  score: number;
+  total_marks: number;
+}
+
 export default function TestListPage() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
@@ -27,6 +33,7 @@ export default function TestListPage() {
 
   // Tests & Filter State
   const [mocks, setMocks] = useState<MockItem[]>([]);
+  const [completedAttempts, setCompletedAttempts] = useState<Record<string, MockAttempt>>({});
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('ALL');
 
@@ -54,15 +61,17 @@ export default function TestListPage() {
         setUserRole('student');
       }
 
-      // Fetch Available Mock Tests
-      await fetchMocks();
+      // Fetch Available Mock Tests & Attempts
+      await fetchMocksAndAttempts(session.user.id);
     } else {
       setUser(null);
+      await fetchMocksAndAttempts();
     }
     setLoading(false);
   }
 
-  async function fetchMocks() {
+  async function fetchMocksAndAttempts(userId?: string) {
+    // 1. Fetch Mock Tests
     const { data, error } = await supabase
       .from('mock_tests')
       .select('*')
@@ -71,6 +80,33 @@ export default function TestListPage() {
     if (!error && data) {
       setMocks(data);
     }
+
+    // 2. Read LocalStorage Fallback
+    let attemptsMap: Record<string, MockAttempt> = {};
+    try {
+      const localSaved = JSON.parse(localStorage.getItem('bsca_mock_attempts') || '{}');
+      attemptsMap = { ...localSaved };
+    } catch (e) {}
+
+    // 3. Fetch DB Attempts if user is logged in
+    if (userId) {
+      const { data: attemptData } = await supabase
+        .from('mock_attempts')
+        .select('*')
+        .eq('user_id', userId);
+
+      if (attemptData) {
+        attemptData.forEach((att: any) => {
+          attemptsMap[att.test_id] = {
+            test_id: att.test_id,
+            score: Number(att.score),
+            total_marks: Number(att.total_marks),
+          };
+        });
+      }
+    }
+
+    setCompletedAttempts(attemptsMap);
   }
 
   // Handle Login / Signup
@@ -98,6 +134,7 @@ export default function TestListPage() {
     await supabase.auth.signOut();
     setUser(null);
     setMocks([]);
+    setCompletedAttempts({});
   }
 
   // Filter Logic
@@ -109,9 +146,7 @@ export default function TestListPage() {
     return matchesSearch && (mock.exam_type || '').toUpperCase().includes(selectedFilter);
   });
 
-  // --------------------------------------------------------------------------
   // 1. LOADING SCREEN
-  // --------------------------------------------------------------------------
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center font-bold space-y-3">
@@ -121,15 +156,13 @@ export default function TestListPage() {
     );
   }
 
-  // --------------------------------------------------------------------------
   // 2. UNAUTHENTICATED USER: SHOW LOGIN / SIGNUP PORTAL
-  // --------------------------------------------------------------------------
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6 font-sans">
         <div className="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-8 space-y-6 shadow-2xl">
           <div className="text-center space-y-2">
-            <div className="w-12 h-12 bg-pink-600 rounded-2xl flex items-center justify-center font-black text-xl text-white mx-auto shadow-md">
+            <div className="w-12 h-12 bg-amber-400 text-slate-950 rounded-2xl flex items-center justify-center font-black text-xl mx-auto shadow-md">
               BS
             </div>
             <h1 className="text-xl font-bold text-white">BankingSolutions Portal</h1>
@@ -194,15 +227,13 @@ export default function TestListPage() {
     );
   }
 
-  // --------------------------------------------------------------------------
   // 3. AUTHENTICATED STUDENT / ADMIN PORTAL VIEW
-  // --------------------------------------------------------------------------
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 font-sans flex flex-col">
-      {/* BRAND NAVBAR WITH USER ROLE BADGE */}
+      {/* NAVBAR */}
       <header className="bg-slate-950 border-b border-slate-800 px-6 py-4 flex justify-between items-center">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-pink-600 rounded-lg flex items-center justify-center font-black text-sm text-white shadow-md">
+          <div className="w-9 h-9 bg-amber-400 text-slate-950 rounded-lg flex items-center justify-center font-black text-sm shadow-md">
             BS
           </div>
           <div>
@@ -212,7 +243,7 @@ export default function TestListPage() {
               <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded uppercase ${
                 userRole === 'admin' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
               }`}>
-                {userRole === 'admin' ? '🛡️ Admin Account' : '🎓 Student'}
+                {userRole === 'admin' ? '🛡️ Admin' : '🎓 Student'}
               </span>
             </div>
           </div>
@@ -275,7 +306,7 @@ export default function TestListPage() {
         </div>
       </section>
 
-      {/* MOCK TESTS GRID LINKED DYNAMICALLY TO /mock-test/[id] */}
+      {/* MOCK TESTS GRID */}
       <main className="max-w-6xl mx-auto px-6 py-8 flex-1 w-full space-y-6">
         <div className="flex justify-between items-center border-b border-slate-800 pb-3">
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
@@ -298,22 +329,29 @@ export default function TestListPage() {
                 if (Array.isArray(parsed)) qCount = parsed.length;
               }
 
+              const attempt = completedAttempts[mock.id];
+
               return (
                 <div
                   key={mock.id}
-                  className="bg-slate-800/60 border border-slate-700/70 hover:border-blue-500/50 rounded-2xl p-6 flex flex-col justify-between space-y-5 hover:shadow-xl hover:bg-slate-800/80 transition group"
+                  className={`bg-slate-800/60 border rounded-2xl p-6 flex flex-col justify-between space-y-5 transition ${
+                    attempt ? 'border-emerald-500/40 bg-slate-800/90' : 'border-slate-700/70 hover:border-blue-500/50 hover:bg-slate-800/80'
+                  }`}
                 >
                   <div className="space-y-3">
-                    <div className="flex justify-between items-start">
+                    <div className="flex justify-between items-start gap-2">
                       <span className="text-[10px] font-extrabold uppercase bg-blue-500/10 text-blue-400 border border-blue-500/30 px-3 py-1 rounded-full">
                         {mock.exam_type || 'SBI PO Prelims'}
                       </span>
-                      <span className="text-[10px] text-slate-400 font-medium">
-                        {new Date(mock.created_at).toLocaleDateString()}
-                      </span>
+
+                      {attempt && (
+                        <span className="text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded">
+                          ✓ Completed ({attempt.score.toFixed(1)}/{mock.total_marks || 100})
+                        </span>
+                      )}
                     </div>
 
-                    <h3 className="font-bold text-white text-base group-hover:text-blue-300 transition leading-snug">
+                    <h3 className="font-bold text-white text-base leading-snug">
                       {mock.title}
                     </h3>
 
@@ -333,14 +371,33 @@ export default function TestListPage() {
                     </div>
                   </div>
 
-                  {/* CRITICAL ROUTING LINK WITH MOCK UUID */}
-                  <Link
-                    href={`/mock-test/${mock.id}`}
-                    className="w-full py-3 bg-[#1D63B8] hover:bg-blue-700 text-white font-bold text-xs rounded-xl text-center shadow-lg transition flex items-center justify-center gap-2 group-hover:scale-[1.02]"
-                  >
-                    <span>Start Test Now</span>
-                    <span>→</span>
-                  </Link>
+                  {attempt ? (
+                    /* DUAL ACTION BUTTONS FOR COMPLETED MOCKS (REDIRECTS TO /mock-test/[id]) */
+                    <div className="grid grid-cols-2 gap-2 pt-2">
+                      <Link
+                        href={`/mock-test/${mock.id}?mode=reattempt`}
+                        className="py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs rounded-xl shadow transition text-center"
+                      >
+                        🔄 Reattempt
+                      </Link>
+
+                      <Link
+                        href={`/mock-test/${mock.id}?mode=solution`}
+                        className="py-2.5 bg-slate-800 hover:bg-slate-700 text-amber-400 font-extrabold text-xs border border-amber-400/30 rounded-xl transition text-center"
+                      >
+                        👁️ View Solution
+                      </Link>
+                    </div>
+                  ) : (
+                    /* SINGLE START BUTTON FOR UNATTEMPTED MOCKS (REDIRECTS TO /mock-test/[id]) */
+                    <Link
+                      href={`/mock-test/${mock.id}`}
+                      className="w-full py-3 bg-[#1D63B8] hover:bg-blue-700 text-white font-bold text-xs rounded-xl text-center shadow-lg transition flex items-center justify-center gap-2"
+                    >
+                      <span>Start Test Now</span>
+                      <span>→</span>
+                    </Link>
+                  )}
                 </div>
               );
             })}
