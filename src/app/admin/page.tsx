@@ -865,6 +865,12 @@ export default function AdminPage() {
             >
               📥 Question Bank Excel
             </button>
+            <Link
+              href="/admin/computer-quiz"
+              className="px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 text-slate-700 hover:text-blue-600 hover:bg-slate-100"
+            >
+              <span>💻</span> Computer Quiz Builder
+            </Link>
           </div>
 
           <button

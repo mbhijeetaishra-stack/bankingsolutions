@@ -211,10 +211,16 @@ export default function BankingSolutionsHomePage() {
             <span>🚀</span>
             <span>Full Mock Tests</span>
           </Link>
-
+            <Link
+            href="/admin/computer-quiz"
+            className="px-6 py-3.5 bg-purple-400 hover:bg-purple-200 text-slate-950 font-black text-xs rounded-xl transition shadow-xl shadow-purple-400/30 uppercase tracking-wider flex items-center gap-2"
+          >
+            <span>💻</span>
+            <span>Computer Awareness Quiz</span>
+          </Link>
           <Link
             href="/calc-lab"
-            className="px-6 py-3.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 font-bold text-xs rounded-xl transition flex items-center gap-2"
+            className="px-6 py-3.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 font-bold text-xs rounded-xl transition uppercase tracking-wider  flex items-center gap-2"
           >
             <span>⚡</span>
             <span>Calculation Lab</span>
@@ -374,6 +380,28 @@ export default function BankingSolutionsHomePage() {
               Launch Calc Lab →
             </Link>
           </div>
+          {/*Card 7: Computer Quiz*/}
+          <div className="bg-slate-900 border border-slate-800 hover:border-amber-400/50 rounded-2xl p-6 shadow-xl transition group flex flex-col justify-between">
+            <div className="space-y-3">
+              <div className="w-12 h-12 bg-amber-400/10 text-amber-400 border border-amber-400/20 rounded-2xl flex items-center justify-center font-bold text-2xl">
+                💻
+              </div>
+              <h3 className="text-xl font-bold text-white group-hover:text-amber-400 transition">
+                Computer Awareness Quiz
+              </h3>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                TCS iON-style test series targeted for IBPS RRB PO & Clerk Mains (20 Marks / 40 Questions).
+              </p>
+            </div>
+
+            <Link
+              href="/computer-quiz"
+              className="mt-6 w-full py-3 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl text-center shadow-lg transition block"
+            >
+              Explore Tests →
+            </Link>
+          </div>
+          
         </div>
 
         {/* Admin Portal Button */}
