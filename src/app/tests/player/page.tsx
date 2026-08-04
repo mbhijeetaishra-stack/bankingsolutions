@@ -41,6 +41,9 @@ function MockTestPlayerContent() {
   const [visitedQuestions, setVisitedQuestions] = useState<Record<number, boolean>>({ 0: true });
   const [markedForReview, setMarkedForReview] = useState<Record<number, boolean>>({});
 
+  // ⚡ MOBILE PALETTE DRAWER STATE
+  const [isMobilePaletteOpen, setIsMobilePaletteOpen] = useState(false);
+
   // Submission & Timer States
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number>(0);
@@ -110,6 +113,7 @@ function MockTestPlayerContent() {
   const handleSelectQuestion = (index: number) => {
     setActiveIndex(index);
     setVisitedQuestions((prev) => ({ ...prev, [index]: true }));
+    setIsMobilePaletteOpen(false); // ⚡ Auto close drawer on mobile option select
   };
 
   const handleNext = () => {
@@ -218,28 +222,38 @@ function MockTestPlayerContent() {
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 font-sans flex flex-col">
       {/* EXAM TOP HEADER */}
-      <header className="bg-slate-950 border-b border-slate-800 px-6 py-3 flex justify-between items-center sticky top-0 z-40">
+      <header className="bg-slate-950 border-b border-slate-800 px-4 md:px-6 py-3 flex justify-between items-center sticky top-0 z-40">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 bg-amber-400 rounded-lg flex items-center justify-center font-black text-slate-950 text-sm">
             BS
           </div>
           <div>
-            <h1 className="text-sm font-extrabold text-white leading-tight">{test.title}</h1>
+            <h1 className="text-xs md:text-sm font-extrabold text-white leading-tight truncate max-w-[150px] sm:max-w-none">{test.title}</h1>
             <p className="text-[10px] text-amber-400 uppercase font-bold tracking-wider">{test.exam_type}</p>
           </div>
         </div>
 
         {!isSubmitted ? (
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 bg-rose-500/10 border border-rose-500/30 text-rose-400 font-mono font-black text-base px-4 py-1.5 rounded-xl">
+          <div className="flex items-center gap-2 md:gap-4">
+            <div className="flex items-center gap-1.5 md:gap-2 bg-rose-500/10 border border-rose-500/30 text-rose-400 font-mono font-black text-xs md:text-base px-2.5 md:px-4 py-1.5 rounded-xl">
               <span>⏱️</span>
               <span>{formatTime(timeLeft)}</span>
             </div>
+
             <button
               onClick={handleSubmitTest}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow uppercase tracking-wider transition"
+              className="px-3 md:px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow uppercase tracking-wider transition"
             >
-              Submit Test
+              Submit
+            </button>
+
+            {/* ⚡ MOBILE PALETTE TOGGLE BUTTON */}
+            <button
+              onClick={() => setIsMobilePaletteOpen(!isMobilePaletteOpen)}
+              className="lg:hidden bg-slate-800 border border-slate-700 text-slate-200 font-bold px-2.5 py-1.5 rounded-xl text-xs flex items-center gap-1"
+            >
+              <span>☰</span>
+              <span className="text-[10px]">Palette</span>
             </button>
           </div>
         ) : (
@@ -253,14 +267,13 @@ function MockTestPlayerContent() {
       </header>
 
       {/* MAIN CONTENT WORKSPACE */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
         {/* QUESTION DISPLAY AREA */}
-        <main className="flex-1 p-6 overflow-y-auto bg-slate-900 flex flex-col justify-between">
+        <main className="flex-1 p-4 md:p-6 overflow-y-auto bg-slate-900 flex flex-col justify-between">
           {hasPassage ? (
-            /* 1. SPLIT SCREEN LAYOUT (When passageText exists: Puzzles / DI / RC) */
+            /* 1. SPLIT SCREEN LAYOUT */
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full min-h-[60vh]">
-              {/* Left Column: Passage / Puzzle Context */}
-              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-6 overflow-y-auto max-h-[65vh]">
+              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 md:p-6 overflow-y-auto max-h-[65vh]">
                 <span className="text-[10px] font-black uppercase text-amber-400 bg-amber-400/10 border border-amber-400/20 px-2.5 py-1 rounded mb-3 inline-block">
                   📌 Direction / Passage Context
                 </span>
@@ -269,8 +282,7 @@ function MockTestPlayerContent() {
                 </div>
               </div>
 
-              {/* Right Column: Question Statement & Options */}
-              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between max-h-[65vh] overflow-y-auto">
+              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 md:p-6 flex flex-col justify-between max-h-[65vh] overflow-y-auto">
                 <div className="space-y-4">
                   <div className="flex justify-between items-center border-b border-slate-800 pb-3">
                     <span className="text-xs font-extrabold text-white">Question {activeIndex + 1}</span>
@@ -314,7 +326,6 @@ function MockTestPlayerContent() {
                   </div>
                 </div>
 
-                {/* Question Explanation if Submitted */}
                 {isSubmitted && activeQuestion.explanation && (
                   <div className="mt-4 p-4 bg-slate-900 border border-slate-800 rounded-xl space-y-1">
                     <span className="text-[11px] font-black uppercase text-amber-400 block">💡 Solution & Explanation:</span>
@@ -324,8 +335,8 @@ function MockTestPlayerContent() {
               </div>
             </div>
           ) : (
-            /* 2. FULL SCREEN LAYOUT (When passageText is empty: Standalone Arithmetic, GA, Speed Math) */
-            <div className="max-w-4xl mx-auto w-full bg-slate-950 border border-slate-800 rounded-2xl p-8 space-y-6 shadow-2xl my-auto">
+            /* 2. FULL SCREEN LAYOUT */
+            <div className="max-w-4xl mx-auto w-full bg-slate-950 border border-slate-800 rounded-2xl p-5 md:p-8 space-y-6 shadow-2xl my-auto">
               <div className="flex justify-between items-center border-b border-slate-800 pb-3">
                 <span className="text-xs font-extrabold text-white">Question {activeIndex + 1}</span>
                 <span className="text-[11px] font-bold text-slate-400">
@@ -333,7 +344,7 @@ function MockTestPlayerContent() {
                 </span>
               </div>
 
-              <h3 className="text-base font-bold text-white leading-relaxed">
+              <h3 className="text-xs md:text-base font-bold text-white leading-relaxed">
                 {activeQuestion.questionText}
               </h3>
 
@@ -355,7 +366,7 @@ function MockTestPlayerContent() {
                     <button
                       key={optIdx}
                       onClick={() => handleSelectOption(optIdx)}
-                      className={`p-4 rounded-xl border text-left text-xs transition flex items-center justify-between ${btnStyle}`}
+                      className={`p-3.5 md:p-4 rounded-xl border text-left text-xs transition flex items-center justify-between ${btnStyle}`}
                     >
                       <div>
                         <span className="font-bold mr-2.5">{String.fromCharCode(65 + optIdx)}.</span>
@@ -367,7 +378,6 @@ function MockTestPlayerContent() {
                 })}
               </div>
 
-              {/* Question Explanation if Submitted */}
               {isSubmitted && activeQuestion.explanation && (
                 <div className="mt-4 p-4 bg-slate-900 border border-slate-800 rounded-xl space-y-1">
                   <span className="text-[11px] font-black uppercase text-amber-400 block">💡 Solution & Explanation:</span>
@@ -379,11 +389,11 @@ function MockTestPlayerContent() {
 
           {/* BOTTOM CONTROL ACTIONS */}
           {!isSubmitted && (
-            <div className="max-w-4xl mx-auto w-full flex flex-wrap justify-between items-center gap-3 pt-6 border-t border-slate-800 mt-6">
+            <div className="max-w-4xl mx-auto w-full flex flex-wrap justify-between items-center gap-3 pt-4 md:pt-6 border-t border-slate-800 mt-4 md:mt-6">
               <div className="flex gap-2">
                 <button
                   onClick={handleToggleMarkReview}
-                  className={`px-4 py-2.5 rounded-xl font-bold text-xs transition ${
+                  className={`px-3.5 md:px-4 py-2 md:py-2.5 rounded-xl font-bold text-[11px] md:text-xs transition ${
                     markedForReview[activeIndex]
                       ? 'bg-purple-600 text-white'
                       : 'bg-slate-800 hover:bg-slate-700 text-purple-400 border border-purple-500/30'
@@ -393,7 +403,7 @@ function MockTestPlayerContent() {
                 </button>
                 <button
                   onClick={handleClearResponse}
-                  className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition"
+                  className="px-3.5 md:px-4 py-2 md:py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[11px] md:text-xs rounded-xl transition"
                 >
                   Clear Choice
                 </button>
@@ -403,14 +413,14 @@ function MockTestPlayerContent() {
                 <button
                   onClick={handlePrev}
                   disabled={activeIndex === 0}
-                  className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 font-bold text-xs rounded-xl transition"
+                  className="px-4 md:px-5 py-2 md:py-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 font-bold text-[11px] md:text-xs rounded-xl transition"
                 >
                   ← Prev
                 </button>
                 <button
                   onClick={handleNext}
                   disabled={activeIndex === questions.length - 1}
-                  className="px-6 py-2.5 bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 font-black text-xs rounded-xl shadow transition"
+                  className="px-5 md:px-6 py-2 md:py-2.5 bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 font-black text-[11px] md:text-xs rounded-xl shadow transition"
                 >
                   Save & Next →
                 </button>
@@ -419,15 +429,35 @@ function MockTestPlayerContent() {
           )}
         </main>
 
-        {/* SIDEBAR PALETTE */}
-        <aside className="w-full lg:w-80 bg-slate-950 border-l border-slate-800 p-6 flex flex-col justify-between space-y-6">
+        {/* ⚡ MOBILE BACKDROP OVERLAY */}
+        {isMobilePaletteOpen && (
+          <div
+            onClick={() => setIsMobilePaletteOpen(false)}
+            className="lg:hidden fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-40"
+          />
+        )}
+
+        {/* ⚡ SIDEBAR PALETTE */}
+        <aside
+          className={`fixed lg:static inset-y-0 right-0 z-50 w-72 lg:w-80 bg-slate-950 border-l border-slate-800 p-5 lg:p-6 flex flex-col justify-between space-y-6 transition-transform duration-300 shadow-2xl lg:shadow-none ${
+            isMobilePaletteOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
+          }`}
+        >
           <div className="space-y-4">
-            <h2 className="text-xs font-black uppercase text-slate-400 tracking-wider border-b border-slate-800 pb-2">
-              Question Palette ({questions.length})
-            </h2>
+            <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+              <h2 className="text-xs font-black uppercase text-slate-400 tracking-wider">
+                Question Palette ({questions.length})
+              </h2>
+              <button
+                onClick={() => setIsMobilePaletteOpen(false)}
+                className="lg:hidden text-slate-400 font-bold text-base px-1"
+              >
+                ✕
+              </button>
+            </div>
 
             {/* PALETTE COLOR LEGEND */}
-            <div className="grid grid-cols-2 gap-2 text-[10px] font-bold text-slate-400">
+            <div className="grid grid-cols-2 gap-2 text-[10px] font-bold text-slate-400 border-b border-slate-800/80 pb-3">
               <span className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span> Answered
               </span>
@@ -440,10 +470,18 @@ function MockTestPlayerContent() {
               <span className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded-full bg-slate-800 border border-slate-700 inline-block"></span> Not Visited
               </span>
+              
+              {/* 🟢 ANSWERED & MARKED FOR REVIEW LEGEND ITEM */}
+              <span className="flex items-center gap-1.5 col-span-2 pt-0.5">
+                <span className="w-3.5 h-3.5 bg-purple-600 text-white rounded-full flex items-center justify-center text-[8px] relative overflow-visible">
+                  <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-emerald-400 rounded-full border border-slate-950"></span>
+                </span>
+                Answered & Marked for Review
+              </span>
             </div>
 
             {/* PALETTE GRID BUTTONS */}
-            <div className="grid grid-cols-5 gap-2 max-h-80 overflow-y-auto pt-2">
+            <div className="grid grid-cols-5 gap-2 max-h-80 overflow-y-auto pt-1">
               {questions.map((_, qIdx) => {
                 const isAns = selectedAnswers[qIdx] !== undefined;
                 const isVisited = visitedQuestions[qIdx];
@@ -452,7 +490,10 @@ function MockTestPlayerContent() {
 
                 let paletteStyle = 'bg-slate-900 border-slate-800 text-slate-400';
 
-                if (isMarked) {
+                if (isAns && isMarked) {
+                  // 🟢 Answered & Marked for Review Style
+                  paletteStyle = 'bg-purple-600 text-white border-purple-400 font-bold relative overflow-visible';
+                } else if (isMarked) {
                   paletteStyle = 'bg-purple-600 text-white border-purple-400 font-bold';
                 } else if (isAns) {
                   paletteStyle = 'bg-emerald-500 text-slate-950 border-emerald-400 font-black';
@@ -464,11 +505,16 @@ function MockTestPlayerContent() {
                   <button
                     key={qIdx}
                     onClick={() => handleSelectQuestion(qIdx)}
-                    className={`h-10 rounded-xl border text-xs font-bold transition flex items-center justify-center ${paletteStyle} ${
+                    className={`h-9 lg:h-10 rounded-xl border text-xs font-bold transition flex items-center justify-center relative ${paletteStyle} ${
                       isActive ? 'ring-2 ring-amber-400 scale-105 z-10' : ''
                     }`}
                   >
                     {qIdx + 1}
+
+                    {/* 🟢 GREEN DOT BADGE INDICATOR FOR ANSWERED & MARKED FOR REVIEW */}
+                    {isAns && isMarked && (
+                      <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full border-2 border-slate-950 shadow-sm z-20"></span>
+                    )}
                   </button>
                 );
               })}

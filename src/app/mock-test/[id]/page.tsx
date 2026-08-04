@@ -33,6 +33,7 @@ interface DbAttempt {
 
 export default function TCSiONMockTestPlayerPage() {
   const params = useParams();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const testId = params?.id as string;
   const mode = searchParams.get('mode'); // 'reattempt' | 'solution' | null
@@ -44,9 +45,6 @@ export default function TCSiONMockTestPlayerPage() {
   const [candidateName, setCandidateName] = useState('Aspirant');
   const [rollCode, setRollCode] = useState('BS2026-GUEST');
   const [currentUser, setCurrentUser] = useState<any>(null);
-
-  // Real-Time Student Attempts for Rank Computation
-  const [allDbAttempts, setAllDbAttempts] = useState<DbAttempt[]>([]);
 
   // Section Management States
   const [sections, setSections] = useState<string[]>([]);
@@ -60,11 +58,13 @@ export default function TCSiONMockTestPlayerPage() {
   const [markedForReview, setMarkedForReview] = useState<Record<number, boolean>>({});
   const [questionTimeSpent, setQuestionTimeSpent] = useState<Record<number, number>>({});
 
+  // ⚡ MOBILE PALETTE DRAWER STATE
+  const [isMobilePaletteOpen, setIsMobilePaletteOpen] = useState(false);
+
   // Submission & Timer States
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [sectionalTimeLeft, setSectionalTimeLeft] = useState<number>(0);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const [showAnalysis, setShowAnalysis] = useState(false);
 
   useEffect(() => {
     fetchUserData();
@@ -109,7 +109,6 @@ export default function TCSiONMockTestPlayerPage() {
   async function fetchMockTestAndAttempts() {
     setLoading(true);
 
-    // 1. Fetch Mock Test
     const { data, error } = await supabase
       .from('mock_tests')
       .select('*')
@@ -142,21 +141,8 @@ export default function TCSiONMockTestPlayerPage() {
     setTest(mockData);
     setQuestions(parsedQuestions);
 
-    // 2. Fetch All Student Attempts for this Mock
-    const { data: attemptsData } = await supabase
-      .from('mock_attempts')
-      .select('user_id, score')
-      .eq('test_id', testId);
-
-    if (attemptsData) {
-      setAllDbAttempts(attemptsData as DbAttempt[]);
-    }
-
-    // 3. If mode is "solution", populate past attempt & open in solution view
     if (mode === 'solution') {
       setIsSubmitted(true);
-      setShowAnalysis(true);
-
       try {
         const localSaved = JSON.parse(localStorage.getItem('bsca_mock_attempts') || '{}');
         if (localSaved[testId]?.answers) {
@@ -243,12 +229,8 @@ export default function TCSiONMockTestPlayerPage() {
       ], { onConflict: 'user_id,test_id' });
     }
 
-    const allLocked: Record<string, boolean> = {};
-    sections.forEach((s) => (allLocked[s] = true));
-    setLockedSections(allLocked);
-
     setIsSubmitted(true);
-    setShowAnalysis(true);
+    router.push(`/mock-test/analysis/${test.id}`);
   };
 
   const handleSelectQuestion = (globalIdx: number) => {
@@ -259,9 +241,19 @@ export default function TCSiONMockTestPlayerPage() {
     }
     setActiveIndex(globalIdx);
     setVisitedQuestions((prev) => ({ ...prev, [globalIdx]: true }));
+    setIsMobilePaletteOpen(false);
   };
 
   const handleNext = () => {
+    if (isSubmitted) {
+      if (activeIndex < questions.length - 1) {
+        setActiveIndex(activeIndex + 1);
+        const newSec = questions[activeIndex + 1]?.section || activeSection;
+        setActiveSection(newSec);
+      }
+      return;
+    }
+
     const activeSectionIndices = questions
       .map((q, idx) => ((q.section || 'QUANT') === activeSection ? idx : -1))
       .filter((idx) => idx !== -1);
@@ -275,6 +267,15 @@ export default function TCSiONMockTestPlayerPage() {
   };
 
   const handlePrev = () => {
+    if (isSubmitted) {
+      if (activeIndex > 0) {
+        setActiveIndex(activeIndex - 1);
+        const newSec = questions[activeIndex - 1]?.section || activeSection;
+        setActiveSection(newSec);
+      }
+      return;
+    }
+
     const activeSectionIndices = questions
       .map((q, idx) => ((q.section || 'QUANT') === activeSection ? idx : -1))
       .filter((idx) => idx !== -1);
@@ -307,73 +308,24 @@ export default function TCSiONMockTestPlayerPage() {
     handleNext();
   };
 
-  const calculateDetailedAnalysis = () => {
-    let totalScore = 0;
-    let totalCorrect = 0;
-    let totalWrong = 0;
-    let totalUnattempted = 0;
-
-    let timeCorrect = 0;
-    let timeWrong = 0;
-    let timeSkipped = 0;
-
-    const sectionStats: Record<string, { total: number; attempted: number; correct: number; wrong: number; score: number }> = {};
-    sections.forEach((sec) => {
-      sectionStats[sec] = { total: 0, attempted: 0, correct: 0, wrong: 0, score: 0 };
-    });
-
+  const getCounts = () => {
+    let answered = 0, notAnswered = 0, notVisited = 0, marked = 0, answeredMarked = 0;
+    
     questions.forEach((q, idx) => {
-      const sec = q.section || 'QUANT';
-      const userAns = selectedAnswers[idx];
-      const spent = questionTimeSpent[idx] || 0;
+      if ((q.section || 'QUANT') === activeSection) {
+        const isAns = selectedAnswers[idx] !== undefined;
+        const isVisited = visitedQuestions[idx];
+        const isMarked = markedForReview[idx];
 
-      sectionStats[sec].total += 1;
-
-      if (userAns === undefined) {
-        totalUnattempted += 1;
-        timeSkipped += spent;
-      } else if (userAns === q.correctOptionIndex) {
-        totalCorrect += 1;
-        totalScore += q.marks || 1.0;
-        timeCorrect += spent;
-
-        sectionStats[sec].attempted += 1;
-        sectionStats[sec].correct += 1;
-        sectionStats[sec].score += q.marks || 1.0;
-      } else {
-        totalWrong += 1;
-        totalScore -= q.negativeMarks || 0.25;
-        timeWrong += spent;
-
-        sectionStats[sec].attempted += 1;
-        sectionStats[sec].wrong += 1;
-        sectionStats[sec].score -= q.negativeMarks || 0.25;
+        if (isAns && isMarked) answeredMarked++;
+        else if (isMarked) marked++;
+        else if (isAns) answered++;
+        else if (isVisited) notAnswered++;
+        else notVisited++;
       }
     });
 
-    const accuracy = (totalCorrect + totalWrong) > 0 
-      ? ((totalCorrect / (totalCorrect + totalWrong)) * 100).toFixed(1) 
-      : '0.0';
-
-    const allScores = [...allDbAttempts.map((a) => a.score), totalScore].sort((a, b) => b - a);
-    const userRank = allScores.indexOf(totalScore) + 1;
-    const totalStudentsAttempted = allScores.length;
-    const percentile = (((totalStudentsAttempted - userRank) / totalStudentsAttempted) * 100).toFixed(1);
-
-    return {
-      totalScore,
-      totalCorrect,
-      totalWrong,
-      totalUnattempted,
-      accuracy,
-      userRank,
-      totalStudentsAttempted,
-      percentile,
-      timeCorrect,
-      timeWrong,
-      timeSkipped,
-      sectionStats,
-    };
+    return { answered, notAnswered, notVisited, marked, answeredMarked };
   };
 
   const formatTime = (seconds: number) => {
@@ -408,60 +360,63 @@ export default function TCSiONMockTestPlayerPage() {
     activeQuestion?.passageText && activeQuestion.passageText.trim().length > 0
   );
 
-  // SECTION SCOPE VARIABLES
   const sectionQuestions = questions.filter((q) => (q.section || 'QUANT') === activeSection);
-  const activeSectionQuestionIndices = questions
-    .map((q, idx) => ((q.section || 'QUANT') === activeSection ? idx : -1))
-    .filter((idx) => idx !== -1);
+  const activeSectionQuestionIndices = isSubmitted
+    ? questions.map((_, idx) => idx)
+    : questions
+        .map((q, idx) => ((q.section || 'QUANT') === activeSection ? idx : -1))
+        .filter((idx) => idx !== -1);
 
-  const analysis = isSubmitted ? calculateDetailedAnalysis() : null;
+  const counts = getCounts();
 
   return (
-    <div className="min-h-screen bg-[#F4F6F9] text-slate-900 font-sans flex flex-col selection:bg-blue-200">
+    <div className="h-screen w-screen bg-[#F4F6F9] text-slate-900 font-sans flex flex-col select-none overflow-hidden">
       {/* 1. TOP BRANDING HEADER */}
-      <header className="bg-[#1D63B8] text-white px-6 py-2.5 flex justify-between items-center shadow-md sticky top-0 z-40">
-        <div className="flex items-center gap-3">
+      <header className="bg-[#1D63B8] text-white px-4 md:px-6 py-2.5 flex justify-between items-center shadow-md shrink-0 z-40">
+        <div className="flex items-center gap-2 md:gap-3">
           <div className="w-8 h-8 bg-white text-[#1D63B8] rounded font-black text-sm flex items-center justify-center shadow-inner">
             BS
           </div>
           <div>
-            <h1 className="text-sm font-bold tracking-tight leading-tight">{test.title}</h1>
-            <p className="text-[10px] text-blue-100 uppercase font-semibold">{test.exam_type}</p>
+            <h1 className="text-xs md:text-sm font-bold tracking-tight leading-tight truncate max-w-[140px] sm:max-w-none">{test.title}</h1>
+            <p className="text-[10px] text-blue-100 uppercase font-semibold">{test.exam_type} {isSubmitted ? '— Solution Mode' : ''}</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          {!isSubmitted ? (
-            <div className="bg-white/10 border border-white/20 px-4 py-1 rounded text-white font-mono font-bold text-sm flex items-center gap-2">
-              <span className="text-xs">⏱️ Section Time:</span>
-              <span className="text-base text-yellow-300 font-black">{formatTime(sectionalTimeLeft)}</span>
+        <div className="flex items-center gap-2 md:gap-4">
+          {!isSubmitted && (
+            <div className="bg-white/10 border border-white/20 px-3 md:px-4 py-1 rounded text-white font-mono font-bold text-xs md:text-sm flex items-center gap-1.5 md:gap-2">
+              <span className="text-[10px] md:text-xs">⏱️ Time:</span>
+              <span className="text-sm md:text-base text-yellow-300 font-black">{formatTime(sectionalTimeLeft)}</span>
             </div>
-          ) : (
-            <button
-              onClick={() => setShowAnalysis(!showAnalysis)}
-              className="px-3 py-1 bg-amber-400 text-slate-950 font-bold text-xs rounded shadow"
-            >
-              {showAnalysis ? 'Hide Scorecard' : '📊 View Rank & Scorecard'}
-            </button>
           )}
 
           {!isSubmitted ? (
             <button
               onClick={handleManualSubmitSection}
-              className="px-3 py-1 bg-[#154B94] hover:bg-[#103a75] text-white font-bold text-xs rounded border border-white/20 shadow transition"
+              className="px-2.5 md:px-3 py-1 bg-[#154B94] hover:bg-[#103a75] text-white font-bold text-xs rounded border border-white/20 shadow transition"
             >
               Submit Section ({activeSection})
             </button>
           ) : (
-            <Link href="/tests" className="px-3 py-1 bg-slate-800 text-white font-bold text-xs rounded">
-              Exit Portal
+            <Link href={`/mock-test/analysis/${test.id}`} className="px-3 py-1 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs rounded shadow">
+              📊 View Scorecard & Analysis
             </Link>
           )}
+
+          {/* MOBILE PALETTE TOGGLE BUTTON */}
+          <button
+            onClick={() => setIsMobilePaletteOpen(!isMobilePaletteOpen)}
+            className="lg:hidden bg-blue-900/60 border border-blue-400/30 text-white font-bold px-2 py-1 rounded text-xs flex items-center gap-1"
+          >
+            <span>☰</span>
+            <span className="text-[10px]">Palette</span>
+          </button>
         </div>
       </header>
 
       {/* 2. SECTIONAL TABS */}
-      <div className="bg-white border-b border-slate-300 px-6 py-2 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shadow-sm">
+      <div className="bg-white border-b border-slate-300 px-4 md:px-6 py-2 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shrink-0 shadow-sm">
         <div className="flex items-center gap-1.5 overflow-x-auto max-w-full">
           <span className="text-xs font-bold text-slate-500 uppercase mr-2">Sections:</span>
           {sections.map((sec) => {
@@ -473,16 +428,14 @@ export default function TCSiONMockTestPlayerPage() {
                 key={sec}
                 disabled={!isSubmitted && !isActive}
                 onClick={() => {
-                  if (isSubmitted) {
-                    setActiveSection(sec);
-                    const firstIdx = questions.findIndex((q) => (q.section || 'QUANT') === sec);
-                    if (firstIdx !== -1) setActiveIndex(firstIdx);
-                  }
+                  setActiveSection(sec);
+                  const firstIdx = questions.findIndex((q) => (q.section || 'QUANT') === sec);
+                  if (firstIdx !== -1) setActiveIndex(firstIdx);
                 }}
                 className={`px-3 py-1 rounded text-xs font-bold transition flex items-center gap-1.5 ${
                   isActive
                     ? 'bg-[#1D63B8] text-white shadow'
-                    : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
                 }`}
               >
                 <span>{sec}</span>
@@ -500,126 +453,23 @@ export default function TCSiONMockTestPlayerPage() {
         </div>
       </div>
 
-      {/* 3. RANK & SCORECARD OVERLAY MODAL */}
-      {isSubmitted && showAnalysis && analysis && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur z-50 overflow-y-auto p-6 flex justify-center items-start">
-          <div className="bg-white max-w-4xl w-full rounded-2xl shadow-2xl border border-slate-300 p-8 space-y-6 my-8">
-            <div className="flex justify-between items-center border-b pb-4">
-              <div>
-                <span className="text-[10px] font-bold uppercase bg-amber-100 text-amber-900 px-2 py-0.5 rounded">
-                  Official Scorecard & Student Rank
-                </span>
-                <h2 className="text-xl font-black text-slate-900 pt-1">{test.title}</h2>
-              </div>
-              <button
-                onClick={() => setShowAnalysis(false)}
-                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs rounded-xl"
-              >
-                ✕ Close Scorecard
-              </button>
-            </div>
-
-            {/* REAL-TIME RANK & METRICS */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-              <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl">
-                <span className="text-2xl md:text-3xl font-black text-[#1D63B8] block">{analysis.totalScore.toFixed(2)}</span>
-                <span className="text-[10px] uppercase font-bold text-slate-500">Total Marks</span>
-              </div>
-              <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl">
-                <span className="text-2xl md:text-3xl font-black text-amber-700 block">
-                  #{analysis.userRank} <span className="text-xs font-normal text-slate-500">/ {analysis.totalStudentsAttempted}</span>
-                </span>
-                <span className="text-[10px] uppercase font-bold text-slate-500">Real Student Rank</span>
-              </div>
-              <div className="bg-purple-50 border border-purple-200 p-4 rounded-xl">
-                <span className="text-2xl md:text-3xl font-black text-purple-700 block">{analysis.percentile}%</span>
-                <span className="text-[10px] uppercase font-bold text-slate-500">Percentile</span>
-              </div>
-              <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl">
-                <span className="text-2xl md:text-3xl font-black text-emerald-700 block">{analysis.accuracy}%</span>
-                <span className="text-[10px] uppercase font-bold text-slate-500">Overall Accuracy</span>
-              </div>
-            </div>
-
-            {/* TIME SPENT METRICS */}
-            <div className="space-y-2">
-              <h3 className="text-xs font-bold uppercase text-slate-700">⏱️ Time Spent Analysis</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-xl flex justify-between items-center">
-                  <span className="font-bold text-emerald-900">Correct Answers Time</span>
-                  <span className="font-black text-emerald-700 font-mono text-sm">{formatTime(analysis.timeCorrect)}</span>
-                </div>
-                <div className="bg-rose-50 border border-rose-200 p-3 rounded-xl flex justify-between items-center">
-                  <span className="font-bold text-rose-900">Wrong Answers Time</span>
-                  <span className="font-black text-rose-700 font-mono text-sm">{formatTime(analysis.timeWrong)}</span>
-                </div>
-                <div className="bg-slate-100 border border-slate-300 p-3 rounded-xl flex justify-between items-center">
-                  <span className="font-bold text-slate-700">Skipped Questions Time</span>
-                  <span className="font-black text-slate-800 font-mono text-sm">{formatTime(analysis.timeSkipped)}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* SECTION PERFORMANCE TABLE */}
-            <div className="space-y-2">
-              <h3 className="text-xs font-bold uppercase text-slate-700">Section-Wise Breakdown</h3>
-              <div className="overflow-x-auto border border-slate-200 rounded-xl">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-100 border-b border-slate-200 font-bold text-slate-700">
-                    <tr>
-                      <th className="p-3">Section</th>
-                      <th className="p-3">Total Qs</th>
-                      <th className="p-3">Attempted</th>
-                      <th className="p-3">Correct</th>
-                      <th className="p-3">Wrong</th>
-                      <th className="p-3">Score</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-medium">
-                    {Object.entries(analysis.sectionStats).map(([sec, stats]) => (
-                      <tr key={sec} className="hover:bg-slate-50">
-                        <td className="p-3 font-bold text-slate-900">{sec}</td>
-                        <td className="p-3">{stats.total}</td>
-                        <td className="p-3 font-bold text-blue-700">{stats.attempted}</td>
-                        <td className="p-3 font-bold text-emerald-700">{stats.correct}</td>
-                        <td className="p-3 font-bold text-rose-700">{stats.wrong}</td>
-                        <td className="p-3 font-bold text-slate-900">{stats.score.toFixed(2)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3 pt-4 border-t">
-              <button
-                onClick={() => setShowAnalysis(false)}
-                className="px-6 py-3 bg-[#1D63B8] hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow"
-              >
-                Review Step-By-Step Question Solutions →
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 4. MAIN EXAM DISPLAY WORKSPACE */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+      {/* 4. MAIN EXAM DISPLAY WORKSPACE (LOCKED HEIGHT FOR NO OVERFLOW) */}
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
         {/* QUESTION DISPLAY AREA */}
         <main className="flex-1 p-4 md:p-6 overflow-y-auto flex flex-col justify-between">
           {hasPassage ? (
-            /* SPLIT SCREEN (When passageText exists) */
+            /* 50/50 SPLIT SCREEN FOR PASSAGE / DI / RC */
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 h-full min-h-[60vh]">
-              <div className="bg-white border border-slate-300 rounded-lg p-5 overflow-y-auto max-h-[65vh] shadow-sm">
+              <div className="bg-white border border-slate-300 rounded-lg p-4 md:p-5 overflow-y-auto max-h-[70vh] shadow-sm">
                 <div className="bg-blue-50 border-l-4 border-[#1D63B8] px-3 py-1.5 text-[11px] font-bold text-[#1D63B8] uppercase mb-3">
                   Directions / Passage Context
                 </div>
-                <div className="text-xs text-slate-800 leading-relaxed font-medium whitespace-pre-line">
+                <div className="text-xs text-slate-800 leading-relaxed font-medium whitespace-pre-line font-serif">
                   {activeQuestion.passageText}
                 </div>
               </div>
 
-              <div className="bg-white border border-slate-300 rounded-lg p-5 flex flex-col justify-between max-h-[65vh] overflow-y-auto shadow-sm">
+              <div className="bg-white border border-slate-300 rounded-lg p-4 md:p-5 flex flex-col justify-between max-h-[70vh] overflow-y-auto shadow-sm">
                 <div className="space-y-4">
                   <div className="flex justify-between items-center border-b pb-2 text-xs font-bold text-slate-600">
                     <span>Question {activeIndex + 1} ({activeQuestion.section})</span>
@@ -638,8 +488,13 @@ export default function TCSiONMockTestPlayerPage() {
                       let btnStyle = 'bg-white border-slate-300 text-slate-800 hover:bg-slate-50';
 
                       if (isSubmitted) {
-                        if (isCorrect) btnStyle = 'bg-emerald-100 border-emerald-500 text-emerald-900 font-bold';
-                        else if (isSelected && !isCorrect) btnStyle = 'bg-rose-100 border-rose-500 text-rose-900 font-bold';
+                        if (isCorrect) {
+                          btnStyle = 'bg-emerald-100 border-emerald-500 text-emerald-900 font-bold';
+                        } else if (isSelected && !isCorrect) {
+                          btnStyle = 'bg-rose-100 border-rose-500 text-rose-900 font-bold';
+                        } else {
+                          btnStyle = 'bg-white border-slate-300 text-slate-600';
+                        }
                       } else if (isSelected) {
                         btnStyle = 'bg-blue-50 border-[#1D63B8] text-[#1D63B8] font-bold shadow-sm';
                       }
@@ -647,7 +502,7 @@ export default function TCSiONMockTestPlayerPage() {
                       return (
                         <button
                           key={optIdx}
-                          disabled={lockedSections[activeSection] && !isSubmitted}
+                          disabled={isSubmitted || (lockedSections[activeSection] && !isSubmitted)}
                           onClick={() => handleSelectOption(optIdx)}
                           className={`w-full p-3 rounded-lg border text-left text-xs transition flex items-center justify-between ${btnStyle}`}
                         >
@@ -659,6 +514,8 @@ export default function TCSiONMockTestPlayerPage() {
                             </span>
                             <span>{opt}</span>
                           </div>
+                          {isSubmitted && isCorrect && <span className="text-emerald-700 font-bold text-xs">✓ Correct</span>}
+                          {isSubmitted && isSelected && !isCorrect && <span className="text-rose-700 font-bold text-xs">✗ Yours</span>}
                         </button>
                       );
                     })}
@@ -674,14 +531,14 @@ export default function TCSiONMockTestPlayerPage() {
               </div>
             </div>
           ) : (
-            /* FULL SCREEN (When passageText is empty) */
-            <div className="max-w-4xl mx-auto w-full bg-white border border-slate-300 rounded-lg p-6 space-y-5 shadow-sm my-auto">
+            /* FULL SCREEN FOR STANDALONE QUESTIONS */
+            <div className="max-w-4xl mx-auto w-full bg-white border border-slate-300 rounded-lg p-5 md:p-6 space-y-5 shadow-sm my-auto">
               <div className="flex justify-between items-center border-b pb-2 text-xs font-bold text-slate-600">
                 <span>Question {activeIndex + 1} ({activeQuestion.section})</span>
                 <span className="text-emerald-700">Marks: +{activeQuestion.marks || 1.0} / -{activeQuestion.negativeMarks || 0.25}</span>
               </div>
 
-              <h3 className="text-sm md:text-base font-bold text-slate-900 leading-relaxed">
+              <h3 className="text-xs md:text-base font-bold text-slate-900 leading-relaxed">
                 {activeQuestion.questionText}
               </h3>
 
@@ -693,8 +550,13 @@ export default function TCSiONMockTestPlayerPage() {
                   let btnStyle = 'bg-white border-slate-300 text-slate-800 hover:bg-slate-50';
 
                   if (isSubmitted) {
-                    if (isCorrect) btnStyle = 'bg-emerald-100 border-emerald-500 text-emerald-900 font-bold';
-                    else if (isSelected && !isCorrect) btnStyle = 'bg-rose-100 border-rose-500 text-rose-900 font-bold';
+                    if (isCorrect) {
+                      btnStyle = 'bg-emerald-100 border-emerald-500 text-emerald-900 font-bold';
+                    } else if (isSelected && !isCorrect) {
+                      btnStyle = 'bg-rose-100 border-rose-500 text-rose-900 font-bold';
+                    } else {
+                      btnStyle = 'bg-white border-slate-300 text-slate-600';
+                    }
                   } else if (isSelected) {
                     btnStyle = 'bg-blue-50 border-[#1D63B8] text-[#1D63B8] font-bold shadow-sm';
                   }
@@ -702,7 +564,7 @@ export default function TCSiONMockTestPlayerPage() {
                   return (
                     <button
                       key={optIdx}
-                      disabled={lockedSections[activeSection] && !isSubmitted}
+                      disabled={isSubmitted || (lockedSections[activeSection] && !isSubmitted)}
                       onClick={() => handleSelectOption(optIdx)}
                       className={`p-3.5 rounded-lg border text-left text-xs transition flex items-center justify-between ${btnStyle}`}
                     >
@@ -714,6 +576,8 @@ export default function TCSiONMockTestPlayerPage() {
                         </span>
                         <span>{opt}</span>
                       </div>
+                      {isSubmitted && isCorrect && <span className="text-emerald-700 font-bold text-xs">✓ Correct</span>}
+                      {isSubmitted && isSelected && !isCorrect && <span className="text-rose-700 font-bold text-xs">✗ Yours</span>}
                     </button>
                   );
                 })}
@@ -729,79 +593,126 @@ export default function TCSiONMockTestPlayerPage() {
           )}
 
           {/* CONTROL BUTTONS */}
-          {!isSubmitted && (
-            <div className="bg-white border border-slate-300 rounded-lg p-3 max-w-4xl mx-auto w-full flex flex-wrap justify-between items-center gap-2 mt-4 shadow-sm">
-              <div className="flex gap-2">
-                <button
-                  onClick={handleToggleMarkReview}
-                  className={`px-3 py-2 rounded text-xs font-bold border transition ${
-                    markedForReview[activeIndex]
-                      ? 'bg-purple-700 text-white border-purple-800'
-                      : 'bg-white border-purple-400 text-purple-700 hover:bg-purple-50'
-                  }`}
-                >
-                  Mark for Review & Next
-                </button>
-                <button
-                  onClick={handleClearResponse}
-                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 font-bold text-xs rounded transition"
-                >
-                  Clear Response
-                </button>
-              </div>
-
-              <div className="flex gap-2">
-                <button
-                  onClick={handlePrev}
-                  disabled={activeSectionQuestionIndices.indexOf(activeIndex) === 0}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 disabled:opacity-40 text-slate-700 font-bold text-xs rounded transition"
-                >
-                  Previous
-                </button>
-                <button
-                  onClick={handleNext}
-                  className="px-5 py-2 bg-[#1D63B8] hover:bg-blue-700 text-white font-bold text-xs rounded shadow transition"
-                >
-                  Save & Next →
-                </button>
-              </div>
+          <div className="bg-white border border-slate-300 rounded-lg p-3 max-w-4xl mx-auto w-full flex flex-wrap justify-between items-center gap-2 mt-4 shadow-sm shrink-0">
+            <div className="flex gap-2">
+              <button
+                disabled={isSubmitted}
+                onClick={handleToggleMarkReview}
+                className={`px-3 py-2 rounded text-xs font-bold border transition ${
+                  isSubmitted
+                    ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400 border-slate-200'
+                    : markedForReview[activeIndex]
+                    ? 'bg-purple-700 text-white border-purple-800'
+                    : 'bg-white border-purple-400 text-purple-700 hover:bg-purple-50'
+                }`}
+              >
+                Mark for Review & Next
+              </button>
+              <button
+                disabled={isSubmitted}
+                onClick={handleClearResponse}
+                className={`px-3 py-2 border text-slate-700 font-bold text-xs rounded transition ${
+                  isSubmitted ? 'opacity-40 cursor-not-allowed bg-slate-100 border-slate-200' : 'bg-slate-100 hover:bg-slate-200 border-slate-300'
+                }`}
+              >
+                Clear Response
+              </button>
             </div>
-          )}
+
+            <div className="flex gap-2">
+              <button
+                onClick={handlePrev}
+                disabled={isSubmitted ? activeIndex === 0 : activeSectionQuestionIndices.indexOf(activeIndex) === 0}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 disabled:opacity-40 text-slate-700 font-bold text-xs rounded transition"
+              >
+                Previous
+              </button>
+              <button
+                onClick={handleNext}
+                disabled={isSubmitted ? activeIndex === questions.length - 1 : false}
+                className="px-5 py-2 bg-[#1D63B8] hover:bg-blue-700 disabled:opacity-40 text-white font-bold text-xs rounded shadow transition"
+              >
+                {isSubmitted ? 'Next Question →' : 'Save & Next →'}
+              </button>
+            </div>
+          </div>
         </main>
 
-        {/* RIGHT PALETTE */}
-        <aside className="w-full lg:w-80 bg-white border-l border-slate-300 p-4 flex flex-col justify-between space-y-4 shadow-sm">
-          <div className="space-y-4">
-            <div className="bg-slate-50 border border-slate-200 p-3 rounded flex items-center gap-3">
-              <div className="w-10 h-10 bg-[#1D63B8] text-white rounded-full flex items-center justify-center font-bold text-sm">
-                {candidateName.charAt(0).toUpperCase()}
+        {/* ⚡ MOBILE BACKDROP OVERLAY */}
+        {isMobilePaletteOpen && (
+          <div
+            onClick={() => setIsMobilePaletteOpen(false)}
+            className="lg:hidden fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-40"
+          />
+        )}
+
+        {/* ⚡ FIXED RIGHT PALETTE (STAYS LOCKED, NO OVERLAPPING HEADER) */}
+        <aside
+          className={`fixed lg:static inset-y-0 right-0 z-50 w-72 lg:w-80 bg-white border-l border-slate-300 p-4 flex flex-col justify-between space-y-4 shadow-2xl lg:shadow-none transition-transform duration-300 shrink-0 ${
+            isMobilePaletteOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
+          }`}
+        >
+          <div className="space-y-4 overflow-y-auto flex-1 pr-1">
+            <div className="flex justify-between items-center border-b pb-2">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-[#1D63B8] text-white rounded-full flex items-center justify-center font-bold text-xs">
+                  {candidateName.charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <span className="text-xs font-bold text-slate-900 block truncate max-w-[120px]">{candidateName}</span>
+                  <span className="text-[10px] text-slate-500 font-mono">Roll: {rollCode}</span>
+                </div>
               </div>
-              <div>
-                <span className="text-xs font-bold text-slate-900 block">{candidateName}</span>
-                <span className="text-[10px] text-slate-500 font-mono">Roll: {rollCode}</span>
-              </div>
+              <button
+                onClick={() => setIsMobilePaletteOpen(false)}
+                className="lg:hidden text-slate-500 font-bold text-base px-1"
+              >
+                ✕
+              </button>
             </div>
 
             <h2 className="text-xs font-bold uppercase text-slate-700 border-b pb-1">
-              Section Palette ({sectionQuestions.length} Questions)
+              {isSubmitted ? 'Solution Palette' : `Section Palette (${sectionQuestions.length} Questions)`}
             </h2>
 
+            {/* TCS iON LEGEND */}
             <div className="grid grid-cols-2 gap-2 text-[10px] font-bold text-slate-600 bg-slate-50 p-2.5 rounded border border-slate-200">
               <span className="flex items-center gap-1.5">
-                <span className="w-3 h-3 bg-emerald-600 text-white rounded-sm inline-block"></span> Answered
+                <span className="w-3.5 h-3.5 bg-emerald-600 text-white rounded-sm flex items-center justify-center text-[9px] font-bold">
+                  {counts.answered}
+                </span>{' '}
+                Answered
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-3 h-3 bg-rose-600 text-white rounded-sm inline-block"></span> Not Answered
+                <span className="w-3.5 h-3.5 bg-rose-600 text-white rounded-sm flex items-center justify-center text-[9px] font-bold">
+                  {counts.notAnswered}
+                </span>{' '}
+                Not Answered
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-3 h-3 bg-purple-700 text-white rounded-full inline-block"></span> Marked Review
+                <span className="w-3.5 h-3.5 bg-purple-700 text-white rounded-sm flex items-center justify-center text-[9px] font-bold">
+                  {counts.marked}
+                </span>{' '}
+                Marked
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-3 h-3 bg-slate-100 border border-slate-400 text-slate-700 rounded-sm inline-block"></span> Not Visited
+                <span className="w-3.5 h-3.5 bg-slate-100 border border-slate-400 text-slate-700 rounded-sm flex items-center justify-center text-[9px] font-bold">
+                  {counts.notVisited}
+                </span>{' '}
+                Not Visited
+              </span>
+
+              <span className="flex items-center gap-1.5 col-span-2 pt-0.5">
+                <span className="w-3.5 h-3.5 bg-purple-700 text-white rounded-sm flex items-center justify-center text-[8px] relative overflow-visible font-bold">
+                  {counts.answeredMarked}
+                  <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-emerald-400 rounded-full border border-white"></span>
+                </span>
+                Answered & Marked for Review
               </span>
             </div>
 
-            <div className="grid grid-cols-5 gap-2 max-h-72 overflow-y-auto p-1">
+            {/* PALETTE GRID BUTTONS */}
+            <div className="grid grid-cols-5 gap-1.5 max-h-56 overflow-y-auto p-1">
               {activeSectionQuestionIndices.map((globalIdx, localIdx) => {
                 const isAns = selectedAnswers[globalIdx] !== undefined;
                 const isVisited = visitedQuestions[globalIdx];
@@ -810,23 +721,37 @@ export default function TCSiONMockTestPlayerPage() {
 
                 let paletteStyle = 'bg-slate-100 border-slate-300 text-slate-700';
 
-                if (isMarked) {
-                  paletteStyle = 'bg-purple-700 text-white rounded-full font-bold';
-                } else if (isAns) {
-                  paletteStyle = 'bg-emerald-600 text-white font-bold';
-                } else if (isVisited) {
-                  paletteStyle = 'bg-rose-600 text-white font-bold';
+                if (isSubmitted) {
+                  const userAns = selectedAnswers[globalIdx];
+                  const qCorrect = questions[globalIdx].correctOptionIndex;
+                  if (userAns === undefined) paletteStyle = 'bg-white border-slate-300 text-slate-600';
+                  else if (userAns === qCorrect) paletteStyle = 'bg-emerald-600 text-white border-emerald-700 font-bold';
+                  else paletteStyle = 'bg-rose-600 text-white border-rose-700 font-bold';
+                } else {
+                  if (isAns && isMarked) {
+                    paletteStyle = 'bg-purple-700 text-white border-purple-800 font-bold relative overflow-visible';
+                  } else if (isMarked) {
+                    paletteStyle = 'bg-purple-700 text-white border-purple-800 font-bold';
+                  } else if (isAns) {
+                    paletteStyle = 'bg-emerald-600 text-white border-emerald-700 font-bold';
+                  } else if (isVisited) {
+                    paletteStyle = 'bg-rose-600 text-white border-rose-700 font-bold';
+                  }
                 }
 
                 return (
                   <button
                     key={globalIdx}
                     onClick={() => handleSelectQuestion(globalIdx)}
-                    className={`h-9 text-xs font-bold transition flex items-center justify-center border shadow-sm ${paletteStyle} ${
+                    className={`h-9 text-xs font-bold transition flex items-center justify-center border shadow-sm relative ${paletteStyle} ${
                       isActive ? 'ring-2 ring-[#1D63B8] font-black z-10' : ''
                     }`}
                   >
                     {localIdx + 1}
+
+                    {!isSubmitted && isAns && isMarked && (
+                      <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full border-2 border-white shadow-sm z-20"></span>
+                    )}
                   </button>
                 );
               })}
@@ -836,17 +761,17 @@ export default function TCSiONMockTestPlayerPage() {
           {!isSubmitted ? (
             <button
               onClick={handleSubmitFullTest}
-              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded uppercase tracking-wider transition shadow"
+              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded uppercase tracking-wider transition shadow shrink-0"
             >
               Submit Entire Exam
             </button>
           ) : (
-            <button
-              onClick={() => setShowAnalysis(true)}
-              className="w-full py-2.5 bg-[#1D63B8] hover:bg-blue-700 text-white font-bold text-xs rounded uppercase tracking-wider transition shadow"
+            <Link
+              href={`/mock-test/analysis/${test.id}`}
+              className="block text-center w-full py-2.5 bg-[#1D63B8] hover:bg-blue-700 text-white font-bold text-xs rounded uppercase tracking-wider transition shadow shrink-0"
             >
-              📊 View Rank & Percentile
-            </button>
+              📊 View Scorecard & Rank
+            </Link>
           )}
         </aside>
       </div>

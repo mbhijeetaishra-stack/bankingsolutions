@@ -60,6 +60,11 @@ export default function ComputerIonExamPage() {
   const [loadingQuestions, setLoadingQuestions] = useState(false);
   const [candidateName, setCandidateName] = useState('Aspirant');
 
+  // REAL RANKING ANALYTICS STATES
+  const [realRank, setRealRank] = useState<number>(1);
+  const [realPercentile, setRealPercentile] = useState<number>(100);
+  const [realTotalCandidates, setRealTotalCandidates] = useState<number>(1);
+
   // Fetch Containers and Attempts on Mount
   useEffect(() => {
     fetchQuizContainers();
@@ -225,23 +230,75 @@ export default function ComputerIonExamPage() {
     if (!isSolutionView && statuses[idx] === 'not_visited') {
       setStatuses((prev) => ({ ...prev, [idx]: 'not_answered' }));
     }
-    setIsMobilePaletteOpen(false); // Auto close palette on mobile selection
+    setIsMobilePaletteOpen(false);
   };
 
-  const handleAutoSubmit = () => {
+  // SAVE ATTEMPT TO SUPABASE & FETCH REAL RANK
+  const saveQuizAttemptToSupabase = async (quizId: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id || null;
+
+      const res = calculateResult();
+
+      // 1. Insert Record into Supabase attempts table
+      await supabase.from('computer_quiz_attempts').insert([
+        {
+          quiz_id: quizId,
+          user_id: userId,
+          candidate_name: candidateName,
+          score: res.marksObtained,
+          total_marks: res.totalMaxMarks,
+          correct_count: res.correct,
+          wrong_count: res.wrong,
+          unattempted_count: res.unattempted,
+          accuracy: res.accuracy,
+          time_spent_seconds: 1200 - timeLeft,
+        },
+      ]);
+
+      // 2. Calculate Real Rank & Percentile
+      const { count: totalCount } = await supabase
+        .from('computer_quiz_attempts')
+        .select('id', { count: 'exact', head: true })
+        .eq('quiz_id', quizId);
+
+      const { count: higherCount } = await supabase
+        .from('computer_quiz_attempts')
+        .select('id', { count: 'exact', head: true })
+        .eq('quiz_id', quizId)
+        .gt('score', res.marksObtained);
+
+      const computedRank = (higherCount || 0) + 1;
+      const totalCandidates = totalCount || 1;
+      const computedPercentile = Number(
+        (((totalCandidates - computedRank + 1) / totalCandidates) * 100).toFixed(1)
+      );
+
+      setRealRank(computedRank);
+      setRealTotalCandidates(totalCandidates);
+      setRealPercentile(computedPercentile);
+    } catch (err) {
+      console.error('Error saving attempt to Supabase:', err);
+    }
+  };
+
+  const handleAutoSubmit = async () => {
     if (activeQuizId) {
       markQuizAsAttempted(activeQuizId);
       localStorage.setItem(`answers_${activeQuizId}`, JSON.stringify(selectedOptions));
+      await saveQuizAttemptToSupabase(activeQuizId);
     }
     setIsSubmitted(true);
     setIsSolutionView(false);
   };
 
-  const handleSubmitExam = () => {
+  const handleSubmitExam = async () => {
     if (confirm('Are you sure you want to submit the exam?')) {
       if (activeQuizId) {
         markQuizAsAttempted(activeQuizId);
         localStorage.setItem(`answers_${activeQuizId}`, JSON.stringify(selectedOptions));
+        await saveQuizAttemptToSupabase(activeQuizId);
       }
       setIsSubmitted(true);
       setIsSolutionView(false);
@@ -280,13 +337,6 @@ export default function ComputerIonExamPage() {
     const marksObtained = Number((correct * 0.5 - wrong * 0.125).toFixed(3));
     const totalMaxMarks = questions.length * 0.5;
 
-    const totalCandidates = 1248;
-    const simulatedPercentile = Math.min(
-      99.8,
-      Math.max(12.5, Number((accuracy * 0.65 + (marksObtained / (totalMaxMarks || 1)) * 35).toFixed(1)))
-    );
-    const estimatedRank = Math.max(1, Math.round(totalCandidates * (1 - simulatedPercentile / 100)));
-
     const timeSpentSeconds = 1200 - timeLeft;
     const timeSpentFormatted = `${Math.floor(timeSpentSeconds / 60)}m ${timeSpentSeconds % 60}s`;
 
@@ -298,9 +348,6 @@ export default function ComputerIonExamPage() {
       totalMaxMarks,
       accuracy,
       totalAttempted,
-      simulatedPercentile,
-      estimatedRank,
-      totalCandidates,
       timeSpentFormatted,
     };
   };
@@ -502,14 +549,14 @@ export default function ComputerIonExamPage() {
 
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 md:gap-3 text-center">
             <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-xl space-y-1">
-              <span className="text-xl md:text-2xl font-black text-blue-400 block">#{res.estimatedRank}</span>
+              <span className="text-xl md:text-2xl font-black text-blue-400 block">#{realRank}</span>
               <span className="text-[9px] md:text-[10px] text-slate-400 uppercase font-bold block">
-                Rank (of {res.totalCandidates})
+                Rank (of {realTotalCandidates})
               </span>
             </div>
 
             <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-xl space-y-1">
-              <span className="text-xl md:text-2xl font-black text-amber-400 block">{res.simulatedPercentile}%</span>
+              <span className="text-xl md:text-2xl font-black text-amber-400 block">{realPercentile}%</span>
               <span className="text-[9px] md:text-[10px] text-slate-400 uppercase font-bold block">
                 Percentile
               </span>
@@ -872,7 +919,7 @@ export default function ComputerIonExamPage() {
                     >
                       {idx + 1}
 
-                      {/* ⚡ GREEN DOT INDICATOR FIX FOR ANSWERED & MARKED FOR REVIEW */}
+                      {/* GREEN DOT INDICATOR FOR ANSWERED & MARKED FOR REVIEW */}
                       {!isSolutionView && st === 'answered_marked' && (
                         <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full border-2 border-white shadow-sm z-10"></span>
                       )}

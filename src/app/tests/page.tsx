@@ -48,7 +48,6 @@ export default function TestListPage() {
     if (session?.user) {
       setUser(session.user);
       
-      // Fetch User Role from Profile
       const { data: profile } = await supabase
         .from('profiles')
         .select('role, is_admin')
@@ -61,7 +60,6 @@ export default function TestListPage() {
         setUserRole('student');
       }
 
-      // Fetch Available Mock Tests & Attempts
       await fetchMocksAndAttempts(session.user.id);
     } else {
       setUser(null);
@@ -71,7 +69,6 @@ export default function TestListPage() {
   }
 
   async function fetchMocksAndAttempts(userId?: string) {
-    // 1. Fetch Mock Tests
     const { data, error } = await supabase
       .from('mock_tests')
       .select('*')
@@ -81,14 +78,12 @@ export default function TestListPage() {
       setMocks(data);
     }
 
-    // 2. Read LocalStorage Fallback
     let attemptsMap: Record<string, MockAttempt> = {};
     try {
       const localSaved = JSON.parse(localStorage.getItem('bsca_mock_attempts') || '{}');
       attemptsMap = { ...localSaved };
     } catch (e) {}
 
-    // 3. Fetch DB Attempts if user is logged in
     if (userId) {
       const { data: attemptData } = await supabase
         .from('mock_attempts')
@@ -109,7 +104,6 @@ export default function TestListPage() {
     setCompletedAttempts(attemptsMap);
   }
 
-  // Handle Login / Signup
   async function handleAuthSubmit(e: React.FormEvent) {
     e.preventDefault();
     setAuthError('');
@@ -137,7 +131,6 @@ export default function TestListPage() {
     setCompletedAttempts({});
   }
 
-  // Filter Logic
   const filteredMocks = mocks.filter((mock) => {
     const matchesSearch = mock.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           (mock.exam_type || '').toLowerCase().includes(searchTerm.toLowerCase());
@@ -146,7 +139,6 @@ export default function TestListPage() {
     return matchesSearch && (mock.exam_type || '').toUpperCase().includes(selectedFilter);
   });
 
-  // 1. LOADING SCREEN
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center font-bold space-y-3">
@@ -156,7 +148,6 @@ export default function TestListPage() {
     );
   }
 
-  // 2. UNAUTHENTICATED USER: SHOW LOGIN / SIGNUP PORTAL
   if (!user) {
     return (
       <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6 font-sans">
@@ -227,10 +218,8 @@ export default function TestListPage() {
     );
   }
 
-  // 3. AUTHENTICATED STUDENT / ADMIN PORTAL VIEW
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 font-sans flex flex-col">
-      {/* NAVBAR */}
       <header className="bg-slate-950 border-b border-slate-800 px-6 py-4 flex justify-between items-center">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 bg-amber-400 text-slate-950 rounded-lg flex items-center justify-center font-black text-sm shadow-md">
@@ -268,7 +257,6 @@ export default function TestListPage() {
         </div>
       </header>
 
-      {/* HERO BANNER & SEARCH */}
       <section className="bg-gradient-to-b from-slate-950 to-slate-900 border-b border-slate-800 py-8 px-6">
         <div className="max-w-6xl mx-auto space-y-6">
           <div className="text-center space-y-2">
@@ -306,7 +294,6 @@ export default function TestListPage() {
         </div>
       </section>
 
-      {/* MOCK TESTS GRID */}
       <main className="max-w-6xl mx-auto px-6 py-8 flex-1 w-full space-y-6">
         <div className="flex justify-between items-center border-b border-slate-800 pb-3">
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
@@ -372,7 +359,6 @@ export default function TestListPage() {
                   </div>
 
                   {attempt ? (
-                    /* DUAL ACTION BUTTONS FOR COMPLETED MOCKS (REDIRECTS TO /mock-test/[id]) */
                     <div className="grid grid-cols-2 gap-2 pt-2">
                       <Link
                         href={`/mock-test/${mock.id}?mode=reattempt`}
@@ -389,7 +375,6 @@ export default function TestListPage() {
                       </Link>
                     </div>
                   ) : (
-                    /* SINGLE START BUTTON FOR UNATTEMPTED MOCKS (REDIRECTS TO /mock-test/[id]) */
                     <Link
                       href={`/mock-test/${mock.id}`}
                       className="w-full py-3 bg-[#1D63B8] hover:bg-blue-700 text-white font-bold text-xs rounded-xl text-center shadow-lg transition flex items-center justify-center gap-2"
