@@ -13,6 +13,14 @@ interface QuizContainer {
   difficulty: string;
 }
 
+// PRESET CATEGORY LIST FOR COMPUTER QUIZZES
+const ADMIN_CATEGORIES = [
+  'Sectional Quiz',
+  'Chapter-wise Quiz',
+  'Full Forms Quiz',
+  'Full Mock',
+];
+
 export default function AdminComputerQuizPage() {
   // --- ADMIN SECURITY STATES ---
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -31,7 +39,9 @@ export default function AdminComputerQuizPage() {
   const [containerId, setContainerId] = useState('');
   const [containerTitle, setContainerTitle] = useState('');
   const [containerDesc, setContainerDesc] = useState('');
-  const [containerCategory, setContainerCategory] = useState('Full Mock');
+  const [containerCategory, setContainerCategory] = useState(ADMIN_CATEGORIES[0]);
+  const [isCustomCategory, setIsCustomCategory] = useState(false);
+  const [customCategoryName, setCustomCategoryName] = useState('');
   const [containerDifficulty, setContainerDifficulty] = useState('Moderate');
 
   // 2. Question Form States
@@ -121,13 +131,14 @@ export default function AdminComputerQuizPage() {
     setMsg('');
 
     const formattedId = containerId.trim().toLowerCase().replace(/\s+/g, '_');
+    const finalCategory = isCustomCategory ? customCategoryName.trim() : containerCategory;
 
     const { error } = await supabase.from('computer_quiz_containers').insert([
       {
         id: formattedId,
         title: containerTitle,
         description: containerDesc,
-        category: containerCategory,
+        category: finalCategory,
         difficulty: containerDifficulty,
       },
     ]);
@@ -135,10 +146,12 @@ export default function AdminComputerQuizPage() {
     if (error) {
       setMsg(`❌ Error: ${error.message}`);
     } else {
-      setMsg(`✅ Quiz Container "${containerTitle}" Created Successfully!`);
+      setMsg(`✅ Quiz Container "${containerTitle}" Created under [${finalCategory}]!`);
       setContainerId('');
       setContainerTitle('');
       setContainerDesc('');
+      setCustomCategoryName('');
+      setIsCustomCategory(false);
       fetchContainers();
       setActiveTab('bulk_upload');
       setSelectedQuizId(formattedId);
@@ -375,7 +388,7 @@ export default function AdminComputerQuizPage() {
         <div className="flex justify-between items-center border-b border-slate-800 pb-4">
           <div>
             <h1 className="text-xl font-black text-amber-400">⚡ Computer Quiz Admin Portal</h1>
-            <p className="text-xs text-slate-400">Manage Containers, Questions & Excel Uploads</p>
+            <p className="text-xs text-slate-400">Manage Containers, Category Tabs & Excel Uploads</p>
           </div>
           <div className="flex items-center gap-2">
             <Link
@@ -484,15 +497,48 @@ export default function AdminComputerQuizPage() {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-slate-400 mb-1 font-bold">Category Badge</label>
-                    <input
-                      type="text"
-                      required
-                      value={containerCategory}
-                      onChange={(e) => setContainerCategory(e.target.value)}
-                      placeholder="e.g. Full Mock, Networking, DBMS"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white outline-none focus:border-amber-400"
-                    />
+                    <label className="block text-slate-400 mb-1 font-bold">Target Category Tab</label>
+                    {!isCustomCategory ? (
+                      <select
+                        value={containerCategory}
+                        onChange={(e) => {
+                          if (e.target.value === 'NEW_CATEGORY') {
+                            setIsCustomCategory(true);
+                          } else {
+                            setContainerCategory(e.target.value);
+                          }
+                        }}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-white font-bold outline-none focus:border-amber-400"
+                      >
+                        {ADMIN_CATEGORIES.map((cat) => (
+                          <option key={cat} value={cat}>
+                            📂 {cat}
+                          </option>
+                        ))}
+                        <option value="NEW_CATEGORY">➕ Create New Tab...</option>
+                      </select>
+                    ) : (
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          required
+                          value={customCategoryName}
+                          onChange={(e) => setCustomCategoryName(e.target.value)}
+                          placeholder="e.g. Hardware & Peripherals"
+                          className="w-full bg-slate-950 border border-amber-400 rounded-xl p-3 text-white outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCustomCategory(false);
+                            setContainerCategory(ADMIN_CATEGORIES[0]);
+                          }}
+                          className="px-3 bg-slate-800 text-slate-300 hover:text-white text-xs font-bold rounded-xl"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div>
@@ -539,6 +585,9 @@ export default function AdminComputerQuizPage() {
                           <span className="font-extrabold text-white text-sm">{c.title}</span>
                           <span className="bg-slate-800 text-amber-400 border border-slate-700 px-2 py-0.5 rounded font-mono text-[10px]">
                             {c.id}
+                          </span>
+                          <span className="bg-blue-500/20 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded text-[10px] font-bold">
+                            {c.category || 'Sectional Quiz'}
                           </span>
                         </div>
                         <p className="text-slate-400 text-[11px] mt-0.5">{c.description}</p>

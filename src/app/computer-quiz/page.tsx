@@ -25,11 +25,26 @@ interface Question {
 
 type QuestionStatus = 'not_visited' | 'not_answered' | 'answered' | 'marked' | 'answered_marked';
 
+// EXPANDABLE CATEGORIES FOR STUDENT DASHBOARD
+const CATEGORIES = [
+  'All',
+  'Sectional Quiz',
+  'Chapter-wise Quiz',
+  'Full Forms Quiz',
+  'Full Mock',
+];
+
 export default function ComputerIonExamPage() {
   // ROUTING & VIEW STATES
   const [activeQuizId, setActiveQuizId] = useState<string | null>(null);
   const [quizzes, setQuizzes] = useState<QuizCard[]>([]);
   const [loadingContainers, setLoadingContainers] = useState(true);
+
+  // CATEGORY FILTER STATE
+  const [activeCategory, setActiveCategory] = useState('All');
+
+  // MOBILE PALETTE DRAWER STATE
+  const [isMobilePaletteOpen, setIsMobilePaletteOpen] = useState(false);
 
   // TRACK COMPLETED TESTS
   const [attemptedQuizIds, setAttemptedQuizIds] = useState<string[]>([]);
@@ -109,6 +124,7 @@ export default function ComputerIonExamPage() {
     setActiveQuizId(quizId);
     setTimeLeft(1200);
     setCurrentIndex(0);
+    setIsMobilePaletteOpen(false);
 
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.user) {
@@ -209,6 +225,7 @@ export default function ComputerIonExamPage() {
     if (!isSolutionView && statuses[idx] === 'not_visited') {
       setStatuses((prev) => ({ ...prev, [idx]: 'not_answered' }));
     }
+    setIsMobilePaletteOpen(false); // Auto close palette on mobile selection
   };
 
   const handleAutoSubmit = () => {
@@ -259,11 +276,10 @@ export default function ComputerIonExamPage() {
     const totalAttempted = correct + wrong;
     const accuracy = totalAttempted > 0 ? Number(((correct / totalAttempted) * 100).toFixed(1)) : 0;
     
-    // ⚡ RRB Mains Scheme: 0.5 marks per correct, -0.125 negative marking (Total 20 Marks for 40 Qs)
+    // RRB Mains Scheme: 0.5 marks per correct, -0.125 negative marking
     const marksObtained = Number((correct * 0.5 - wrong * 0.125).toFixed(3));
     const totalMaxMarks = questions.length * 0.5;
 
-    // Simulated Percentile and Rank Analytics
     const totalCandidates = 1248;
     const simulatedPercentile = Math.min(
       99.8,
@@ -289,52 +305,88 @@ export default function ComputerIonExamPage() {
     };
   };
 
+  // Filter Quizzes based on Selected Tab
+  const filteredQuizzes = activeCategory === 'All'
+    ? quizzes
+    : quizzes.filter(q => q.category?.toLowerCase() === activeCategory.toLowerCase());
+
   /* ========================================================= */
   /* VIEW 1: QUIZ CARDS DASHBOARD                              */
   /* ========================================================= */
   if (!activeQuizId) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white font-sans p-6">
-        <div className="max-w-4xl mx-auto space-y-6">
+      <div className="min-h-screen bg-slate-950 text-white font-sans p-4 md:p-6">
+        <div className="max-w-5xl mx-auto space-y-6">
+          
+          {/* HEADER */}
           <div className="flex justify-between items-center border-b border-slate-800 pb-4">
             <div>
-              <h1 className="text-2xl font-black text-amber-400 flex items-center gap-2">
+              <h1 className="text-xl md:text-2xl font-black text-amber-400 flex items-center gap-2">
                 💻 RRB Computer Awareness Test Series
               </h1>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-[11px] md:text-xs text-slate-400 mt-1">
                 Target IBPS RRB PO & Clerk Mains (20 Marks / 40 Questions)
               </p>
             </div>
             <Link
               href="/"
-              className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold px-4 py-2 rounded-xl border border-slate-700 transition"
+              className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold px-3 py-1.5 md:px-4 md:py-2 rounded-xl border border-slate-700 transition"
             >
               ← Home
             </Link>
           </div>
 
+          {/* DYNAMIC CATEGORY TABS */}
+          <div className="flex gap-2 overflow-x-auto pb-2 border-b border-slate-800/80 text-xs font-bold scrollbar-none">
+            {CATEGORIES.map((cat) => {
+              const count = cat === 'All' 
+                ? quizzes.length 
+                : quizzes.filter(q => q.category?.toLowerCase() === cat.toLowerCase()).length;
+
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setActiveCategory(cat)}
+                  className={`px-4 py-2 rounded-xl whitespace-nowrap transition-all flex items-center gap-2 ${
+                    activeCategory === cat
+                      ? 'bg-amber-400 text-slate-950 shadow-md font-extrabold'
+                      : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white hover:border-slate-700'
+                  }`}
+                >
+                  <span>{cat === 'All' ? '🌐 All Quizzes' : cat}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                    activeCategory === cat ? 'bg-slate-950/20 text-slate-950' : 'bg-slate-950 text-amber-400 border border-slate-800'
+                  }`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* QUIZ CARDS GRID */}
           {loadingContainers ? (
             <div className="text-center py-12 text-slate-500 text-xs font-bold">
               Loading Computer Quizzes...
             </div>
-          ) : quizzes.length === 0 ? (
-            <div className="text-center py-12 text-slate-500 text-xs">
-              No computer quiz containers created yet.
+          ) : filteredQuizzes.length === 0 ? (
+            <div className="text-center py-12 bg-slate-900 border border-slate-800 rounded-2xl text-slate-400 text-xs">
+              No computer quizzes found in <strong className="text-amber-400">{activeCategory}</strong>.
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 pt-2">
-              {quizzes.map((quiz) => {
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5 pt-2">
+              {filteredQuizzes.map((quiz) => {
                 const isAttempted = attemptedQuizIds.includes(quiz.id);
 
                 return (
                   <div
                     key={quiz.id}
-                    className="bg-slate-900 border border-slate-800 hover:border-amber-400/50 rounded-2xl p-5 flex flex-col justify-between shadow-xl transition-all duration-200 hover:-translate-y-1 group"
+                    className="bg-slate-900 border border-slate-800 hover:border-amber-400/50 rounded-2xl p-4 md:p-5 flex flex-col justify-between shadow-xl transition-all duration-200"
                   >
                     <div className="space-y-3">
                       <div className="flex justify-between items-center text-[10px] font-bold uppercase">
                         <span className="bg-amber-400/10 text-amber-400 border border-amber-400/20 px-2.5 py-0.5 rounded-full">
-                          {quiz.category || 'Full Mock'}
+                          {quiz.category || 'Sectional Quiz'}
                         </span>
                         
                         {isAttempted ? (
@@ -347,7 +399,7 @@ export default function ComputerIonExamPage() {
                       </div>
 
                       <div>
-                        <h3 className="text-lg font-black text-white group-hover:text-amber-400 transition">
+                        <h3 className="text-base md:text-lg font-black text-white">
                           {quiz.title}
                         </h3>
                         <p className="text-xs text-slate-400 mt-1 line-clamp-2 leading-relaxed">
@@ -355,7 +407,7 @@ export default function ComputerIonExamPage() {
                         </p>
                       </div>
 
-                      <div className="flex items-center gap-4 text-xs font-mono text-slate-300 bg-slate-950 p-3 rounded-xl border border-slate-800/80">
+                      <div className="flex items-center gap-4 text-xs font-mono text-slate-300 bg-slate-950 p-2.5 rounded-xl border border-slate-800/80">
                         <div className="flex items-center gap-1">
                           <span>❓</span>
                           <span>40 Qs (20 Marks)</span>
@@ -367,18 +419,18 @@ export default function ComputerIonExamPage() {
                       </div>
                     </div>
 
-                    <div className="mt-5">
+                    <div className="mt-4">
                       {isAttempted ? (
                         <div className="grid grid-cols-2 gap-2">
                           <button
                             onClick={() => startQuiz(quiz.id, false)}
-                            className="py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs uppercase tracking-wider rounded-xl text-center shadow transition"
+                            className="py-2 bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs uppercase tracking-wider rounded-xl text-center transition"
                           >
                             Re-take 🔄
                           </button>
                           <button
                             onClick={() => startQuiz(quiz.id, true)}
-                            className="py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl text-center shadow transition"
+                            className="py-2 bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl text-center transition"
                           >
                             Solutions 📖
                           </button>
@@ -386,7 +438,7 @@ export default function ComputerIonExamPage() {
                       ) : (
                         <button
                           onClick={() => startQuiz(quiz.id, false)}
-                          className="w-full py-3 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl text-center shadow-lg shadow-amber-400/10 transition"
+                          className="w-full py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl text-center shadow-lg transition"
                         >
                           Attempt Test (iON Mode) →
                         </button>
@@ -410,7 +462,6 @@ export default function ComputerIonExamPage() {
     );
   }
 
-  // Common Calculations for Scorecard & Exam View
   const res = calculateResult();
   const currentQ = questions[currentIndex];
   const counts = getCounts();
@@ -420,98 +471,93 @@ export default function ComputerIonExamPage() {
   /* ========================================================= */
   if (isSubmitted && !isSolutionView) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white p-6 font-sans flex flex-col items-center justify-center">
-        <div className="max-w-2xl w-full bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden space-y-6 p-6">
+      <div className="min-h-screen bg-slate-950 text-white p-4 md:p-6 font-sans flex flex-col items-center justify-center">
+        <div className="max-w-2xl w-full bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden space-y-6 p-5 md:p-6">
           
-          {/* BRANDING HEADER */}
           <div className="flex justify-between items-center border-b border-slate-800 pb-4">
             <div className="flex items-center gap-2">
-              <span className="bg-amber-400 text-slate-950 font-black px-2.5 py-1 rounded text-sm shadow">
+              <span className="bg-amber-400 text-slate-950 font-black px-2.5 py-1 rounded text-xs md:text-sm shadow">
                 BS iON
               </span>
-              <span className="font-extrabold text-white text-base">
+              <span className="font-extrabold text-white text-sm md:text-base">
                 Performance Scorecard
               </span>
             </div>
-            <span className="text-xs bg-slate-800 text-slate-400 px-3 py-1 rounded-full font-mono">
+            <span className="text-[10px] md:text-xs bg-slate-800 text-slate-400 px-2.5 py-1 rounded-full font-mono">
               {activeQuizId?.toUpperCase().replace('_', ' ')}
             </span>
           </div>
 
-          {/* OVERALL PERFORMANCE BANNER */}
-          <div className="bg-gradient-to-r from-amber-500/10 via-slate-900 to-blue-500/10 border border-amber-500/30 rounded-2xl p-6 text-center space-y-2">
+          <div className="bg-gradient-to-r from-amber-500/10 via-slate-900 to-blue-500/10 border border-amber-500/30 rounded-2xl p-5 md:p-6 text-center space-y-2">
             <span className="text-[10px] font-extrabold uppercase tracking-widest text-amber-400 block">
               Overall Marks
             </span>
-            <div className="text-4xl md:text-5xl font-black text-amber-400">
-              {res.marksObtained} <span className="text-lg text-slate-500 font-normal">/ {res.totalMaxMarks}</span>
+            <div className="text-3xl md:text-5xl font-black text-amber-400">
+              {res.marksObtained} <span className="text-sm md:text-lg text-slate-500 font-normal">/ {res.totalMaxMarks}</span>
             </div>
             <p className="text-xs text-slate-300 pt-1">
               Candidate: <strong className="text-white">{candidateName}</strong>
             </p>
           </div>
 
-          {/* METRICS GRID: RANK, PERCENTILE, ACCURACY */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-center">
-            <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-1">
-              <span className="text-2xl font-black text-blue-400 block">#{res.estimatedRank}</span>
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">
-                Estimated Rank (of {res.totalCandidates})
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 md:gap-3 text-center">
+            <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-xl space-y-1">
+              <span className="text-xl md:text-2xl font-black text-blue-400 block">#{res.estimatedRank}</span>
+              <span className="text-[9px] md:text-[10px] text-slate-400 uppercase font-bold block">
+                Rank (of {res.totalCandidates})
               </span>
             </div>
 
-            <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-1">
-              <span className="text-2xl font-black text-amber-400 block">{res.simulatedPercentile}%</span>
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">
+            <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-xl space-y-1">
+              <span className="text-xl md:text-2xl font-black text-amber-400 block">{res.simulatedPercentile}%</span>
+              <span className="text-[9px] md:text-[10px] text-slate-400 uppercase font-bold block">
                 Percentile
               </span>
             </div>
 
-            <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-1 col-span-2 md:col-span-1">
-              <span className="text-2xl font-black text-emerald-400 block">{res.accuracy}%</span>
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">
+            <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-xl space-y-1 col-span-2 md:col-span-1">
+              <span className="text-xl md:text-2xl font-black text-emerald-400 block">{res.accuracy}%</span>
+              <span className="text-[9px] md:text-[10px] text-slate-400 uppercase font-bold block">
                 Accuracy
               </span>
             </div>
           </div>
 
-          {/* QUESTION BREAKDOWN GRID */}
-          <div className="grid grid-cols-4 gap-2 bg-slate-950 p-4 rounded-xl border border-slate-800 text-center text-xs font-mono">
+          <div className="grid grid-cols-4 gap-2 bg-slate-950 p-3 rounded-xl border border-slate-800 text-center text-xs font-mono">
             <div>
-              <span className="text-emerald-400 font-bold text-lg block">{res.correct}</span>
-              <span className="text-[10px] text-slate-400 uppercase font-sans">Correct (+0.5)</span>
+              <span className="text-emerald-400 font-bold text-base md:text-lg block">{res.correct}</span>
+              <span className="text-[9px] text-slate-400 uppercase font-sans">Correct</span>
             </div>
             <div>
-              <span className="text-rose-400 font-bold text-lg block">{res.wrong}</span>
-              <span className="text-[10px] text-slate-400 uppercase font-sans">Incorrect (-0.125)</span>
+              <span className="text-rose-400 font-bold text-base md:text-lg block">{res.wrong}</span>
+              <span className="text-[9px] text-slate-400 uppercase font-sans">Wrong</span>
             </div>
             <div>
-              <span className="text-slate-400 font-bold text-lg block">{res.unattempted}</span>
-              <span className="text-[10px] text-slate-400 uppercase font-sans">Unattempted</span>
+              <span className="text-slate-400 font-bold text-base md:text-lg block">{res.unattempted}</span>
+              <span className="text-[9px] text-slate-400 uppercase font-sans">Left</span>
             </div>
             <div>
-              <span className="text-amber-400 font-bold text-lg block">{res.timeSpentFormatted}</span>
-              <span className="text-[10px] text-slate-400 uppercase font-sans">Time Spent</span>
+              <span className="text-amber-400 font-bold text-base md:text-lg block">{res.timeSpentFormatted}</span>
+              <span className="text-[9px] text-slate-400 uppercase font-sans">Time</span>
             </div>
           </div>
 
-          {/* ACTION BUTTONS */}
-          <div className="flex flex-col md:flex-row gap-3 pt-2">
+          <div className="flex flex-col sm:flex-row gap-2.5 pt-2">
             <button
               onClick={() => setIsSolutionView(true)}
-              className="flex-1 py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-lg transition text-center"
+              className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow transition text-center"
             >
-              View Detailed Solutions 📖
+              View Solutions 📖
             </button>
             <button
               onClick={() => activeQuizId && startQuiz(activeQuizId, false)}
-              className="py-3.5 px-6 bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs uppercase tracking-wider rounded-xl shadow transition text-center"
+              className="py-3 px-5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs uppercase tracking-wider rounded-xl shadow transition text-center"
             >
               Re-take Mock 🔄
             </button>
             <button
               onClick={() => setActiveQuizId(null)}
-              className="py-3.5 px-5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs uppercase rounded-xl border border-slate-700 transition"
+              className="py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs uppercase rounded-xl border border-slate-700 transition"
             >
               Exit
             </button>
@@ -529,26 +575,26 @@ export default function ComputerIonExamPage() {
     <div className="h-screen w-screen flex flex-col font-sans bg-slate-100 select-none overflow-hidden text-slate-900">
       
       {/* 1. TOP HEADER WITH BANKINGSOLUTIONS (BS) BRANDING */}
-      <header className="bg-[#1d63b8] text-white h-14 flex justify-between items-center px-4 shadow-md shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="bg-amber-400 text-slate-950 font-black px-2.5 py-1 rounded text-sm shadow flex items-center gap-1">
+      <header className="bg-[#1d63b8] text-white h-12 md:h-14 flex justify-between items-center px-3 md:px-4 shadow-md shrink-0">
+        <div className="flex items-center gap-2 md:gap-3">
+          <div className="bg-amber-400 text-slate-950 font-black px-2 py-0.5 md:py-1 rounded text-xs md:text-sm shadow flex items-center gap-1">
             <span className="tracking-tighter">BS</span>
-            <span className="text-[10px] bg-slate-950 text-amber-400 px-1 rounded">iON</span>
+            <span className="text-[9px] md:text-[10px] bg-slate-950 text-amber-400 px-1 rounded">iON</span>
           </div>
-          <span className="font-extrabold text-sm tracking-wide hidden md:inline uppercase">
-            BankingSolutions — IBPS RRB {activeQuizId?.replace('_', ' ')}
+          <span className="font-extrabold text-xs md:text-sm tracking-wide uppercase truncate max-w-[140px] sm:max-w-none">
+            BankingSolutions — {activeQuizId?.replace('_', ' ')}
           </span>
         </div>
 
-        <div className="flex items-center gap-6">
-          <div className="text-right">
-            <span className="text-[10px] uppercase text-blue-200 block font-bold">Candidate</span>
+        <div className="flex items-center gap-2 md:gap-6">
+          <div className="text-right hidden sm:block">
+            <span className="text-[9px] uppercase text-blue-200 block font-bold">Candidate</span>
             <span className="text-xs font-bold">{candidateName}</span>
           </div>
 
           {!isSolutionView ? (
-            <div className="bg-white text-slate-900 px-3 py-1.5 rounded font-mono font-bold text-sm flex items-center gap-2 border border-blue-300">
-              <span className="text-slate-500 text-xs">Time Left:</span>
+            <div className="bg-white text-slate-900 px-2.5 py-1 rounded font-mono font-bold text-xs md:text-sm flex items-center gap-1.5 border border-blue-300">
+              <span className="text-slate-500 text-[10px] hidden sm:inline">Time:</span>
               <span className={timeLeft < 300 ? 'text-rose-600 animate-pulse' : 'text-blue-700'}>
                 {formatTime(timeLeft)}
               </span>
@@ -556,60 +602,69 @@ export default function ComputerIonExamPage() {
           ) : (
             <button
               onClick={() => setIsSolutionView(false)}
-              className="bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black px-3.5 py-1.5 rounded uppercase transition"
+              className="bg-amber-400 text-slate-950 text-[10px] md:text-xs font-black px-2.5 py-1 rounded uppercase"
             >
               Scorecard 📊
             </button>
           )}
+
+          {/* MOBILE PALETTE TOGGLE BUTTON */}
+          <button
+            onClick={() => setIsMobilePaletteOpen(!isMobilePaletteOpen)}
+            className="md:hidden bg-blue-900/60 border border-blue-400/30 text-white font-bold px-2 py-1 rounded text-xs flex items-center gap-1"
+          >
+            <span>☰</span>
+            <span className="text-[10px]">Palette</span>
+          </button>
         </div>
       </header>
 
       {/* 2. SECTION BAR / SOLUTIONS SCORE BAR */}
-      <div className="bg-slate-200 border-b border-slate-300 px-4 py-2 flex justify-between items-center shrink-0 text-xs">
-        <div className="flex items-center gap-2">
-          <button className="bg-[#1d63b8] text-white font-bold px-4 py-1.5 rounded-t shadow">
+      <div className="bg-slate-200 border-b border-slate-300 px-3 md:px-4 py-1.5 flex justify-between items-center shrink-0 text-xs">
+        <div className="flex items-center gap-1.5">
+          <button className="bg-[#1d63b8] text-white font-bold px-3 py-1 rounded-t text-[10px] md:text-xs shadow">
             Computer Knowledge
           </button>
           {isSolutionView && (
-            <span className="bg-emerald-600 text-white font-bold px-2.5 py-1 rounded text-[11px]">
-              📖 Solution Mode
+            <span className="bg-emerald-600 text-white font-bold px-2 py-0.5 rounded text-[10px]">
+              Solution Mode
             </span>
           )}
         </div>
 
         {isSolutionView ? (
-          <div className="flex gap-4 font-mono font-bold text-slate-700 text-xs">
+          <div className="flex gap-2.5 font-mono font-bold text-slate-700 text-[10px] md:text-xs">
             <span>Score: <strong className="text-blue-600">{res.marksObtained} / {res.totalMaxMarks}</strong></span>
-            <span>Accuracy: <strong className="text-emerald-600">{res.accuracy}%</strong></span>
+            <span className="hidden sm:inline">Accuracy: <strong className="text-emerald-600">{res.accuracy}%</strong></span>
           </div>
         ) : (
-          <span className="text-slate-600 font-semibold text-[11px]">
-            Marks: +0.5 | Negative: -0.125
+          <span className="text-slate-600 font-semibold text-[10px] md:text-[11px]">
+            +0.5 | -0.125
           </span>
         )}
       </div>
 
       {/* 3. MAIN EXAM / SOLUTION BODY */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden relative">
         
         {/* LEFT: QUESTION ARENA */}
         <div className="flex-1 flex flex-col justify-between bg-white border-r border-slate-300 overflow-hidden">
-          <div className="p-6 overflow-y-auto flex-1 space-y-5">
-            <div className="flex justify-between items-center border-b border-slate-200 pb-3">
-              <span className="font-extrabold text-slate-800 text-base">
+          <div className="p-4 md:p-6 overflow-y-auto flex-1 space-y-4 md:space-y-5">
+            <div className="flex justify-between items-center border-b border-slate-200 pb-2.5">
+              <span className="font-extrabold text-slate-800 text-sm md:text-base">
                 Question No. {currentIndex + 1}
               </span>
-              <span className="text-[11px] bg-slate-100 text-slate-600 font-bold px-2.5 py-1 rounded border">
+              <span className="text-[10px] md:text-[11px] bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded border">
                 Category: {currentQ?.category || 'General'}
               </span>
             </div>
 
-            <div className="text-sm md:text-base font-semibold text-slate-800 leading-relaxed">
+            <div className="text-xs md:text-base font-semibold text-slate-800 leading-relaxed">
               {currentQ?.question}
             </div>
 
             {/* OPTIONS */}
-            <div className="space-y-3 pt-2">
+            <div className="space-y-2.5 pt-1">
               {currentQ?.options.map((opt: string, optIdx: number) => {
                 const isSelected = selectedOptions[currentIndex] === optIdx;
                 const isCorrectOption = optIdx === currentQ.correct_option;
@@ -632,28 +687,28 @@ export default function ComputerIonExamPage() {
                   <label
                     key={optIdx}
                     onClick={() => handleOptionSelect(optIdx)}
-                    className={`flex items-center justify-between p-3.5 rounded border text-xs md:text-sm cursor-pointer transition ${optStyle}`}
+                    className={`flex items-center justify-between p-3 rounded-xl border text-xs md:text-sm cursor-pointer transition ${optStyle}`}
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2.5">
                       <input
                         type="radio"
                         disabled={isSolutionView}
                         name={`q-${currentIndex}`}
                         checked={isSelected}
                         onChange={() => handleOptionSelect(optIdx)}
-                        className="accent-[#1d63b8] w-4 h-4"
+                        className="accent-[#1d63b8] w-4 h-4 shrink-0"
                       />
                       <span>{opt}</span>
                     </div>
 
                     {isSolutionView && isCorrectOption && (
-                      <span className="text-[10px] bg-emerald-600 text-white font-bold px-2 py-0.5 rounded uppercase">
-                        Correct Answer (+0.5)
+                      <span className="text-[9px] bg-emerald-600 text-white font-bold px-1.5 py-0.5 rounded uppercase shrink-0">
+                        Correct
                       </span>
                     )}
                     {isSolutionView && isSelected && !isCorrectOption && (
-                      <span className="text-[10px] bg-rose-600 text-white font-bold px-2 py-0.5 rounded uppercase">
-                        Your Pick (-0.125)
+                      <span className="text-[9px] bg-rose-600 text-white font-bold px-1.5 py-0.5 rounded uppercase shrink-0">
+                        Your Pick
                       </span>
                     )}
                   </label>
@@ -663,27 +718,27 @@ export default function ComputerIonExamPage() {
 
             {/* EXPLANATION IN SOLUTION MODE */}
             {isSolutionView && currentQ?.explanation && (
-              <div className="p-4 bg-slate-100 border border-slate-300 rounded-xl text-xs space-y-1">
+              <div className="p-3.5 bg-slate-100 border border-slate-300 rounded-xl text-xs space-y-1">
                 <span className="font-bold text-amber-600 block uppercase text-[10px]">💡 Official Explanation:</span>
-                <p className="text-slate-700 leading-relaxed">{currentQ.explanation}</p>
+                <p className="text-slate-700 leading-relaxed text-xs">{currentQ.explanation}</p>
               </div>
             )}
           </div>
 
           {/* BOTTOM CONTROLS BAR */}
-          <div className="bg-slate-100 border-t border-slate-300 p-3 flex flex-wrap justify-between items-center gap-2 shrink-0">
+          <div className="bg-slate-100 border-t border-slate-300 p-2.5 md:p-3 flex flex-wrap justify-between items-center gap-2 shrink-0">
             {!isSolutionView ? (
               <>
-                <div className="flex gap-2">
+                <div className="flex gap-1.5">
                   <button
                     onClick={handleMarkForReview}
-                    className="bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs px-4 py-2.5 rounded shadow"
+                    className="bg-purple-700 hover:bg-purple-800 text-white font-bold text-[10px] md:text-xs px-2.5 md:px-4 py-2 rounded shadow"
                   >
-                    Mark for Review & Next
+                    Mark for Review
                   </button>
                   <button
                     onClick={handleClearResponse}
-                    className="bg-white hover:bg-slate-200 border border-slate-400 text-slate-700 font-bold text-xs px-4 py-2.5 rounded shadow"
+                    className="bg-white hover:bg-slate-200 border border-slate-400 text-slate-700 font-bold text-[10px] md:text-xs px-2.5 md:px-4 py-2 rounded shadow"
                   >
                     Clear Response
                   </button>
@@ -691,7 +746,7 @@ export default function ComputerIonExamPage() {
 
                 <button
                   onClick={handleSaveAndNext}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-6 py-2.5 rounded shadow"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 md:px-6 py-2 rounded shadow"
                 >
                   Save & Next →
                 </button>
@@ -701,14 +756,14 @@ export default function ComputerIonExamPage() {
                 <button
                   onClick={() => setCurrentIndex((prev) => Math.max(0, prev - 1))}
                   disabled={currentIndex === 0}
-                  className="bg-slate-300 hover:bg-slate-400 text-slate-800 font-bold text-xs px-4 py-2.5 rounded disabled:opacity-40"
+                  className="bg-slate-300 hover:bg-slate-400 text-slate-800 font-bold text-xs px-3.5 py-2 rounded disabled:opacity-40"
                 >
                   ← Previous Question
                 </button>
                 <button
                   onClick={() => setCurrentIndex((prev) => Math.min(questions.length - 1, prev + 1))}
                   disabled={currentIndex === questions.length - 1}
-                  className="bg-[#1d63b8] hover:bg-blue-700 text-white font-bold text-xs px-6 py-2.5 rounded"
+                  className="bg-[#1d63b8] hover:bg-blue-700 text-white font-bold text-xs px-5 py-2 rounded"
                 >
                   Next Question →
                 </button>
@@ -717,38 +772,60 @@ export default function ComputerIonExamPage() {
           </div>
         </div>
 
+        {/* MOBILE PALETTE OVERLAY BACKDROP */}
+        {isMobilePaletteOpen && (
+          <div
+            onClick={() => setIsMobilePaletteOpen(false)}
+            className="md:hidden fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-40"
+          />
+        )}
+
         {/* RIGHT: QUESTION PALETTE WITH ALL 5 OFFICIAL TCS STATES */}
-        <div className="w-80 bg-slate-50 flex flex-col justify-between border-l border-slate-300 shrink-0">
+        <div
+          className={`fixed md:static inset-y-0 right-0 z-50 w-72 md:w-80 bg-slate-50 flex flex-col justify-between border-l border-slate-300 shrink-0 transition-transform duration-300 shadow-2xl md:shadow-none ${
+            isMobilePaletteOpen ? 'translate-x-0' : 'translate-x-full md:translate-x-0'
+          }`}
+        >
           <div className="p-4 overflow-y-auto space-y-4">
             
+            <div className="flex justify-between items-center md:hidden border-b border-slate-300 pb-2">
+              <span className="font-bold text-xs text-slate-800 uppercase">Question Palette</span>
+              <button
+                onClick={() => setIsMobilePaletteOpen(false)}
+                className="text-slate-500 font-bold text-base px-2"
+              >
+                ✕
+              </button>
+            </div>
+
             {/* TCS PALETTE LEGEND */}
-            <div className="grid grid-cols-2 gap-2 text-[11px] font-bold text-slate-700 border-b border-slate-300 pb-3">
+            <div className="grid grid-cols-2 gap-2 text-[10px] font-bold text-slate-700 border-b border-slate-300 pb-3">
               <div className="flex items-center gap-1.5">
-                <span className="w-5 h-5 bg-emerald-600 text-white flex items-center justify-center rounded-sm text-[10px]">
+                <span className="w-4 h-4 bg-emerald-600 text-white flex items-center justify-center rounded-sm text-[9px]">
                   {counts.answered}
                 </span>
                 <span>Answered</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <span className="w-5 h-5 bg-rose-600 text-white flex items-center justify-center rounded-sm text-[10px]">
+                <span className="w-4 h-4 bg-rose-600 text-white flex items-center justify-center rounded-sm text-[9px]">
                   {counts.notAnswered}
                 </span>
                 <span>Not Answered</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <span className="w-5 h-5 bg-slate-200 border border-slate-400 text-slate-700 flex items-center justify-center rounded-sm text-[10px]">
+                <span className="w-4 h-4 bg-slate-200 border border-slate-400 text-slate-700 flex items-center justify-center rounded-sm text-[9px]">
                   {counts.notVisited}
                 </span>
                 <span>Not Visited</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <span className="w-5 h-5 bg-purple-700 text-white flex items-center justify-center rounded-sm text-[10px]">
+                <span className="w-4 h-4 bg-purple-700 text-white flex items-center justify-center rounded-sm text-[9px]">
                   {counts.marked}
                 </span>
                 <span>Marked for Review</span>
               </div>
               <div className="flex items-center gap-1.5 col-span-2">
-                <span className="w-5 h-5 bg-purple-700 text-white flex items-center justify-center rounded-sm text-[10px] relative">
+                <span className="w-4 h-4 bg-purple-700 text-white flex items-center justify-center rounded-sm text-[9px] relative overflow-visible">
                   {counts.answeredMarked}
                   <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-emerald-400 rounded-full border border-white"></span>
                 </span>
@@ -758,10 +835,10 @@ export default function ComputerIonExamPage() {
 
             {/* PALETTE GRID */}
             <div>
-              <span className="text-xs font-bold text-slate-700 block mb-2 uppercase">
-                Question Palette
+              <span className="text-[11px] font-bold text-slate-700 block mb-2 uppercase">
+                Questions ({questions.length})
               </span>
-              <div className="grid grid-cols-5 gap-2 max-h-80 overflow-y-auto pr-1">
+              <div className="grid grid-cols-5 gap-1.5 max-h-80 overflow-y-auto pr-1">
                 {questions.map((q, idx) => {
                   const st = statuses[idx];
                   const userSel = selectedOptions[idx];
@@ -780,7 +857,7 @@ export default function ComputerIonExamPage() {
                     if (st === 'answered') btnBg = 'bg-emerald-600 text-white border-emerald-700';
                     if (st === 'not_answered') btnBg = 'bg-rose-600 text-white border-rose-700';
                     if (st === 'marked') btnBg = 'bg-purple-700 text-white border-purple-800';
-                    if (st === 'answered_marked') btnBg = 'bg-purple-700 text-white border-purple-800 relative';
+                    if (st === 'answered_marked') btnBg = 'bg-purple-700 text-white border-purple-800 relative overflow-visible';
                   }
 
                   const isCurrent = idx === currentIndex;
@@ -789,13 +866,15 @@ export default function ComputerIonExamPage() {
                     <button
                       key={idx}
                       onClick={() => handlePaletteClick(idx)}
-                      className={`h-9 font-bold text-xs rounded border transition flex items-center justify-center shadow-sm ${btnBg} ${
+                      className={`h-8 font-bold text-xs rounded border transition flex items-center justify-center shadow-sm relative ${btnBg} ${
                         isCurrent ? 'ring-2 ring-blue-600 ring-offset-1 font-black scale-105' : ''
                       }`}
                     >
                       {idx + 1}
+
+                      {/* ⚡ GREEN DOT INDICATOR FIX FOR ANSWERED & MARKED FOR REVIEW */}
                       {!isSolutionView && st === 'answered_marked' && (
-                        <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-400 rounded-full border border-white"></span>
+                        <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full border-2 border-white shadow-sm z-10"></span>
                       )}
                     </button>
                   );
@@ -805,18 +884,18 @@ export default function ComputerIonExamPage() {
           </div>
 
           {/* SUBMIT BUTTON FOOTER */}
-          <div className="p-4 bg-slate-200 border-t border-slate-300">
+          <div className="p-3 bg-slate-200 border-t border-slate-300">
             {!isSolutionView ? (
               <button
                 onClick={handleSubmitExam}
-                className="w-full py-3 bg-[#1d63b8] hover:bg-blue-800 text-white font-extrabold text-xs uppercase tracking-wider rounded shadow transition"
+                className="w-full py-2.5 bg-[#1d63b8] hover:bg-blue-800 text-white font-extrabold text-xs uppercase tracking-wider rounded shadow transition"
               >
                 Submit Test
               </button>
             ) : (
               <button
                 onClick={() => setIsSolutionView(false)}
-                className="w-full py-3 bg-slate-800 hover:bg-slate-900 text-white font-extrabold text-xs uppercase tracking-wider rounded shadow transition"
+                className="w-full py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-extrabold text-xs uppercase tracking-wider rounded shadow transition"
               >
                 Back to Scorecard 📊
               </button>
