@@ -247,13 +247,16 @@ export default function TestListPage() {
               <span>⚙️ Admin Panel</span>
             </Link>
           )}
-
+           <Link href="/" className="px-4 py-1.5 bg-white/10 hover:bg-white/20 text-white font-bold text-xs rounded-lg transition border border-white/20">
+                    ← Home
+                  </Link>
           <button
             onClick={handleLogout}
             className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-lg transition"
           >
             Logout
           </button>
+         
         </div>
       </header>
 

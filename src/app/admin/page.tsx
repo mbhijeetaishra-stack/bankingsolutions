@@ -61,7 +61,14 @@ interface UpdatePost {
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<
-    'updates_publisher' | 'bsca_quiz_builder' | 'pdf_uploader' | 'direct_mock_upload' | 'create_mock' | 'add_question' | 'bulk_upload'
+    | 'updates_publisher'
+    | 'bsca_quiz_builder'
+    | 'pdf_uploader'
+    | 'direct_mock_upload'
+    | 'create_mock'
+    | 'add_question'
+    | 'bulk_upload'
+    | 'targets_manager'
   >('updates_publisher');
 
   // Admin Security States
@@ -111,7 +118,7 @@ export default function AdminPage() {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [uploadedPdfs, setUploadedPdfs] = useState<CoursePdf[]>([]);
 
-  // Updates & One-Liners Publisher States (Enhanced with Media & Link Support)
+  // Updates & One-Liners Publisher States
   const [postCategory, setPostCategory] = useState<'ONE_LINER' | 'NOTIFICATION' | 'RESULT' | 'EXPECTED_CUTOFF' | 'EXAM_ANALYSIS'>('ONE_LINER');
   const [postTitle, setPostTitle] = useState('');
   const [postContent, setPostContent] = useState('');
@@ -135,10 +142,34 @@ export default function AdminPage() {
   const [quizCorrectOption, setQuizCorrectOption] = useState(0);
   const [quizExplanation, setQuizExplanation] = useState('');
 
+  // Daily Targets, Countdowns & Day-Wise Checklist Manager States
+  const [targetDayNo, setTargetDayNo] = useState(1);
+  const [targetTrackMode, setTargetTrackMode] = useState<'beginner' | 'repeater'>('beginner');
+  const [targetVideoUrl, setTargetVideoUrl] = useState('');
+  const [allConfiguredTargets, setAllConfiguredTargets] = useState<any[]>([]);
+
+  const [examNameInput, setExamNameInput] = useState('');
+  const [examDateInput, setExamDateInput] = useState('');
+  const [adminExamsList, setAdminExamsList] = useState<any[]>([]);
+  
+  const [dayChecklistInput, setDayChecklistInput] = useState('');
+  const [dayChecklistItems, setDayChecklistItems] = useState<any[]>([]);
+
+  // Marquee Ticker States
+  const [marqueeInput, setMarqueeInput] = useState('');
+  const [adminMarqueeList, setAdminMarqueeList] = useState<any[]>([]);
+
   // Check auth & profile on mount
   useEffect(() => {
     checkAdminAuth();
   }, []);
+
+  // Fetch day-specific checklist items and video URL whenever targetDayNo or targetTrackMode changes
+  useEffect(() => {
+    if (isAdmin) {
+      fetchDaySpecificData(targetDayNo, targetTrackMode);
+    }
+  }, [targetDayNo, targetTrackMode, isAdmin]);
 
   async function checkAdminAuth() {
     setCheckingAuth(true);
@@ -192,56 +223,93 @@ export default function AdminPage() {
   }
 
   async function fetchInitialData() {
-    // 1. Fetch Subjects
     const { data: subData } = await supabase.from('subjects').select('*');
     if (subData && subData.length > 0) {
       setSubjects(subData);
       setSelectedSubject(subData[0].id);
     }
 
-    // 2. Fetch Question Bank
     const { data: qData } = await supabase
       .from('questions')
       .select('id, question_text, subject_id, options, correct_option_index, solution_text, subjects(name)');
     if (qData) setAllQuestions(qData as unknown as Question[]);
 
-    // 3. Fetch Published Mocks
     const { data: mData } = await supabase
       .from('mock_tests')
       .select('*')
       .order('created_at', { ascending: false });
     if (mData) setExistingMocks(mData);
 
-    // 4. Fetch PDF Courses (BSPS & BSCA)
     const { data: cData } = await supabase
       .from('pdf_courses')
       .select('*')
       .order('created_at', { ascending: false });
     if (cData) setExistingCourses(cData as PdfCourse[]);
 
-    // 5. Fetch Day-Wise PDFs
     const { data: pData } = await supabase
       .from('course_pdfs')
       .select('*')
       .order('day_number', { ascending: true });
     if (pData) setUploadedPdfs(pData as CoursePdf[]);
 
-    // 6. Fetch Updates Feed
     const { data: uData } = await supabase
       .from('updates_feed')
       .select('*')
       .order('created_at', { ascending: false });
     if (uData) setPublishedFeed(uData as UpdatePost[]);
 
-    // 7. Fetch Quizzes
     const { data: quizData } = await supabase
       .from('bsca_quizzes')
       .select('*')
       .order('quiz_date', { ascending: false });
     if (quizData) setExistingQuizzes(quizData);
+
+    const { data: targetListData } = await supabase.from('admin_targets_config').select('*').order('day_number', { ascending: true });
+    if (targetListData) {
+      setAllConfiguredTargets(targetListData);
+    }
+
+    const { data: examCountdownData } = await supabase.from('admin_exam_countdowns').select('*').order('exam_date', { ascending: true });
+    if (examCountdownData) {
+      setAdminExamsList(examCountdownData);
+    }
+
+    const { data: marqueeData } = await supabase.from('admin_marquee_notices').select('*').order('display_order', { ascending: true });
+    if (marqueeData) {
+      setAdminMarqueeList(marqueeData);
+    }
+
+    fetchDaySpecificData(targetDayNo, targetTrackMode);
   }
 
-  // --- PUBLISH ONE-LINER OR EXAM UPDATE (WITH IMAGE & LINK SUPPORT) ---
+  async function fetchDaySpecificData(day: number, mode: string) {
+    const { data: checklistData } = await supabase
+      .from('admin_day_checklist_items')
+      .select('*')
+      .eq('day_number', day)
+      .eq('track_mode', mode)
+      .order('display_order', { ascending: true });
+
+    if (checklistData) {
+      setDayChecklistItems(checklistData);
+    } else {
+      setDayChecklistItems([]);
+    }
+
+    const { data: videoData } = await supabase
+      .from('admin_targets_config')
+      .select('youtube_url')
+      .eq('day_number', day)
+      .eq('track_mode', mode)
+      .single();
+
+    if (videoData) {
+      setTargetVideoUrl(videoData.youtube_url || '');
+    } else {
+      setTargetVideoUrl('');
+    }
+  }
+
   async function handlePublishPost(e: React.FormEvent) {
     e.preventDefault();
     if (!postTitle.trim() || !postContent.trim()) return setStatusMsg('⚠️ Please enter Title and Content!');
@@ -249,7 +317,6 @@ export default function AdminPage() {
     setStatusMsg('Publishing update...');
     let finalImageUrl = postImageUrl.trim();
 
-    // Upload image file if attached
     if (imageFile) {
       try {
         const filePath = `updates/${Date.now()}_${imageFile.name}`;
@@ -290,7 +357,6 @@ export default function AdminPage() {
     }
   }
 
-  // --- DELETE UPDATE POST ---
   async function handleDeletePost(postId: string, title: string) {
     if (!confirm(`Are you sure you want to delete "${title}"?`)) return;
 
@@ -301,7 +367,6 @@ export default function AdminPage() {
     }
   }
 
-  // --- CREATE BSCA QUIZ CONTAINER ---
   async function handleCreateQuiz(e: React.FormEvent) {
     e.preventDefault();
     if (!quizTitle.trim()) return setStatusMsg('⚠️ Enter Quiz Title!');
@@ -320,7 +385,6 @@ export default function AdminPage() {
     }
   }
 
-  // --- ADD QUESTION TO BSCA QUIZ ---
   async function handleAddQuizQuestion(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedQuizId) return setStatusMsg('⚠️ Select a Quiz container!');
@@ -347,7 +411,6 @@ export default function AdminPage() {
     }
   }
 
-  // --- DELETE BSCA QUIZ ---
   async function handleDeleteQuiz(quizId: string, title: string) {
     if (!confirm(`Delete Quiz "${title}" and all its questions?`)) return;
 
@@ -358,7 +421,6 @@ export default function AdminPage() {
     }
   }
 
-  // --- SINGLE QUESTION SUBMIT ---
   async function handleQuestionSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedSubject) return;
@@ -387,7 +449,6 @@ export default function AdminPage() {
     }
   }
 
-  // --- EXCEL BULK UPLOAD FOR QUESTION BANK ---
   const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -450,7 +511,6 @@ export default function AdminPage() {
     reader.readAsArrayBuffer(file);
   };
 
-  // --- CREATE MOCK FROM QUESTION BANK ---
   async function handleMockFromQuestionBankSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!mockTitle.trim()) return setStatusMsg('⚠️ Please enter a Mock Test Title!');
@@ -504,7 +564,6 @@ export default function AdminPage() {
     fetchInitialData();
   }
 
-  // --- DIRECT 1-CLICK EXCEL MOCK UPLOADER ---
   const handleDirectMockUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -524,7 +583,7 @@ export default function AdminPage() {
         if (!data || data.length === 0) return setStatusMsg('⚠️ Excel file is empty!');
 
         const formattedJSONQuestions = data.map((row, idx) => {
-          let rawSec = String(row.section || row.Section || row.SUBJECT || row.Subject || 'QUANT').trim().toUpperCase();
+          let rawSec = String(row.section || row.Subject || 'QUANT').trim().toUpperCase();
           let normSec = 'QUANT';
 
           if (rawSec.includes('ENG')) normSec = 'ENGLISH';
@@ -532,7 +591,7 @@ export default function AdminPage() {
           else if (rawSec.includes('QUANT') || rawSec.includes('MATH')) normSec = 'QUANT';
           else if (rawSec.includes('GA') || rawSec.includes('CURRENT') || rawSec.includes('AWARE')) normSec = 'GA';
 
-          const answerLetter = String(row.correctOptionIndex ?? row['Correct Answer'] ?? row.correct_option ?? row.correctOption ?? row.Answer ?? '0').toUpperCase().trim();
+          const answerLetter = String(row.correctOptionIndex ?? row['Correct Answer'] ?? row.correctOption ?? '0').toUpperCase().trim();
           const optionMap: { [key: string]: number } = { A: 0, B: 1, C: 2, D: 3, E: 4, '0': 0, '1': 1, '2': 2, '3': 3, '4': 4 };
           const correctIdx = optionMap[answerLetter] !== undefined ? optionMap[answerLetter] : 0;
 
@@ -594,7 +653,143 @@ export default function AdminPage() {
     reader.readAsArrayBuffer(file);
   };
 
-  // --- CREATE BSPS / BSCA COURSE CONTAINER ---
+  async function handleSaveTargetConfig(e: React.FormEvent) {
+    e.preventDefault();
+    setStatusMsg('Saving Day Target Configuration...');
+
+    const { error } = await supabase.from('admin_targets_config').upsert([
+      { 
+        day_number: Number(targetDayNo), 
+        track_mode: targetTrackMode, 
+        youtube_url: targetVideoUrl.trim() 
+      }
+    ], { onConflict: 'day_number,track_mode' });
+
+    if (error) {
+      setStatusMsg(`Error saving target: ${error.message}`);
+    } else {
+      setStatusMsg(`✅ Successfully updated Day ${targetDayNo} (${targetTrackMode.toUpperCase()}) YouTube video!`);
+      fetchInitialData();
+    }
+  }
+
+  async function handleDeleteTargetConfig(id: string, day: number, mode: string) {
+    if (!confirm(`Delete Day ${day} (${mode}) video config?`)) return;
+    const { error } = await supabase.from('admin_targets_config').delete().eq('id', id);
+    if (!error) {
+      setStatusMsg(`🗑️ Deleted Day ${day} config.`);
+      fetchInitialData();
+    }
+  }
+
+  // --- COPY VIDEO FROM PREVIOUS DAY ---
+  async function handleCopyVideoFromPreviousDay() {
+    if (targetDayNo <= 1) {
+      return setStatusMsg('⚠️ This is Day 1; there is no previous day to copy from!');
+    }
+
+    const prevDay = targetDayNo - 1;
+    const foundPrev = allConfiguredTargets.find(
+      (t) => t.day_number === prevDay && t.track_mode === targetTrackMode
+    );
+
+    if (foundPrev && foundPrev.youtube_url) {
+      setTargetVideoUrl(foundPrev.youtube_url);
+      setStatusMsg(`📋 Copied video URL from Day ${prevDay} (${targetTrackMode})! Click Save to confirm.`);
+    } else {
+      setStatusMsg(`⚠️ No video found for Day ${prevDay} under ${targetTrackMode} track.`);
+    }
+  }
+
+  async function handleAddDayChecklistItem(e: React.FormEvent) {
+    e.preventDefault();
+    if (!dayChecklistInput.trim()) return setStatusMsg('⚠️ Enter checklist label!');
+
+    setStatusMsg(`Adding checklist item for Day ${targetDayNo}...`);
+
+    const { error } = await supabase.from('admin_day_checklist_items').insert([
+      { 
+        day_number: Number(targetDayNo), 
+        track_mode: targetTrackMode, 
+        label: dayChecklistInput.trim(), 
+        display_order: dayChecklistItems.length + 1 
+      }
+    ]);
+
+    if (error) {
+      setStatusMsg(`Error: ${error.message}`);
+    } else {
+      setStatusMsg(`✅ Added item to Day ${targetDayNo} (${targetTrackMode}) checklist!`);
+      setDayChecklistInput('');
+      fetchDaySpecificData(targetDayNo, targetTrackMode);
+    }
+  }
+
+  async function handleDeleteDayChecklistItem(id: string, label: string) {
+    if (!confirm(`Delete "${label}" from Day ${targetDayNo} checklist?`)) return;
+    const { error } = await supabase.from('admin_day_checklist_items').delete().eq('id', id);
+    if (!error) {
+      setStatusMsg('🗑️ Deleted item.');
+      fetchDaySpecificData(targetDayNo, targetTrackMode);
+    }
+  }
+
+  // --- MARQUEE NOTICE HANDLERS ---
+  async function handleAddMarqueeNotice(e: React.FormEvent) {
+    e.preventDefault();
+    if (!marqueeInput.trim()) return setStatusMsg('⚠️ Please enter notice text!');
+
+    setStatusMsg('Adding marquee notice...');
+    const { error } = await supabase.from('admin_marquee_notices').insert([
+      { notice_text: marqueeInput.trim(), display_order: adminMarqueeList.length + 1 }
+    ]);
+
+    if (error) {
+      setStatusMsg(`Error adding notice: ${error.message}`);
+    } else {
+      setStatusMsg('✅ Marquee notice published successfully!');
+      setMarqueeInput('');
+      fetchInitialData();
+    }
+  }
+
+  async function handleDeleteMarqueeNotice(id: string) {
+    if (!confirm('Delete this marquee notice?')) return;
+    const { error } = await supabase.from('admin_marquee_notices').delete().eq('id', id);
+    if (!error) {
+      setStatusMsg('🗑️ Marquee notice deleted.');
+      fetchInitialData();
+    }
+  }
+
+  async function handleAddExamCountdown(e: React.FormEvent) {
+    e.preventDefault();
+    if (!examNameInput.trim() || !examDateInput) return setStatusMsg('⚠️ Enter exam name and date!');
+
+    setStatusMsg('Adding Exam Countdown...');
+    const { error } = await supabase.from('admin_exam_countdowns').insert([
+      { exam_name: examNameInput.trim(), exam_date: examDateInput }
+    ]);
+
+    if (error) {
+      setStatusMsg(`Error adding exam: ${error.message}`);
+    } else {
+      setStatusMsg(`🎉 Added countdown for "${examNameInput}"!`);
+      setExamNameInput('');
+      setExamDateInput('');
+      fetchInitialData();
+    }
+  }
+
+  async function handleDeleteExamCountdown(id: string, name: string) {
+    if (!confirm(`Delete countdown for "${name}"?`)) return;
+    const { error } = await supabase.from('admin_exam_countdowns').delete().eq('id', id);
+    if (!error) {
+      setStatusMsg(`🗑️ Deleted countdown.`);
+      fetchInitialData();
+    }
+  }
+
   async function handleCreateCourseContainer(e: React.FormEvent) {
     e.preventDefault();
     if (!courseTitle.trim()) return setStatusMsg('⚠️ Please enter a Course Title!');
@@ -618,7 +813,6 @@ export default function AdminPage() {
     }
   }
 
-  // --- UPLOAD DAY-WISE PDF FOR BSPS / BSCA WITH TOPICS ---
   async function handlePdfUpload(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedCourseId) return setStatusMsg('⚠️ Please select a Course Container first!');
@@ -657,7 +851,6 @@ export default function AdminPage() {
     }
   }
 
-  // --- DELETE SINGLE DAY PDF ---
   async function handleDeletePdf(pdfId: string, title: string) {
     if (!confirm(`Are you sure you want to delete "${title}"?`)) return;
 
@@ -672,7 +865,6 @@ export default function AdminPage() {
     }
   }
 
-  // --- DELETE ENTIRE COURSE ---
   async function handleDeleteCourse(courseId: string, title: string) {
     if (!confirm(`Delete entire course "${title}" and all its Day PDFs?`)) return;
 
@@ -687,7 +879,6 @@ export default function AdminPage() {
     }
   }
 
-  // Selection & Delete Helpers
   const toggleQuestionSelection = (qId: string) => {
     if (selectedQuestionIds.includes(qId)) {
       setSelectedQuestionIds(selectedQuestionIds.filter((id) => id !== qId));
@@ -733,9 +924,6 @@ export default function AdminPage() {
     if (!error) fetchInitialData();
   }
 
-  // --------------------------------------------------------------------------
-  // AUTH GUARD VIEW
-  // --------------------------------------------------------------------------
   if (checkingAuth) {
     return (
       <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center font-bold">
@@ -807,12 +995,8 @@ export default function AdminPage() {
     );
   }
 
-  // --------------------------------------------------------------------------
-  // MAIN ADMIN PORTAL VIEW
-  // --------------------------------------------------------------------------
   return (
     <div className="max-w-5xl mx-auto p-6 font-sans text-slate-900 bg-slate-50 min-h-screen space-y-6">
-      {/* HEADER BAR */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-4 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">BankingSolutions Admin Portal</h1>
@@ -820,7 +1004,6 @@ export default function AdminPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* TABS NAVBAR */}
           <div className="flex space-x-1 bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs flex-wrap gap-y-1">
             <button
               onClick={() => setActiveTab('updates_publisher')}
@@ -878,6 +1061,14 @@ export default function AdminPage() {
             >
               📥 Question Bank Excel
             </button>
+            <button
+              onClick={() => setActiveTab('targets_manager')}
+              className={`px-3 py-1.5 font-bold rounded-md transition ${
+                activeTab === 'targets_manager' ? 'bg-[#1D63B8] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              🎯 Daily Targets & Countdowns
+            </button>
             <Link
               href="/admin/computer-quiz"
               className="px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 text-slate-700 hover:text-blue-600 hover:bg-slate-100"
@@ -901,9 +1092,7 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* -------------------------------------------------------------------- */}
       {/* TAB 1: UPDATES & CURRENT AFFAIRS ONE-LINERS PUBLISHER */}
-      {/* -------------------------------------------------------------------- */}
       {activeTab === 'updates_publisher' && (
         <div className="space-y-6">
           <form onSubmit={handlePublishPost} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
@@ -947,7 +1136,6 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* ATTACH IMAGE & LINK INPUTS */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
               <div>
                 <label className="block text-xs font-bold uppercase text-slate-500 mb-1">
@@ -1006,7 +1194,6 @@ export default function AdminPage() {
             </button>
           </form>
 
-          {/* PUBLISHED FEED LIST */}
           <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
             <div className="flex justify-between items-center border-b pb-3">
               <h2 className="text-base font-bold text-slate-800">Manage Live Updates Feed ({publishedFeed.length})</h2>
@@ -1039,13 +1226,10 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* -------------------------------------------------------------------- */}
       {/* TAB 2: BSCA QUIZ BUILDER */}
-      {/* -------------------------------------------------------------------- */}
       {activeTab === 'bsca_quiz_builder' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Step 1: Create Quiz Container */}
             <form onSubmit={handleCreateQuiz} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
               <h2 className="text-base font-bold text-slate-800 border-b pb-2">Step 1: Create Daily Quiz Container</h2>
 
@@ -1089,7 +1273,6 @@ export default function AdminPage() {
               </button>
             </form>
 
-            {/* Step 2: Add Question with Options & Explanation */}
             <form onSubmit={handleAddQuizQuestion} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
               <h2 className="text-base font-bold text-slate-800 border-b pb-2">Step 2: Add Question & Explanation</h2>
 
@@ -1172,7 +1355,6 @@ export default function AdminPage() {
             </form>
           </div>
 
-          {/* Manage Published Quizzes */}
           <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
             <div className="flex justify-between items-center border-b pb-3">
               <h2 className="text-base font-bold text-slate-800">Manage Published BSCA Quizzes ({existingQuizzes.length})</h2>
@@ -1207,13 +1389,10 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* -------------------------------------------------------------------- */}
       {/* TAB 3: BSPS & BSCA DAY-WISE PDF UPLOADER & MANAGER */}
-      {/* -------------------------------------------------------------------- */}
       {activeTab === 'pdf_uploader' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* CREATE COURSE CONTAINER */}
             <form onSubmit={handleCreateCourseContainer} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
               <h2 className="text-base font-bold text-slate-800 border-b pb-2">Step 1: Create Course Container</h2>
 
@@ -1257,7 +1436,6 @@ export default function AdminPage() {
               </button>
             </form>
 
-            {/* UPLOAD DAY-WISE PDF WITH SUB-TOPICS */}
             <form onSubmit={handlePdfUpload} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
               <h2 className="text-base font-bold text-slate-800 border-b pb-2">Step 2: Upload Day-Wise PDF File</h2>
 
@@ -1330,7 +1508,6 @@ export default function AdminPage() {
             </form>
           </div>
 
-          {/* LIST & DELETE COURSES & DAY PDFs */}
           <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
             <h2 className="text-base font-bold text-slate-800 border-b pb-3">Manage & Remove Published PDFs</h2>
 
@@ -1357,7 +1534,6 @@ export default function AdminPage() {
                         </button>
                       </div>
 
-                      {/* Day PDFs List */}
                       <div className="divide-y divide-slate-200 bg-white rounded-lg border border-slate-200 p-2">
                         {coursePdfs.length === 0 ? (
                           <p className="text-xs text-slate-400 p-2">No Day PDFs uploaded for this course yet.</p>
@@ -1387,9 +1563,7 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* -------------------------------------------------------------------- */}
       {/* TAB 4: DIRECT EXCEL MOCK UPLOADER */}
-      {/* -------------------------------------------------------------------- */}
       {activeTab === 'direct_mock_upload' && (
         <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-6">
           <div className="flex items-center space-x-2 border-b pb-3">
@@ -1461,9 +1635,7 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* -------------------------------------------------------------------- */}
       {/* TAB 5: BUILD MOCK FROM QUESTION BANK */}
-      {/* -------------------------------------------------------------------- */}
       {activeTab === 'create_mock' && (
         <div className="space-y-6">
           <form onSubmit={handleMockFromQuestionBankSubmit} className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-6">
@@ -1611,9 +1783,7 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* -------------------------------------------------------------------- */}
       {/* TAB 6: ADD SINGLE QUESTION TO MASTER BANK */}
-      {/* -------------------------------------------------------------------- */}
       {activeTab === 'add_question' && (
         <form onSubmit={handleQuestionSubmit} className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-4">
           <h2 className="text-lg font-bold text-slate-800 border-b pb-3">Add Single Question to Master Bank</h2>
@@ -1682,9 +1852,7 @@ export default function AdminPage() {
         </form>
       )}
 
-      {/* -------------------------------------------------------------------- */}
       {/* TAB 7: BULK QUESTION BANK UPLOADER */}
-      {/* -------------------------------------------------------------------- */}
       {activeTab === 'bulk_upload' && (
         <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-4">
           <h2 className="text-lg font-bold text-slate-800 border-b pb-3">Bulk Upload to Master Question Bank</h2>
@@ -1703,6 +1871,204 @@ export default function AdminPage() {
           <div className="border-2 border-dashed border-slate-300 p-8 rounded-xl text-center bg-slate-50 relative cursor-pointer">
             <input type="file" accept=".xlsx, .xls" onChange={handleExcelUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
             <span className="text-sm font-bold text-blue-600 block">Click to upload Question Bank Excel (.xlsx)</span>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 8: DAILY TARGETS, COUNTDOWN & DAY-WISE CHECKLIST MANAGER */}
+      {activeTab === 'targets_manager' && (
+        <div className="space-y-6">
+          <form onSubmit={handleSaveTargetConfig} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+            <div className="flex justify-between items-center border-b pb-2">
+              <h2 className="text-base font-bold text-slate-800">Manage Day-Wise YouTube Video Targets</h2>
+              {targetDayNo > 1 && (
+                <button
+                  type="button"
+                  onClick={handleCopyVideoFromPreviousDay}
+                  className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg border border-slate-300 transition"
+                >
+                  📋 Copy Video from Day {targetDayNo - 1}
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Select Day No.</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={targetDayNo}
+                  onChange={(e) => setTargetDayNo(Number(e.target.value))}
+                  className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Target Track Mode</label>
+                <select
+                  value={targetTrackMode}
+                  onChange={(e: any) => setTargetTrackMode(e.target.value)}
+                  className="w-full border p-2.5 rounded-lg text-xs bg-white font-bold"
+                >
+                  <option value="beginner">🌱 Beginner Track</option>
+                  <option value="repeater">🔥 Repeater Track</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">YouTube Embed URL</label>
+                <input
+                  type="text"
+                  value={targetVideoUrl}
+                  onChange={(e) => setTargetVideoUrl(e.target.value)}
+                  placeholder="https://www.youtube.com/embed/VIDEO_ID"
+                  className="w-full border p-2.5 rounded-lg text-sm bg-white"
+                  required
+                />
+              </div>
+            </div>
+
+            <button type="submit" className="w-full py-3 bg-[#1D63B8] hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow">
+              Save Day {targetDayNo} Video Target 🚀
+            </button>
+          </form>
+
+          {/* DAY-SPECIFIC CHECKLIST BUILDER */}
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+            <h2 className="text-base font-bold text-slate-800 border-b pb-2">
+              Manage Checklist Items for Day {targetDayNo} ({targetTrackMode.toUpperCase()})
+            </h2>
+
+            <form onSubmit={handleAddDayChecklistItem} className="flex gap-2">
+              <input
+                type="text"
+                value={dayChecklistInput}
+                onChange={(e) => setDayChecklistInput(e.target.value)}
+                placeholder={`e.g. Day ${targetDayNo} Specific Quant Puzzle or Tables 1-20`}
+                className="flex-1 border p-2.5 rounded-lg text-xs bg-white font-medium"
+                required
+              />
+              <button type="submit" className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow">
+                + Add to Day {targetDayNo}
+              </button>
+            </form>
+
+            <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto">
+              {dayChecklistItems.length === 0 ? (
+                <p className="text-xs text-slate-500">No specific checklist items added for Day {targetDayNo} ({targetTrackMode}) yet.</p>
+              ) : (
+                dayChecklistItems.map((item) => (
+                  <div key={item.id} className="py-2.5 flex justify-between items-center text-xs">
+                    <span className="font-bold text-slate-800">{item.label}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteDayChecklistItem(item.id, item.label)}
+                      className="bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold px-2.5 py-1 rounded transition"
+                    >
+                      Delete 🗑️
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* MARQUEE NOTICE BUILDER */}
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+            <h2 className="text-base font-bold text-slate-800 border-b pb-2">Manage Landing Page Marquee Ticker Notices</h2>
+
+            <form onSubmit={handleAddMarqueeNotice} className="flex gap-2">
+              <input
+                type="text"
+                value={marqueeInput}
+                onChange={(e) => setMarqueeInput(e.target.value)}
+                placeholder="e.g. 🔥 SBI PO 2026 Prelims Mock Test 01 is now live! Attempt now."
+                className="flex-1 border p-2.5 rounded-lg text-xs bg-white font-medium"
+                required
+              />
+              <button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow">
+                + Add Notice
+              </button>
+            </form>
+
+            <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto">
+              {adminMarqueeList.length === 0 ? (
+                <p className="text-xs text-slate-500">No marquee notices active.</p>
+              ) : (
+                adminMarqueeList.map((m) => (
+                  <div key={m.id} className="py-2.5 flex justify-between items-center text-xs">
+                    <span className="font-bold text-slate-800">{m.notice_text}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteMarqueeNotice(m.id)}
+                      className="bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold px-2.5 py-1 rounded transition"
+                    >
+                      Delete 🗑️
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <form onSubmit={handleAddExamCountdown} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+              <h2 className="text-base font-bold text-slate-800 border-b pb-2">Add Exam Countdown</h2>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Exam Name</label>
+                <input
+                  type="text"
+                  value={examNameInput}
+                  onChange={(e) => setExamNameInput(e.target.value)}
+                  placeholder="e.g. SBI PO Prelims 2026"
+                  className="w-full border p-2.5 rounded-lg text-sm bg-white"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Target Exam Date</label>
+                <input
+                  type="date"
+                  value={examDateInput}
+                  onChange={(e) => setExamDateInput(e.target.value)}
+                  className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold"
+                  required
+                />
+              </div>
+
+              <button type="submit" className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow">
+                Add Exam Countdown
+              </button>
+            </form>
+
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+              <h2 className="text-base font-bold text-slate-800 border-b pb-2">Active Countdowns ({adminExamsList.length})</h2>
+
+              <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto">
+                {adminExamsList.length === 0 ? (
+                  <p className="text-xs text-slate-500">No active exam countdowns.</p>
+                ) : (
+                  adminExamsList.map((ex) => (
+                    <div key={ex.id} className="py-2.5 flex justify-between items-center text-xs">
+                      <div>
+                        <span className="font-bold text-slate-800 block">{ex.exam_name}</span>
+                        <span className="text-slate-500">Date: {ex.exam_date}</span>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteExamCountdown(ex.id, ex.exam_name)}
+                        className="bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold px-2.5 py-1 rounded transition"
+                      >
+                        Delete 🗑️
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

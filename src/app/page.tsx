@@ -5,10 +5,12 @@ import Link from 'next/link';
 import { supabase } from '../lib/supabase';
 import AuthModal from '../components/AuthModal';
 import ReviewsSection from '@/components/ReviewsSection';
+
 export default function BankingSolutionsHomePage() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [marqueeNotices, setMarqueeNotices] = useState<any[]>([]);
 
   useEffect(() => {
     // Check active session on load
@@ -18,6 +20,16 @@ export default function BankingSolutionsHomePage() {
         checkAdminStatus(session.user);
       }
     });
+
+    // Fetch Marquee Notices
+    supabase
+      .from('admin_marquee_notices')
+      .select('*')
+      .eq('is_active', true)
+      .order('display_order', { ascending: true })
+      .then(({ data }) => {
+        if (data) setMarqueeNotices(data);
+      });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       const user = session?.user || null;
@@ -60,8 +72,8 @@ export default function BankingSolutionsHomePage() {
         <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
           
           {/* Logo & Branding */}
-          <div className="flex items-center space-x-3">
-            <div className="relative h-11 w-11 rounded-xl overflow-hidden bg-gradient-to-tr from-amber-50 to-amber-50 p-0.5 shadow-lg shadow-amber-400/20 flex-shrink-0">
+          <Link href="/" className="flex items-center space-x-3 group cursor-pointer">
+            <div className="relative h-11 w-11 rounded-xl overflow-hidden bg-gradient-to-tr from-amber-50 to-amber-50 p-0.5 shadow-lg shadow-amber-400/20 flex-shrink-0 group-hover:scale-105 transition">
               <img
                 src="/channel-logo.png"
                 alt="BankingSolutions Logo"
@@ -75,19 +87,18 @@ export default function BankingSolutionsHomePage() {
               </div>
             </div>
 
-            <div>
-              <span className="text-lg font-black tracking-tight text-white block leading-tight">
+            <div className="text-left">
+              <span className="text-lg font-black tracking-tight text-white group-hover:text-amber-400 transition block leading-tight">
                 BankingSolutions
               </span>
               <span className="text-[10px] text-amber-400 font-bold uppercase tracking-widest block">
                 Touch the sky with glory
               </span>
             </div>
-          </div>
+          </Link>
 
           {/* Navigation Links */}
           <div className="flex items-center space-x-3">
-           
             <Link
               href="/pdf-courses?category=BSPS"
               className="text-xs font-semibold text-blue-400 hover:text-blue-300 px-3 py-2 rounded-lg transition hidden md:block"
@@ -138,12 +149,6 @@ export default function BankingSolutionsHomePage() {
               </div>
             ) : (
               <div className="flex items-center space-x-2 pl-2 border-l border-slate-800">
-                {/*<button
-                  onClick={() => setIsAuthOpen(true)}
-                  className="text-xs text-slate-300 hover:text-white font-semibold px-3 py-2 transition"
-                >
-                  Log In
-                </button>*/}
                 <button
                   onClick={() => setIsAuthOpen(true)}
                   className="text-xs bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold px-4 py-2 rounded-lg transition shadow-md shadow-amber-400/20"
@@ -155,6 +160,25 @@ export default function BankingSolutionsHomePage() {
           </div>
         </div>
       </nav>
+
+      {/* --- MARQUEE NOTICES TICKER --- */}
+      {marqueeNotices.length > 0 && (
+        <div className="bg-amber-400 text-slate-950 font-bold text-xs py-2.5 px-4 overflow-hidden whitespace-nowrap shadow-inner border-b border-amber-500/30 flex items-center relative">
+          <div className="bg-slate-950 text-amber-400 px-2.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider mr-4 flex-shrink-0 shadow z-10">
+            📢 UPDATES
+          </div>
+          <div className="w-full overflow-hidden relative flex">
+            <div className="animate-marquee-slow space-x-12 tracking-wide inline-block">
+              {marqueeNotices.map((notice) => (
+                <span key={notice.id} className="inline-flex items-center gap-2">
+                  <span>{notice.notice_text}</span>
+                  <span className="opacity-40">•</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* HERO SECTION */}
       <section className="relative pt-16 pb-20 px-6 max-w-6xl mx-auto text-center">
@@ -172,6 +196,14 @@ export default function BankingSolutionsHomePage() {
 
         {/* HERO CTA BUTTONS */}
         <div className="flex flex-wrap justify-center items-center gap-3 mb-16">
+          <Link
+            href="/targets"
+            className="px-6 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl transition shadow-xl shadow-emerald-600/20 uppercase tracking-wider flex items-center gap-2"
+          >
+            <span>🎯</span>
+            <span>DAILY TARGETS HUB</span>
+          </Link>
+
           <Link
             href="/pdf-courses?category=BSPS"
             className="px-6 py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs rounded-xl transition shadow-xl shadow-blue-600/20 uppercase tracking-wider flex items-center gap-2"
@@ -211,7 +243,7 @@ export default function BankingSolutionsHomePage() {
             <span>🚀</span>
             <span>Full Mock Tests</span>
           </Link>
-            <Link
+          <Link
             href="/computer-quiz"
             className="px-6 py-3.5 bg-purple-400 hover:bg-purple-200 text-slate-950 font-black text-xs rounded-xl transition shadow-xl shadow-purple-400/30 uppercase tracking-wider flex items-center gap-2"
           >
@@ -220,7 +252,7 @@ export default function BankingSolutionsHomePage() {
           </Link>
           <Link
             href="/calc-lab"
-            className="px-6 py-3.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 font-bold text-xs rounded-xl transition uppercase tracking-wider  flex items-center gap-2"
+            className="px-6 py-3.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 font-bold text-xs rounded-xl transition uppercase tracking-wider flex items-center gap-2"
           >
             <span>⚡</span>
             <span>Calculation Lab</span>
@@ -229,7 +261,7 @@ export default function BankingSolutionsHomePage() {
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-950/60 p-6 rounded-2xl border border-slate-800/80 backdrop-blur max-w-4xl mx-auto text-center">
           <div>
-            <span className="text-2xl md:text-3xl font-black text-amber-400 block">11.1K+</span>
+            <span className="text-2xl md:text-3xl font-black text-amber-400 block">11.3K+</span>
             <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">Subscribers</span>
           </div>
           <div>
@@ -255,6 +287,27 @@ export default function BankingSolutionsHomePage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* Card 0: Daily Targets Hub */}
+          <div className="bg-slate-950 border border-slate-800 hover:border-emerald-500/50 rounded-2xl p-6 transition flex flex-col justify-between group">
+            <div>
+              <div className="h-12 w-12 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-xl flex items-center justify-center text-2xl mb-4 font-bold">
+                🎯
+              </div>
+              <h3 className="text-lg font-bold text-white mb-2 group-hover:text-emerald-400 transition leading-snug">
+                Daily Targets & Consistency Hub
+              </h3>
+              <p className="text-xs text-slate-400 leading-relaxed mb-6">
+                Day-wise micro-goals, track-wise routines (Beginner & Repeater), video guides, and streak tracking.
+              </p>
+            </div>
+            <Link
+              href="/targets"
+              className="w-full bg-slate-800 hover:bg-emerald-600 text-white font-bold text-xs py-3 rounded-xl transition text-center block"
+            >
+              Open Daily Targets Hub →
+            </Link>
+          </div>
+
           {/* Card 1: BSPS Practice Sheets */}
           <div className="bg-slate-950 border border-slate-800 hover:border-blue-500/50 rounded-2xl p-6 transition flex flex-col justify-between group">
             <div>
@@ -380,7 +433,8 @@ export default function BankingSolutionsHomePage() {
               Launch Calc Lab →
             </Link>
           </div>
-          {/*Card 7: Computer Quiz*/}
+          
+          {/* Card 7: Computer Quiz */}
           <div className="bg-slate-900 border border-slate-800 hover:border-amber-400/50 rounded-2xl p-6 shadow-xl transition group flex flex-col justify-between">
             <div className="space-y-3">
               <div className="w-12 h-12 bg-amber-400/10 text-amber-400 border border-amber-400/20 rounded-2xl flex items-center justify-center font-bold text-2xl">
@@ -401,7 +455,6 @@ export default function BankingSolutionsHomePage() {
               Explore Tests →
             </Link>
           </div>
-          
         </div>
 
         {/* Admin Portal Button */}
@@ -428,36 +481,97 @@ export default function BankingSolutionsHomePage() {
         )}
       </section>
         
-        
       {/* FOOTER */}
-      <footer className="border-t border-slate-800 bg-slate-950 py-10 px-6 text-center text-slate-500 text-xs">
-        <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="flex items-center space-x-2">
-            <div className="h-6 w-6 bg-amber-400 rounded flex items-center justify-center text-slate-950 font-black text-xs">
-              BS
+      <footer className="border-t border-slate-800 bg-slate-950 py-12 px-6 text-slate-400 text-xs">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-center gap-8">
+          
+          {/* LEFT SIDE: LOGO & ABOUT */}
+          <div className="space-y-4 max-w-sm">
+            <div className="flex items-center space-x-3">
+              <div className="relative h-10 w-10 rounded-xl overflow-hidden bg-gradient-to-tr from-amber-50 to-amber-50 p-0.5 shadow-lg shadow-amber-400/20 flex-shrink-0">
+                <img
+                  src="/channel-logo.png"
+                  alt="BankingSolutions Logo"
+                  className="h-full w-full object-cover rounded-[10px]"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+                <div className="h-full w-full bg-amber-400 flex items-center justify-center text-slate-950 font-black text-sm">
+                  BS
+                </div>
+              </div>
+              <div>
+                <span className="text-base font-black tracking-tight text-white block leading-tight">
+                  BankingSolutions
+                </span>
+                <span className="text-[9px] text-amber-400 font-bold uppercase tracking-widest block">
+                  Touch the sky with glory
+                </span>
+              </div>
             </div>
-            <span className="font-bold text-slate-300">BankingSolutions © 2026</span>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              BankingSolutions is a professional ed-tech platform dedicated to empowering banking exam aspirants with structured practice sheets (BSPS), current affairs (BSCA), test series, and consistency habit hubs.
+            </p>
+            <p className="text-[11px] text-slate-600 font-semibold">
+              Official Channel: @Banking_Solutions | 11.3K+ Aspirants
+            </p>
           </div>
 
-          <p className="text-slate-500">
-            Official Channel: @Banking_Solutions | 11.1K+ Aspirants
-          </p>
+          {/* RIGHT SIDE: USEFUL LINKS & LEGAL POLICIES */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-8 text-left w-full md:w-auto">
+            
+            {/* Quick Hubs */}
+            <div className="space-y-3">
+              <h4 className="text-white font-bold uppercase tracking-wider text-[11px]">Platforms</h4>
+              <ul className="space-y-2 font-medium">
+                <li><Link href="/targets" className="hover:text-emerald-400 transition">Daily Targets Hub</Link></li>
+                <li><Link href="/pdf-courses?category=BSPS" className="hover:text-blue-400 transition">BSPS Sheets</Link></li>
+                <li><Link href="/pdf-courses?category=BSCA" className="hover:text-amber-400 transition">BSCA GA</Link></li>
+                <li><Link href="/bsca-quiz" className="hover:text-emerald-400 transition">Daily GA Quiz</Link></li>
+                <li><Link href="/calc-lab" className="hover:text-emerald-400 transition">Calculation Lab</Link></li>
+              </ul>
+            </div>
 
-          <div className="flex space-x-4 font-semibold text-slate-400">
-            <Link href="/pdf-courses?category=BSPS" className="hover:text-blue-400 transition">BSPS</Link>
-            <Link href="/pdf-courses?category=BSCA" className="hover:text-amber-400 transition">BSCA</Link>
-            <Link href="/bsca-quiz" className="hover:text-emerald-400 transition">Quiz</Link>
-            <Link href="/updates" className="hover:text-rose-400 transition">Updates</Link>
-            <Link href="/tests" className="hover:text-amber-400 transition">Tests</Link>
-            <Link href="/calc-lab" className="hover:text-emerald-400 transition">Calc Lab</Link>
-            {isAdmin && <Link href="/admin" className="hover:text-amber-400 transition">Admin</Link>}
+            {/* Test & Updates */}
+            <div className="space-y-3">
+              <h4 className="text-white font-bold uppercase tracking-wider text-[11px]">Resources</h4>
+              <ul className="space-y-2 font-medium">
+                <li><Link href="/tests" className="hover:text-amber-400 transition">Mock Test Series</Link></li>
+                <li><Link href="/computer-quiz" className="hover:text-purple-400 transition">Computer Awareness</Link></li>
+                <li><Link href="/updates" className="hover:text-rose-400 transition">Exam One-Liners</Link></li>
+                {isAdmin && <li><Link href="/admin" className="hover:text-amber-400 transition">Admin Portal ⚙️</Link></li>}
+              </ul>
+            </div>
+
+            {/* Legal & Compliance */}
+            <div className="space-y-3 col-span-2 sm:col-span-1">
+              <h4 className="text-white font-bold uppercase tracking-wider text-[11px]">Legal & Policies</h4>
+              <ul className="space-y-2 font-medium">
+                <li><Link href="/privacy" className="hover:text-slate-300 transition">Privacy Policy</Link></li>
+                <li><Link href="/terms" className="hover:text-slate-300 transition">Terms & Conditions</Link></li>
+                <li><Link href="/disclaimer" className="hover:text-slate-300 transition">Disclaimer</Link></li>
+                <li><Link href="/refund" className="hover:text-slate-300 transition">Refund & Cancellation</Link></li>
+              </ul>
+            </div>
+
           </div>
+
         </div>
+
+        {/* BOTTOM COPYRIGHT ROW */}
+        <div className="max-w-7xl mx-auto border-t border-slate-800/80 mt-10 pt-6 flex flex-col sm:flex-row justify-between items-center gap-4 text-slate-500 text-[11px]">
+          <p>BankingSolutions © 2026. All rights reserved.</p>
+          <p>Designed for competitive banking aspirants across India.</p>
+        </div>
+
         {/* REVIEW & RATING CARD SECTION */}
-        <ReviewsSection
-          currentUser={currentUser}
-          onOpenAuth={() => setIsAuthOpen(true)}
-        />
+        <div className="mt-6">
+          <ReviewsSection
+            currentUser={currentUser}
+            onOpenAuth={() => setIsAuthOpen(true)}
+          />
+        </div>
       </footer>
     </div>
   );

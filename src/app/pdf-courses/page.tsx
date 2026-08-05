@@ -73,15 +73,27 @@ function CourseCatalogContent() {
 
       {/* Header Bar */}
       <header className="bg-slate-950 border-b border-slate-800 px-6 py-4 flex justify-between items-center sticky top-0 z-40">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-amber-400 rounded-xl flex items-center justify-center font-black text-slate-950 text-base shadow-lg">
-            BS
-          </div>
-          <div>
-            <h1 className="text-base font-bold text-white tracking-wide">BankingSolutions PDF Hub</h1>
-            <p className="text-[11px] text-slate-400">Day-Wise BSPS Practice Sheets & BSCA Current Affairs</p>
-          </div>
-        </div>
+       <Link href="/" className="flex items-center space-x-3 group cursor-pointer">
+            <div className="relative h-11 w-11 rounded-xl overflow-hidden bg-gradient-to-tr from-amber-50 to-amber-50 p-0.5 shadow-lg shadow-amber-400/20 flex-shrink-0 group-hover:scale-105 transition">
+              <img
+                src="/channel-logo.png"
+                alt="BankingSolutions Logo"
+                className="h-full w-full object-cover rounded-[10px]"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
+              <div className="h-full w-full bg-amber-400 flex items-center justify-center text-slate-950 font-black text-lg">
+                BS
+              </div>
+            </div>
+
+            <div className="text-left">
+              <h1 className="text-base font-bold text-white tracking-wide">BankingSolutions PDF Hub</h1>
+              <p className="text-[11px] text-slate-400">Day-Wise BSPS Practice Sheets & BSCA Current Affairs</p>
+            </div>
+          </Link>
+        
 
         <div className="flex items-center gap-3">
           {currentUser ? (
