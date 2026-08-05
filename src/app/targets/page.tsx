@@ -24,14 +24,14 @@ export default function DailyTargetsPage() {
   // Dashboard Control States
   const [trackMode, setTrackMode] = useState<'beginner' | 'repeater'>('beginner');
   const [selectedDay, setSelectedDay] = useState<number>(1);
-  const [maxDaysCount, setMaxDaysCount] = useState<number>(1); // Starts at Day 1; grows dynamically as days are added from admin
+  const [maxDaysCount, setMaxDaysCount] = useState<number>(1);
 
   // Dynamic States from Admin DB
   const [exams, setExams] = useState<ExamCountdown[]>([]);
   const [videoUrl, setVideoUrl] = useState('');
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   
-  const [streakCount, setStreakCount] = useState(5);
+  const [streakCount, setStreakCount] = useState(0);
   const [isSaved, setIsSaved] = useState(false);
 
   useEffect(() => {
@@ -73,6 +73,9 @@ export default function DailyTargetsPage() {
         setExams(examData);
       }
 
+      // 3. Calculate Real Streak from localStorage progress
+      calculateUserStreak(maxDaysCount, trackMode);
+
       // Load Day 1 Beginner by default
       await loadDayProgressAndVideo(1, 'beginner');
     } catch (err) {
@@ -80,6 +83,32 @@ export default function DailyTargetsPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  // Calculate streak: counts consecutive days where at least one item was completed
+  function calculateUserStreak(totalDays: number, mode: string) {
+    let streak = 0;
+    for (let d = 1; d <= totalDays; d++) {
+      const storageKey = `bsca_target_day_${d}_${mode}`;
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          const hasCompletedAny = parsed.some((item: any) => item.completed);
+          if (hasCompletedAny) {
+            streak += 1;
+          } else {
+            // Break streak if a day has no completed items
+            break;
+          }
+        } catch (e) {
+          break;
+        }
+      } else {
+        break;
+      }
+    }
+    setStreakCount(streak);
   }
 
   async function loadDayProgressAndVideo(dayNum: number, mode: 'beginner' | 'repeater') {
@@ -131,6 +160,9 @@ export default function DailyTargetsPage() {
       } else {
         setChecklist([]);
       }
+
+      // Recalculate streak whenever day or track changes
+      calculateUserStreak(maxDaysCount, mode);
     } catch (err) {
       console.error('Error loading day configuration:', err);
     }
@@ -149,6 +181,7 @@ export default function DailyTargetsPage() {
       const storageKey = `bsca_target_day_${selectedDay}_${trackMode}`;
       localStorage.setItem(storageKey, JSON.stringify(checklist));
       setIsSaved(true);
+      calculateUserStreak(maxDaysCount, trackMode); // Update streak immediately on save
       setTimeout(() => setIsSaved(false), 3000);
     } catch (e) {}
   };
