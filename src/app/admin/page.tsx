@@ -524,7 +524,7 @@ export default function AdminPage() {
         if (!data || data.length === 0) return setStatusMsg('⚠️ Excel file is empty!');
 
         const formattedJSONQuestions = data.map((row, idx) => {
-          let rawSec = String(row.section || row.Subject || 'QUANT').trim().toUpperCase();
+          let rawSec = String(row.section || row.Section || row.SUBJECT || row.Subject || 'QUANT').trim().toUpperCase();
           let normSec = 'QUANT';
 
           if (rawSec.includes('ENG')) normSec = 'ENGLISH';
@@ -532,27 +532,40 @@ export default function AdminPage() {
           else if (rawSec.includes('QUANT') || rawSec.includes('MATH')) normSec = 'QUANT';
           else if (rawSec.includes('GA') || rawSec.includes('CURRENT') || rawSec.includes('AWARE')) normSec = 'GA';
 
-          const answerLetter = String(row.correctOptionIndex ?? row['Correct Answer'] ?? row.correctOption ?? '0').toUpperCase().trim();
+          const answerLetter = String(row.correctOptionIndex ?? row['Correct Answer'] ?? row.correct_option ?? row.correctOption ?? row.Answer ?? '0').toUpperCase().trim();
           const optionMap: { [key: string]: number } = { A: 0, B: 1, C: 2, D: 3, E: 4, '0': 0, '1': 1, '2': 2, '3': 3, '4': 4 };
           const correctIdx = optionMap[answerLetter] !== undefined ? optionMap[answerLetter] : 0;
 
+          const qText = String(
+            row.questionText || row.question_text || row['Question Text'] || row.Question || row.statement || row.Text || row.question || `Question ${idx + 1}`
+          ).trim();
+
+          const pText = String(
+            row.passageText || row.passage_text || row.passage || row.Direction || row.direction || row['Solution Text'] || ''
+          ).trim();
+
+          const explanationText = String(
+            row.explanation || row.Explanation || row.Solution || row.solution || row.solution_text || ''
+          ).trim();
+
           const options = [
-            String(row.optionA || row['Option A'] || row.option1 || ''),
-            String(row.optionB || row['Option B'] || row.option2 || ''),
-            String(row.optionC || row['Option C'] || row.option3 || ''),
-            String(row.optionD || row['Option D'] || row.option4 || ''),
-            String(row.optionE || row['Option E'] || row.option5 || ''),
+            String(row.optionA || row['Option A'] || row.option_1 || row.option1 || row.A || row.choice1 || row.ChoiceA || '').trim(),
+            String(row.optionB || row['Option B'] || row.option_2 || row.option2 || row.B || row.choice2 || row.ChoiceB || '').trim(),
+            String(row.optionC || row['Option C'] || row.option_3 || row.option3 || row.C || row.choice3 || row.ChoiceC || '').trim(),
+            String(row.optionD || row['Option D'] || row.option_4 || row.option4 || row.D || row.choice4 || row.ChoiceD || '').trim(),
+            String(row.optionE || row['Option E'] || row.option_5 || row.option5 || row.E || row.choice5 || row.ChoiceE || '').trim(),
           ].filter(Boolean);
 
           return {
             id: `q-${idx + 1}-${Date.now()}`,
             section: normSec,
-            passageText: String(row.passageText || row.passage || row['Solution Text'] || '').trim(),
-            questionText: String(row.questionText || row.question || row['Question Text'] || `Question ${idx + 1}`).trim(),
+            passageText: pText,
+            questionText: qText,
             options: options.length > 0 ? options : ['Option A', 'Option B', 'Option C', 'Option D', 'Option E'],
             correctOptionIndex: correctIdx,
             marks: Number(row.marks ?? 1.0),
             negativeMarks: Number(row.negativeMarks ?? 0.25),
+            explanation: explanationText,
           };
         });
 

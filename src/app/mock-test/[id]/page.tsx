@@ -542,7 +542,7 @@ export default function TCSiONMockTestPlayerPage() {
                 {activeQuestion.questionText}
               </h3>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+              <div className="flex flex-col gap-3 pt-2">
                 {activeQuestion.options.map((opt, optIdx) => {
                   const isSelected = selectedAnswers[activeIndex] === optIdx;
                   const isCorrect = activeQuestion.correctOptionIndex === optIdx;
