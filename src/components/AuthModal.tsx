@@ -10,63 +10,100 @@ interface AuthModalProps {
 }
 
 export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
+  const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
 
   if (!isOpen) return null;
 
-  const handleEmailLogin = async (e: React.FormEvent) => {
+  const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setErrorMsg('');
+    setSuccessMsg('');
 
-    try {
+    if (isSignUp) {
+      // 1. EMAIL SIGN UP FLOW
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { full_name: fullName },
+        },
+      });
+
+      if (error) {
+        setErrorMsg(error.message);
+      } else if (data.user) {
+        // If email confirmation is enabled and email is not confirmed, require verification
+        if (!data.user.email_confirmed_at && data.session === null) {
+          await supabase.auth.signOut();
+          setSuccessMsg(
+            '🎉 Registration successful! A confirmation link has been sent to your email. Please verify your account before logging in.'
+          );
+          setEmail('');
+          setPassword('');
+          setFullName('');
+        } else {
+          onSuccess(data.user);
+          onClose();
+        }
+      }
+    } else {
+      // 2. EMAIL LOG IN FLOW
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (error) {
-        setErrorMsg(error.message || 'Login failed');
+        if (error.message.toLowerCase().includes('email not confirmed')) {
+          setErrorMsg(
+            '⚠️ Your email is not confirmed yet! Please check your inbox or spam folder to confirm your account.'
+          );
+        } else {
+          setErrorMsg(error.message);
+        }
       } else if (data.user) {
-        onSuccess(data.user);
-        onClose();
+        if (!data.user.email_confirmed_at) {
+          await supabase.auth.signOut();
+          setErrorMsg(
+            '⚠️ Please confirm your email address via the link sent to your inbox before logging in.'
+          );
+        } else {
+          onSuccess(data.user);
+          onClose();
+        }
       }
-    } catch (err: any) {
-      setErrorMsg(err.message || 'An unexpected error occurred');
-    } finally {
-      setLoading(false);
     }
+    setLoading(false);
   };
 
+  // Fixed Google OAuth Handler
   const handleGoogleSignIn = async () => {
     setLoading(true);
     setErrorMsg('');
 
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback?next=/tests`,
-        },
-      });
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback?next=/tests`,
+      },
+    });
 
-      if (error) {
-        setErrorMsg(error.message || 'Google login failed');
-        setLoading(false);
-      }
-    } catch (err: any) {
-      setErrorMsg(err.message || 'An unexpected error occurred');
+    if (error) {
+      setErrorMsg(error.message);
       setLoading(false);
     }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl relative text-white">
-        
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl relative">
         {/* CLOSE BUTTON */}
         <button
           onClick={onClose}
@@ -81,17 +118,55 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
             BS
           </div>
           <h2 className="text-xl font-bold text-white">
-            Welcome Back
+            {isSignUp ? 'Create Aspirant Account' : 'Welcome Back'}
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Log in to access your test reports and calculation lab
+            {isSignUp
+              ? 'Join 10.6K+ students tracking mock test scores'
+              : 'Log in to access your test reports and calculation lab'}
           </p>
         </div>
 
-        {/* ERROR MESSAGE */}
+        {/* TOP TOGGLE TABS */}
+        <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs mb-4">
+          <button
+            type="button"
+            onClick={() => {
+              setIsSignUp(false);
+              setErrorMsg('');
+              setSuccessMsg('');
+            }}
+            className={`flex-1 py-2 font-bold rounded-lg transition ${
+              !isSignUp ? 'bg-amber-400 text-slate-950 shadow' : 'text-slate-400'
+            }`}
+          >
+            Log In
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setIsSignUp(true);
+              setErrorMsg('');
+              setSuccessMsg('');
+            }}
+            className={`flex-1 py-2 font-bold rounded-lg transition ${
+              isSignUp ? 'bg-amber-400 text-slate-950 shadow' : 'text-slate-400'
+            }`}
+          >
+            Sign Up
+          </button>
+        </div>
+
+        {/* FEEDBACK MESSAGES */}
         {errorMsg && (
           <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/30 text-rose-400 rounded-lg text-xs font-medium leading-relaxed">
             {errorMsg}
+          </div>
+        )}
+
+        {successMsg && (
+          <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-lg text-xs font-medium leading-relaxed">
+            {successMsg}
           </div>
         )}
 
@@ -100,7 +175,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
           type="button"
           onClick={handleGoogleSignIn}
           disabled={loading}
-          className="w-full mb-4 py-3 bg-white hover:bg-slate-100 text-slate-900 font-bold text-xs rounded-xl shadow border border-slate-300 flex items-center justify-center gap-2 transition disabled:opacity-50"
+          className="w-full mb-4 py-2.5 bg-white hover:bg-slate-100 text-slate-900 font-bold text-xs rounded-xl shadow border border-slate-300 flex items-center justify-center gap-2 transition disabled:opacity-50"
         >
           <svg className="w-4 h-4" viewBox="0 0 24 24">
             <path
@@ -129,8 +204,22 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
           <div className="flex-1 border-t border-slate-800"></div>
         </div>
 
-        {/* EMAIL LOGIN FORM */}
-        <form onSubmit={handleEmailLogin} className="space-y-4">
+        {/* AUTH FORM */}
+        <form onSubmit={handleAuth} className="space-y-4">
+          {isSignUp && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">Full Name</label>
+              <input
+                type="text"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="Your Name"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-amber-400"
+                required
+              />
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1">Email Address</label>
             <input
@@ -160,10 +249,25 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
             disabled={loading}
             className="w-full bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold py-3 rounded-xl transition text-sm uppercase tracking-wider shadow-lg shadow-amber-400/20 disabled:opacity-50"
           >
-            {loading ? 'Logging in...' : 'Log In with Email'}
+            {loading ? 'Processing...' : isSignUp ? 'Create Account' : 'Log In'}
           </button>
         </form>
 
+        {/* BOTTOM MODE SWITCH PROMPT */}
+        <div className="mt-6 text-center text-xs text-slate-400 border-t border-slate-800 pt-4">
+          {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
+          <button
+            type="button"
+            onClick={() => {
+              setIsSignUp(!isSignUp);
+              setErrorMsg('');
+              setSuccessMsg('');
+            }}
+            className="text-amber-400 font-bold hover:underline ml-1"
+          >
+            {isSignUp ? 'Log In' : 'Sign Up'}
+          </button>
+        </div>
       </div>
     </div>
   );
