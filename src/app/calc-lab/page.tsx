@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 
-// 1. ADDED 'mixed' to ModuleType
 type ModuleType = 'tables' | 'squares' | 'cubes' | 'percentages' | 'mixed';
 
 interface QuestionProblem {
@@ -42,6 +41,7 @@ export default function CalcLabPage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
+  const [currentUserRank, setCurrentUserRank] = useState<{ rank: number; score: number; accuracy: number; student_name: string; module_type: string } | null>(null);
 
   // Current Question
   const [currentProblem, setCurrentProblem] = useState<QuestionProblem | null>(null);
@@ -55,9 +55,10 @@ export default function CalcLabPage() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setCurrentUser(session?.user || null);
+      const user = session?.user || null;
+      setCurrentUser(user);
+      fetchLeaderboard(user?.id);
     });
-    fetchLeaderboard();
   }, []);
 
   // Focus input field automatically when active
@@ -85,9 +86,11 @@ export default function CalcLabPage() {
     return () => clearInterval(interval);
   }, [isGameActive, mode, timeLeft]);
 
-  // Fetch Leaderboard Records
-  const fetchLeaderboard = async () => {
+  // Fetch Leaderboard Records & Check if User is Outside Top 50
+  const fetchLeaderboard = async (userId?: string) => {
     setLoadingLeaderboard(true);
+    const activeUserId = userId || currentUser?.id;
+
     const { data, error } = await supabase
       .from('calculation_lab_scores')
       .select('*')
@@ -97,41 +100,82 @@ export default function CalcLabPage() {
 
     if (!error && data) {
       setLeaderboard(data as LeaderboardEntry[]);
+
+      if (activeUserId) {
+        const foundIndex = data.findIndex((entry) => entry.user_id === activeUserId);
+        if (foundIndex !== -1) {
+          // User is in top 50, clear standalone rank card
+          setCurrentUserRank(null);
+        } else {
+          // User is outside top 50, fetch their specific rank calculation
+          fetchUserRankOutsideTop50(activeUserId);
+        }
+      }
     }
     setLoadingLeaderboard(false);
   };
 
+  // Calculate rank for users outside top 50 by counting scores higher than theirs
+  const fetchUserRankOutsideTop50 = async (userId: string) => {
+    const { data: userData, error: userErr } = await supabase
+      .from('calculation_lab_scores')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    if (userErr || !userData) {
+      setCurrentUserRank(null);
+      return;
+    }
+
+    // Count how many entries have a higher score, or same score with higher accuracy
+    const { count, error: countErr } = await supabase
+      .from('calculation_lab_scores')
+      .select('*', { count: 'exact', head: true })
+      .or(`score.gt.${userData.score},and(score.eq.${userData.score},accuracy.gt.${userData.accuracy})`);
+
+    if (!countErr && count !== null) {
+      setCurrentUserRank({
+        rank: count + 1,
+        score: userData.score,
+        accuracy: userData.accuracy,
+        student_name: userData.student_name || 'You',
+        module_type: userData.module_type || 'GENERAL',
+      });
+    } else {
+      setCurrentUserRank(null);
+    }
+  };
+
   // Question Generator Logic
   const generateProblem = (moduleType: ModuleType): QuestionProblem => {
-    // 2. MIXED PRACTICE LOGIC ADDED HERE
     if (moduleType === 'mixed') {
       const ops = ['+', '-', '×', '÷'];
       const chosenOp = ops[Math.floor(Math.random() * ops.length)];
 
       if (chosenOp === '+') {
-        const a = Math.floor(Math.random() * 89) + 11; // 11 to 99
+        const a = Math.floor(Math.random() * 89) + 11;
         const b = Math.floor(Math.random() * 89) + 11;
         return { prompt: `${a} + ${b}`, answer: a + b, explanation: `${a} + ${b} = ${a + b}` };
       } else if (chosenOp === '-') {
-        const a = Math.floor(Math.random() * 89) + 11; // 11 to 99
-        const b = Math.floor(Math.random() * a) + 1;   // smaller than a
+        const a = Math.floor(Math.random() * 89) + 11;
+        const b = Math.floor(Math.random() * a) + 1;
         return { prompt: `${a} - ${b}`, answer: a - b, explanation: `${a} - ${b} = ${a - b}` };
       } else if (chosenOp === '×') {
-        const a = Math.floor(Math.random() * 20) + 5; // 5 to 24
-        const b = Math.floor(Math.random() * 9) + 2;  // 2 to 10
+        const a = Math.floor(Math.random() * 20) + 5;
+        const b = Math.floor(Math.random() * 9) + 2;
         return { prompt: `${a} × ${b}`, answer: a * b, explanation: `${a} × ${b} = ${a * b}` };
       } else {
-        // Division: guarantee a clean integer result without decimals
-        const divisor = Math.floor(Math.random() * 14) + 2; // 2 to 15
-        const quotient = Math.floor(Math.random() * 19) + 2; // 2 to 20
+        const divisor = Math.floor(Math.random() * 14) + 2;
+        const quotient = Math.floor(Math.random() * 19) + 2;
         const dividend = divisor * quotient;
         return { prompt: `${dividend} ÷ ${divisor}`, answer: quotient, explanation: `${dividend} ÷ ${divisor} = ${quotient}` };
       }
     }
 
     if (moduleType === 'tables') {
-      const num1 = Math.floor(Math.random() * 19) + 12; // 12 to 30
-      const num2 = Math.floor(Math.random() * 9) + 2;   // 2 to 10
+      const num1 = Math.floor(Math.random() * 19) + 12;
+      const num2 = Math.floor(Math.random() * 9) + 2;
       return {
         prompt: `${num1} × ${num2}`,
         answer: num1 * num2,
@@ -140,7 +184,7 @@ export default function CalcLabPage() {
     }
 
     if (moduleType === 'squares') {
-      const num = Math.floor(Math.random() * 41) + 10; // 10 to 50
+      const num = Math.floor(Math.random() * 41) + 10;
       return {
         prompt: `${num}²`,
         answer: num * num,
@@ -149,7 +193,7 @@ export default function CalcLabPage() {
     }
 
     if (moduleType === 'cubes') {
-      const num = Math.floor(Math.random() * 21) + 5; // 5 to 25
+      const num = Math.floor(Math.random() * 21) + 5;
       return {
         prompt: `${num}³`,
         answer: num * num * num,
@@ -157,7 +201,6 @@ export default function CalcLabPage() {
       };
     }
 
-    // Module: Percentages & Fractions
     const commonFractions = [
       { prompt: '16.66% of 60', answer: 10, exp: '16.66% = 1/6th' },
       { prompt: '14.28% of 70', answer: 10, exp: '14.28% = 1/7th' },
@@ -178,7 +221,7 @@ export default function CalcLabPage() {
   };
 
   const startGame = () => {
-    isSavingRef.current = false; // Reset save guard
+    isSavingRef.current = false;
     setScore(0);
     setWrongCount(0);
     setTotalAttempted(0);
@@ -190,13 +233,12 @@ export default function CalcLabPage() {
   };
 
   const endGame = async () => {
-    if (isSavingRef.current) return; // Prevent double execution
+    if (isSavingRef.current) return;
     isSavingRef.current = true;
     
     setIsGameActive(false);
     setIsGameFinished(true);
 
-    // Save Score to Leaderboard
     const session = (await supabase.auth.getSession()).data.session;
     if (session?.user && score > 0) {
       const studentName =
@@ -206,7 +248,6 @@ export default function CalcLabPage() {
 
       const accNum = totalAttempted > 0 ? Number(((score / totalAttempted) * 100).toFixed(1)) : 100;
 
-      // Upsert prevents duplicate rows if user plays multiple times
       await supabase.from('calculation_lab_scores').upsert(
         [
           {
@@ -219,10 +260,10 @@ export default function CalcLabPage() {
             created_at: new Date().toISOString(),
           },
         ],
-        { onConflict: 'user_id,module_type' } // Ensure you have this unique constraint in Supabase
+        { onConflict: 'user_id,module_type' }
       );
 
-      fetchLeaderboard();
+      fetchLeaderboard(session.user.id);
     }
   };
 
@@ -406,7 +447,6 @@ export default function CalcLabPage() {
                     <span className="text-xs font-normal text-slate-400">16.66%, 14.28%, etc.</span>
                   </button>
 
-                  {/* 3. NEW MIXED PRACTICE BUTTON (Spans full width) */}
                   <button
                     onClick={() => setSelectedModule('mixed')}
                     className={`col-span-2 p-4 rounded-xl border font-bold text-center transition ${
@@ -568,7 +608,7 @@ export default function CalcLabPage() {
                 <span>🏆 Top Speed Calculators</span>
               </h3>
               <button
-                onClick={fetchLeaderboard}
+                onClick={() => fetchLeaderboard()}
                 className="text-xs text-amber-400 hover:underline font-bold"
               >
                 🔄 Refresh
@@ -584,55 +624,83 @@ export default function CalcLabPage() {
                 No scores recorded yet. Be the first to complete a drill!
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-950 text-slate-400 uppercase font-bold border-b border-slate-700">
-                    <tr>
-                      <th className="p-3 text-center">Rank</th>
-                      <th className="p-3">Aspirant</th>
-                      <th className="p-3 text-center">Module</th>
-                      <th className="p-3 text-center">Score</th>
-                      <th className="p-3 text-right">Accuracy</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-700/60 font-medium">
-                    {leaderboard.map((entry, idx) => {
-                      const isCurrentUser = currentUser?.id === entry.user_id;
-                      let rankBadge = `#${idx + 1}`;
-                      if (idx === 0) rankBadge = '🥇 1st';
-                      if (idx === 1) rankBadge = '🥈 2nd';
-                      if (idx === 2) rankBadge = '🥉 3rd';
+              <div className="space-y-4">
+                <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-950 text-slate-400 uppercase font-bold border-b border-slate-700 sticky top-0">
+                      <tr>
+                        <th className="p-3 text-center">Rank</th>
+                        <th className="p-3">Aspirant</th>
+                        <th className="p-3 text-center">Module</th>
+                        <th className="p-3 text-center">Score</th>
+                        <th className="p-3 text-right">Accuracy</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-700/60 font-medium">
+                      {leaderboard.map((entry, idx) => {
+                        const isCurrentUser = currentUser?.id === entry.user_id;
+                        let rankBadge = `#${idx + 1}`;
+                        if (idx === 0) rankBadge = '🥇 1st';
+                        if (idx === 1) rankBadge = '🥈 2nd';
+                        if (idx === 2) rankBadge = '🥉 3rd';
 
-                      return (
-                        <tr
-                          key={entry.id}
-                          className={`hover:bg-slate-700/40 transition ${
-                            isCurrentUser ? 'bg-amber-500/10 border-l-4 border-amber-400' : ''
-                          }`}
-                        >
-                          <td className="p-3 text-center font-bold text-amber-400">{rankBadge}</td>
-                          <td className="p-3 font-bold text-white flex items-center gap-2">
-                            <span>{entry.student_name}</span>
-                            {isCurrentUser && (
-                              <span className="text-[9px] bg-amber-400/20 text-amber-400 border border-amber-400/30 px-1.5 py-0.5 rounded font-extrabold">
-                                YOU
-                              </span>
-                            )}
-                          </td>
-                          <td className="p-3 text-center text-slate-400 text-[10px] uppercase font-mono">
-                            {entry.module_type}
-                          </td>
-                          <td className="p-3 text-center font-black text-emerald-400 text-sm">
-                            {entry.score}
-                          </td>
-                          <td className="p-3 text-right font-bold text-blue-400">
-                            {entry.accuracy}%
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                        return (
+                          <tr
+                            key={entry.id}
+                            className={`hover:bg-slate-700/40 transition ${
+                              isCurrentUser ? 'bg-amber-500/10 border-l-4 border-amber-400' : ''
+                            }`}
+                          >
+                            <td className="p-3 text-center font-bold text-amber-400">{rankBadge}</td>
+                            <td className="p-3 font-bold text-white flex items-center gap-2">
+                              <span>{entry.student_name}</span>
+                              {isCurrentUser && (
+                                <span className="text-[9px] bg-amber-400/20 text-amber-400 border border-amber-400/30 px-1.5 py-0.5 rounded font-extrabold">
+                                  YOU
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-3 text-center text-slate-400 text-[10px] uppercase font-mono">
+                              {entry.module_type}
+                            </td>
+                            <td className="p-3 text-center font-black text-emerald-400 text-sm">
+                              {entry.score}
+                            </td>
+                            <td className="p-3 text-right font-bold text-blue-400">
+                              {entry.accuracy}%
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* USER'S STANDING CARD AT THE BOTTOM IF LOWER THAN RANK 50 */}
+                {currentUserRank && (
+                  <div className="pt-3 border-t border-slate-700">
+                    <div className="text-[10px] uppercase font-bold text-slate-400 mb-1.5 tracking-wider text-center">
+                      Your Standings
+                    </div>
+                    <div className="flex justify-between items-center p-3 rounded-xl bg-amber-500/10 border border-amber-400/40 text-amber-300 text-xs font-bold shadow-inner">
+                      <div className="flex items-center gap-3">
+                        <span className="w-7 h-7 rounded-full bg-amber-500 text-slate-950 flex items-center justify-center text-xs font-black shadow">
+                          #{currentUserRank.rank}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-white">{currentUserRank.student_name}</span>
+                          <span className="text-[9px] bg-amber-400/20 text-amber-400 border border-amber-400/30 px-1.5 py-0.5 rounded font-extrabold">
+                            YOU
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4 font-mono">
+                        <span className="text-[10px] uppercase text-slate-400 font-sans">{currentUserRank.module_type}</span>
+                        <span className="text-emerald-400 font-black text-sm">{currentUserRank.score} pts</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
