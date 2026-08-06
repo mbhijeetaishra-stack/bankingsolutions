@@ -10,10 +10,36 @@ interface AuthModalProps {
 }
 
 export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   if (!isOpen) return null;
+
+  const handleEmailLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setErrorMsg('');
+
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        setErrorMsg(error.message || 'Login failed');
+      } else if (data.user) {
+        onSuccess(data.user);
+        onClose();
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || 'An unexpected error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
@@ -55,10 +81,10 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
             BS
           </div>
           <h2 className="text-xl font-bold text-white">
-            Welcome to BankingSolutions
+            Welcome Back
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Log in or sign up securely with your Google account
+            Log in to access your test reports and calculation lab
           </p>
         </div>
 
@@ -74,7 +100,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
           type="button"
           onClick={handleGoogleSignIn}
           disabled={loading}
-          className="w-full py-3.5 bg-white hover:bg-slate-100 text-slate-900 font-bold text-xs rounded-xl shadow border border-slate-300 flex items-center justify-center gap-2 transition disabled:opacity-50"
+          className="w-full mb-4 py-3 bg-white hover:bg-slate-100 text-slate-900 font-bold text-xs rounded-xl shadow border border-slate-300 flex items-center justify-center gap-2 transition disabled:opacity-50"
         >
           <svg className="w-4 h-4" viewBox="0 0 24 24">
             <path
@@ -96,6 +122,47 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
           </svg>
           <span>{loading ? 'Connecting...' : 'Continue with Google'}</span>
         </button>
+
+        <div className="flex items-center my-4">
+          <div className="flex-1 border-t border-slate-800"></div>
+          <span className="px-3 text-[10px] text-slate-500 uppercase font-bold">OR</span>
+          <div className="flex-1 border-t border-slate-800"></div>
+        </div>
+
+        {/* EMAIL LOGIN FORM */}
+        <form onSubmit={handleEmailLogin} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 mb-1">Email Address</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="student@gmail.com"
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-amber-400"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 mb-1">Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-amber-400"
+              required
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold py-3 rounded-xl transition text-sm uppercase tracking-wider shadow-lg shadow-amber-400/20 disabled:opacity-50"
+          >
+            {loading ? 'Logging in...' : 'Log In with Email'}
+          </button>
+        </form>
 
       </div>
     </div>

@@ -25,8 +25,7 @@ export default function TestListPage() {
   const [user, setUser] = useState<any>(null);
   const [userRole, setUserRole] = useState<'student' | 'admin'>('student');
   
-  // Auth Form State
-  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  // Auth Form State (Login Only + Google)
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
@@ -104,24 +103,37 @@ export default function TestListPage() {
     setCompletedAttempts(attemptsMap);
   }
 
-  async function handleAuthSubmit(e: React.FormEvent) {
+  // Email Login Handler
+  async function handleEmailLogin(e: React.FormEvent) {
     e.preventDefault();
     setAuthError('');
     setLoading(true);
 
-    if (authMode === 'login') {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) setAuthError(error.message);
-      else if (data.user) checkUserSession();
-    } else {
-      const { data, error } = await supabase.auth.signUp({ email, password });
-      if (error) setAuthError(error.message);
-      else if (data.user) {
-        alert('Registration successful! Logging you in...');
-        checkUserSession();
-      }
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      setAuthError(typeof error.message === 'string' ? error.message : 'Login failed');
+    } else if (data.user) {
+      checkUserSession();
     }
     setLoading(false);
+  }
+
+  // Google OAuth Handler
+  async function handleGoogleSignIn() {
+    setLoading(true);
+    setAuthError('');
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback?next=/tests`,
+      },
+    });
+
+    if (error) {
+      setAuthError(typeof error.message === 'string' ? error.message : 'Google login failed');
+      setLoading(false);
+    }
   }
 
   async function handleLogout() {
@@ -160,22 +172,41 @@ export default function TestListPage() {
             <p className="text-xs text-slate-400">Please log in to access your mock tests and practice series.</p>
           </div>
 
-          <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-700 text-xs">
-            <button
-              onClick={() => setAuthMode('login')}
-              className={`flex-1 py-2 font-bold rounded-lg transition ${authMode === 'login' ? 'bg-[#1D63B8] text-white shadow' : 'text-slate-400'}`}
-            >
-              Sign In
-            </button>
-            <button
-              onClick={() => setAuthMode('signup')}
-              className={`flex-1 py-2 font-bold rounded-lg transition ${authMode === 'signup' ? 'bg-[#1D63B8] text-white shadow' : 'text-slate-400'}`}
-            >
-              New Student Register
-            </button>
+          {/* GOOGLE SIGN IN BUTTON */}
+          <button
+            type="button"
+            onClick={handleGoogleSignIn}
+            disabled={loading}
+            className="w-full py-3 bg-white hover:bg-slate-100 text-slate-900 font-bold text-xs rounded-xl shadow border border-slate-300 flex items-center justify-center gap-2 transition disabled:opacity-50"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24">
+              <path
+                fill="#4285F4"
+                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+              />
+              <path
+                fill="#34A853"
+                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+              />
+              <path
+                fill="#FBBC05"
+                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+              />
+              <path
+                fill="#EA4335"
+                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+              />
+            </svg>
+            <span>{loading ? 'Connecting...' : 'Continue with Google'}</span>
+          </button>
+
+          <div className="flex items-center my-2">
+            <div className="flex-1 border-t border-slate-700"></div>
+            <span className="px-3 text-[10px] text-slate-500 uppercase font-bold">OR</span>
+            <div className="flex-1 border-t border-slate-700"></div>
           </div>
 
-          <form onSubmit={handleAuthSubmit} className="space-y-4">
+          <form onSubmit={handleEmailLogin} className="space-y-4">
             {authError && (
               <div className="p-3 bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs rounded-xl font-bold">
                 {authError}
@@ -208,9 +239,10 @@ export default function TestListPage() {
 
             <button
               type="submit"
-              className="w-full py-3 bg-[#1D63B8] hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-lg transition"
+              disabled={loading}
+              className="w-full py-3 bg-[#1D63B8] hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-lg transition disabled:opacity-50"
             >
-              {authMode === 'login' ? 'Enter Test Portal →' : 'Register Student Account'}
+              {loading ? 'Logging in...' : 'Log In with Email →'}
             </button>
           </form>
         </div>
@@ -248,8 +280,8 @@ export default function TestListPage() {
             </Link>
           )}
            <Link href="/" className="px-4 py-1.5 bg-white/10 hover:bg-white/20 text-white font-bold text-xs rounded-lg transition border border-white/20">
-                    ← Home
-                  </Link>
+                ← Home
+              </Link>
           <button
             onClick={handleLogout}
             className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-lg transition"
