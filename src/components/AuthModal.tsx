@@ -33,6 +33,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
         password,
         options: {
           data: { full_name: fullName },
+          emailRedirectTo: `${window.location.origin}/tests`,
         },
       });
 
