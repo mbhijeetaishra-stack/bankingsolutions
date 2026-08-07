@@ -123,7 +123,6 @@ function TestListContent() {
       if (error) {
         setAuthError(error.message);
       } else if (data.user) {
-        // Ensure profile row exists on direct login
         await supabase.from('profiles').upsert([
           {
             id: data.user.id,
@@ -148,7 +147,6 @@ function TestListContent() {
       if (error) {
         setAuthError(error.message);
       } else if (data.user) {
-        // If email confirmation is disabled/enabled, handle profile creation
         await supabase.from('profiles').upsert([
           {
             id: data.user.id,
@@ -159,11 +157,25 @@ function TestListContent() {
           }
         ], { onConflict: 'id' });
 
-        alert('🎉 Registration successful! Please check your email for the confirmation link, or log in if confirmation is not required.');
+        alert('🎉 Registration successful! Please check your email for the confirmation link.');
         setAuthMode('login');
       }
     }
     setLoading(false);
+  }
+
+  async function handleGoogleLogin() {
+    setAuthError('');
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/tests`,
+      },
+    });
+
+    if (error) {
+      setAuthError(error.message);
+    }
   }
 
   async function handleLogout() {
@@ -200,6 +212,27 @@ function TestListContent() {
             </div>
             <h1 className="text-xl font-bold text-white">BankingSolutions Portal</h1>
             <p className="text-xs text-slate-400">Please log in to access your mock tests and practice series.</p>
+          </div>
+
+          {/* Google Login Button */}
+          <button
+            onClick={handleGoogleLogin}
+            type="button"
+            className="w-full py-3 px-4 bg-white hover:bg-slate-100 text-slate-900 font-bold text-xs rounded-xl shadow transition flex items-center justify-center gap-3 border border-slate-300"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"/>
+              <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.13 0-5.78-2.11-6.73-4.96H1.2v3.15C3.21 21.32 7.27 24 12 24z"/>
+              <path fill="#FBBC05" d="M5.27 14.24c-.25-.72-.38-1.49-.38-2.24s.13-1.52.38-2.24V6.6H1.2C.44 8.13 0 9.87 0 12s.44 3.87 1.2 5.4l4.07-3.16z"/>
+              <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.27 0 3.21 2.68 1.2 6.6l4.07 3.15c.95-2.85 3.6-4.96 6.73-4.96z"/>
+            </svg>
+            <span>Continue with Google</span>
+          </button>
+
+          <div className="flex items-center my-2">
+            <div className="flex-grow border-t border-slate-700"></div>
+            <span className="px-3 text-[10px] uppercase font-bold text-slate-500">Or with email</span>
+            <div className="flex-grow border-t border-slate-700"></div>
           </div>
 
           <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-700 text-xs">
