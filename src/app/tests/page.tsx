@@ -27,20 +27,20 @@ function TestListContent() {
   const [user, setUser] = useState<any>(null);
   const [userRole, setUserRole] = useState<'student' | 'admin'>('student');
   
-  // Auth Form State
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
 
-  // Tests & Filter State
   const [mocks, setMocks] = useState<MockItem[]>([]);
   const [completedAttempts, setCompletedAttempts] = useState<Record<string, MockAttempt>>({});
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedFilter, setSelectedFilter] = useState('ALL');
+  
+  // 🟢 Hierarchical Navigation States
+  const [selectedParentExam, setSelectedParentExam] = useState('ALL');
+  const [selectedSubCategory, setSelectedSubCategory] = useState('ALL');
 
   useEffect(() => {
-    // Check for email verification success query param
     const isVerified = searchParams.get('verified');
     if (isVerified === 'true') {
       alert('🎉 Signup successful! Your email has been verified and your account is ready.');
@@ -78,13 +78,13 @@ function TestListContent() {
   }
 
   async function fetchMocksAndAttempts(userId?: string) {
-    const { data, error } = await supabase
+    const { data: mockData, error } = await supabase
       .from('mock_tests')
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (!error && data) {
-      setMocks(data);
+    if (!error && mockData) {
+      setMocks(mockData);
     }
 
     let attemptsMap: Record<string, MockAttempt> = {};
@@ -185,12 +185,53 @@ function TestListContent() {
     setCompletedAttempts({});
   }
 
+  // 🟢 Parse parent exams dynamically from mock exam_types (e.g. "IBPS PO - Prelims" -> Parent: "IBPS PO", Sub: "Prelims")
+  const parentExamsList = ['SBI PO', 'IBPS PO', 'RRB PO', 'BSCA', 'BSPS'];
+  
+  // Extract custom parent exams from database tests if any exist
+  const dynamicParents = Array.from(new Set(mocks.map(m => {
+    const raw = m.exam_type || '';
+    return raw.split('-')[0].trim();
+  }))).filter(Boolean);
+
+  const finalParentExams = Array.from(new Set([...parentExamsList, ...dynamicParents]));
+
+  // Get available sub-categories for the currently selected parent exam
+  const getSubCategoriesForParent = (parent: string) => {
+    if (parent === 'ALL' || parent === 'BSCA' || parent === 'BSPS') return [];
+    
+    const matchingMocks = mocks.filter(m => (m.exam_type || '').toUpperCase().includes(parent.toUpperCase()));
+    const subs = matchingMocks.map(m => {
+      const raw = m.exam_type || '';
+      if (raw.includes('-')) {
+        return raw.split('-')[1].trim();
+      }
+      return 'General';
+    });
+    
+    return ['ALL', ...Array.from(new Set(subs))];
+  };
+
+  const currentSubCategories = getSubCategoriesForParent(selectedParentExam);
+
+  // 🟢 Filter mocks based on hierarchical selection & search input
   const filteredMocks = mocks.filter((mock) => {
     const matchesSearch = mock.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           (mock.exam_type || '').toLowerCase().includes(searchTerm.toLowerCase());
     
-    if (selectedFilter === 'ALL') return matchesSearch;
-    return matchesSearch && (mock.exam_type || '').toUpperCase().includes(selectedFilter);
+    if (!matchesSearch) return false;
+    if (selectedParentExam === 'ALL') return true;
+
+    const examTypeUpper = (mock.exam_type || '').toUpperCase();
+    const parentUpper = selectedParentExam.toUpperCase();
+
+    if (!examTypeUpper.includes(parentUpper)) return false;
+
+    if (selectedSubCategory !== 'ALL') {
+      return examTypeUpper.includes(selectedSubCategory.toUpperCase());
+    }
+
+    return true;
   });
 
   if (loading) {
@@ -214,26 +255,13 @@ function TestListContent() {
             <p className="text-xs text-slate-400">Please log in to access your mock tests and practice series.</p>
           </div>
 
-          {/* Google Login Button */}
           <button
             onClick={handleGoogleLogin}
             type="button"
             className="w-full py-3 px-4 bg-white hover:bg-slate-100 text-slate-900 font-bold text-xs rounded-xl shadow transition flex items-center justify-center gap-3 border border-slate-300"
           >
-            <svg className="w-4 h-4" viewBox="0 0 24 24">
-              <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"/>
-              <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.13 0-5.78-2.11-6.73-4.96H1.2v3.15C3.21 21.32 7.27 24 12 24z"/>
-              <path fill="#FBBC05" d="M5.27 14.24c-.25-.72-.38-1.49-.38-2.24s.13-1.52.38-2.24V6.6H1.2C.44 8.13 0 9.87 0 12s.44 3.87 1.2 5.4l4.07-3.16z"/>
-              <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.27 0 3.21 2.68 1.2 6.6l4.07 3.15c.95-2.85 3.6-4.96 6.73-4.96z"/>
-            </svg>
             <span>Continue with Google</span>
           </button>
-
-          <div className="flex items-center my-2">
-            <div className="flex-grow border-t border-slate-700"></div>
-            <span className="px-3 text-[10px] uppercase font-bold text-slate-500">Or with email</span>
-            <div className="flex-grow border-t border-slate-700"></div>
-          </div>
 
           <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-700 text-xs">
             <button
@@ -331,7 +359,6 @@ function TestListContent() {
           >
             Logout
           </button>
-         
         </div>
       </header>
 
@@ -354,21 +381,43 @@ function TestListContent() {
                 className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-400 outline-none focus:ring-2 focus:ring-[#1D63B8]"
               />
             </div>
+          </div>
 
-            <div className="flex gap-2 bg-slate-950 p-1 rounded-xl border border-slate-800 flex-wrap">
-              {['ALL', 'SBI PO', 'IBPS PO', 'SECTIONAL', 'BSCA', 'BSPS'].map((tab) => (
+          {/* 🟢 Parent Exam Category Navigation Bar (with ALL at the very end) */}
+          <div className="flex gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800 flex-wrap justify-center max-w-4xl mx-auto">
+            {[...finalParentExams, 'ALL'].map((parent) => (
+              <button
+                key={parent}
+                onClick={() => {
+                  setSelectedParentExam(parent);
+                  setSelectedSubCategory('ALL'); // Reset sub-filter on parent switch
+                }}
+                className={`px-4 py-2 rounded-lg text-xs font-bold transition uppercase ${
+                  selectedParentExam === parent ? 'bg-[#1D63B8] text-white shadow' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {parent}
+              </button>
+            ))}
+          </div>
+
+          {/* 🟢 Nested Sub-Category Navigation Bar (Prelims / Mains / PYQ) appears only when a parent exam is clicked */}
+          {currentSubCategories.length > 0 && (
+            <div className="flex gap-2 bg-slate-900 p-1.5 rounded-xl border border-slate-700/60 flex-wrap justify-center max-w-2xl mx-auto animate-fadeIn">
+              <span className="text-[10px] text-slate-400 self-center uppercase font-bold px-2">Filter Sub-Type:</span>
+              {currentSubCategories.map((sub) => (
                 <button
-                  key={tab}
-                  onClick={() => setSelectedFilter(tab)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-                    selectedFilter === tab ? 'bg-[#1D63B8] text-white shadow' : 'text-slate-400 hover:text-white'
+                  key={sub}
+                  onClick={() => setSelectedSubCategory(sub)}
+                  className={`px-3 py-1 rounded-md text-[11px] font-bold transition uppercase ${
+                    selectedSubCategory === sub ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-slate-200 bg-slate-800'
                   }`}
                 >
-                  {tab}
+                  {sub}
                 </button>
               ))}
             </div>
-          </div>
+          )}
         </div>
       </section>
 
@@ -406,7 +455,7 @@ function TestListContent() {
                   <div className="space-y-3">
                     <div className="flex justify-between items-start gap-2">
                       <span className="text-[10px] font-extrabold uppercase bg-blue-500/10 text-blue-400 border border-blue-500/30 px-3 py-1 rounded-full">
-                        {mock.exam_type || 'SBI PO Prelims'}
+                        {mock.exam_type || 'IBPS PO - Prelims'}
                       </span>
 
                       {attempt && (

@@ -23,6 +23,30 @@ interface LeaderboardEntry {
   created_at: string;
 }
 
+// 🟢 Predefined pool of unique fraction/percentage problems to avoid repetitions
+const fractionPercentagePool = [
+  { prompt: '16.66% of 60', answer: 10, explanation: '16.66% = 1/6th' },
+  { prompt: '14.28% of 70', answer: 10, explanation: '14.28% = 1/7th' },
+  { prompt: '12.5% of 80', answer: 10, explanation: '12.5% = 1/8th' },
+  { prompt: '37.5% of 80', answer: 30, explanation: '37.5% = 3/8th' },
+  { prompt: '62.5% of 80', answer: 50, explanation: '62.5% = 5/8th' },
+  { prompt: '83.33% of 60', answer: 50, explanation: '83.33% = 5/6th' },
+  { prompt: '11.11% of 90', answer: 10, explanation: '11.11% = 1/9th' },
+  { prompt: '9.09% of 110', answer: 10, explanation: '9.09% = 1/11th' },
+  { prompt: '27.27% of 110', answer: 30, explanation: '27.27% = 3/11th' },
+  { prompt: '33.33% of 90', answer: 30, explanation: '33.33% = 1/3rd' },
+  { prompt: '66.66% of 90', answer: 60, explanation: '66.66% = 2/3rds' },
+  { prompt: '20% of 150', answer: 30, explanation: '20% = 1/5th' },
+  { prompt: '40% of 150', answer: 60, explanation: '40% = 2/5ths' },
+  { prompt: '60% of 150', answer: 90, explanation: '60% = 3/5ths' },
+  { prompt: '80% of 150', answer: 120, explanation: '80% = 4/5ths' },
+  { prompt: '28.57% of 70', answer: 20, explanation: '28.57% = 2/7ths' },
+  { prompt: '42.85% of 70', answer: 30, explanation: '42.85% = 3/7ths' },
+  { prompt: '57.14% of 70', answer: 40, explanation: '57.14% = 4/7ths' },
+  { prompt: '71.42% of 70', answer: 50, explanation: '71.42% = 5/7ths' },
+  { prompt: '85.71% of 70', answer: 60, explanation: '85.71% = 6/7ths' },
+];
+
 export default function CalcLabPage() {
   const [activeTab, setActiveTab] = useState<'practice' | 'leaderboard'>('practice');
 
@@ -37,6 +61,9 @@ export default function CalcLabPage() {
   const [wrongCount, setWrongCount] = useState(0);
   const [totalAttempted, setTotalAttempted] = useState(0);
 
+  // 🟢 Session-based tracking array to prevent duplicate questions in a single drill
+  const sessionQueueRef = useRef<QuestionProblem[]>([]);
+
   // User & Leaderboard States
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
@@ -49,8 +76,6 @@ export default function CalcLabPage() {
   const [feedback, setFeedback] = useState<'none' | 'correct' | 'wrong'>('none');
 
   const inputRef = useRef<HTMLInputElement>(null);
-  
-  // Guard to prevent double execution in React StrictMode
   const isSavingRef = useRef(false);
 
   useEffect(() => {
@@ -61,14 +86,12 @@ export default function CalcLabPage() {
     });
   }, []);
 
-  // Focus input field automatically when active
   useEffect(() => {
     if (isGameActive && inputRef.current) {
       inputRef.current.focus();
     }
   }, [isGameActive, currentProblem]);
 
-  // Timer loop for 60-Second Blitz Mode
   useEffect(() => {
     let interval: any = null;
     if (isGameActive && mode === 'timer' && timeLeft > 0) {
@@ -86,7 +109,6 @@ export default function CalcLabPage() {
     return () => clearInterval(interval);
   }, [isGameActive, mode, timeLeft]);
 
-  // Fetch Leaderboard Records & Check if User is Outside Top 50
   const fetchLeaderboard = async (userId?: string) => {
     setLoadingLeaderboard(true);
     const activeUserId = userId || currentUser?.id;
@@ -104,10 +126,8 @@ export default function CalcLabPage() {
       if (activeUserId) {
         const foundIndex = data.findIndex((entry) => entry.user_id === activeUserId);
         if (foundIndex !== -1) {
-          // User is in top 50, clear standalone rank card
           setCurrentUserRank(null);
         } else {
-          // User is outside top 50, fetch their specific rank calculation
           fetchUserRankOutsideTop50(activeUserId);
         }
       }
@@ -115,7 +135,6 @@ export default function CalcLabPage() {
     setLoadingLeaderboard(false);
   };
 
-  // Calculate rank for users outside top 50 by counting scores higher than theirs
   const fetchUserRankOutsideTop50 = async (userId: string) => {
     const { data: userData, error: userErr } = await supabase
       .from('calculation_lab_scores')
@@ -128,7 +147,6 @@ export default function CalcLabPage() {
       return;
     }
 
-    // Count how many entries have a higher score, or same score with higher accuracy
     const { count, error: countErr } = await supabase
       .from('calculation_lab_scores')
       .select('*', { count: 'exact', head: true })
@@ -147,7 +165,7 @@ export default function CalcLabPage() {
     }
   };
 
-  // Question Generator Logic
+  // 🟢 Enhanced Question Generator with Unique Queue Support for Percentages
   const generateProblem = (moduleType: ModuleType): QuestionProblem => {
     if (moduleType === 'mixed') {
       const ops = ['+', '-', '×', '÷'];
@@ -201,23 +219,11 @@ export default function CalcLabPage() {
       };
     }
 
-    const commonFractions = [
-      { prompt: '16.66% of 60', answer: 10, exp: '16.66% = 1/6th' },
-      { prompt: '14.28% of 70', answer: 10, exp: '14.28% = 1/7th' },
-      { prompt: '12.5% of 80', answer: 10, exp: '12.5% = 1/8th' },
-      { prompt: '37.5% of 80', answer: 30, exp: '37.5% = 3/8th' },
-      { prompt: '62.5% of 80', answer: 50, exp: '62.5% = 5/8th' },
-      { prompt: '83.33% of 60', answer: 50, exp: '83.33% = 5/6th' },
-      { prompt: '11.11% of 90', answer: 10, exp: '11.11% = 1/9th' },
-      { prompt: '9.09% of 110', answer: 10, exp: '9.09% = 1/11th' },
-      { prompt: '27.27% of 110', answer: 30, exp: '27.27% = 3/11th' },
-    ];
-    const picked = commonFractions[Math.floor(Math.random() * commonFractions.length)];
-    return {
-      prompt: picked.prompt,
-      answer: picked.answer,
-      explanation: picked.exp,
-    };
+    // 🟢 Non-repeating queue pop for percentages module
+    if (sessionQueueRef.current.length === 0) {
+      sessionQueueRef.current = [...fractionPercentagePool].sort(() => 0.5 - Math.random());
+    }
+    return sessionQueueRef.current.pop()!;
   };
 
   const startGame = () => {
@@ -229,6 +235,9 @@ export default function CalcLabPage() {
     setUserInput('');
     setIsGameFinished(false);
     setIsGameActive(true);
+    
+    // Clear queue on fresh start to guarantee a completely randomized deck
+    sessionQueueRef.current = [...fractionPercentagePool].sort(() => 0.5 - Math.random());
     setCurrentProblem(generateProblem(selectedModule));
   };
 

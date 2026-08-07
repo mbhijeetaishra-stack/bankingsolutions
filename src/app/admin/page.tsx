@@ -30,6 +30,14 @@ interface MockTest {
   questions?: any[];
 }
 
+interface ExamCategory {
+  id: string;
+  exam_name: string;
+  sub_category: string; // Prelims, Mains, PYQ, etc.
+  total_duration_minutes: number;
+  sections: { name: string; time_minutes: number }[];
+}
+
 interface PdfCourse {
   id: string;
   title: string;
@@ -65,47 +73,53 @@ export default function AdminPage() {
     | 'bsca_quiz_builder'
     | 'pdf_uploader'
     | 'direct_mock_upload'
+    | 'create_exam_tab'
     | 'create_mock'
     | 'add_question'
     | 'bulk_upload'
     | 'targets_manager'
   >('updates_publisher');
 
-  // Admin Security States
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authError, setAuthError] = useState('');
 
-  // Common Admin States
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [selectedSubject, setSelectedSubject] = useState<string>('');
   const [statusMsg, setStatusMsg] = useState('');
 
-  // Single Question Form State
+  // 🟢 Hierarchical Exam Creator States
+  const [parentExamName, setParentExamName] = useState('IBPS PO');
+  const [subCategoryType, setSubCategoryType] = useState('Prelims'); // Prelims, Mains, PYQ
+  const [newExamDuration, setNewExamDuration] = useState(60);
+  const [examSections, setExamSections] = useState<{ name: string; time_minutes: number }[]>([
+    { name: 'Quantitative Aptitude', time_minutes: 20 },
+    { name: 'Reasoning Ability', time_minutes: 20 },
+    { name: 'English Language', time_minutes: 20 },
+  ]);
+  const [dynamicExamsList, setDynamicExamsList] = useState<ExamCategory[]>([]);
+
   const [questionText, setQuestionText] = useState('');
   const [options, setOptions] = useState(['', '', '', '', '']);
   const [correctOptionIndex, setCorrectOptionIndex] = useState(0);
   const [solutionText, setSolutionText] = useState('');
 
-  // Mock Test Builder State
   const [allQuestions, setAllQuestions] = useState<Question[]>([]);
   const [filterSubjectId, setFilterSubjectId] = useState<string>('ALL');
   const [mockTitle, setMockTitle] = useState('');
-  const [mockExamType, setMockExamType] = useState('SBI PO Prelims');
+  const [mockExamType, setMockExamType] = useState('IBPS PO - Prelims');
   const [mockDuration, setMockDuration] = useState(60);
   const [mockMarks, setMockMarks] = useState(100);
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<string[]>([]);
   const [existingMocks, setExistingMocks] = useState<MockTest[]>([]);
 
-  // Direct Mock Upload State
   const [directMockTitle, setDirectMockTitle] = useState('');
-  const [directMockExamType, setDirectMockExamType] = useState('SBI PO Prelims');
+  const [directMockExamType, setDirectMockExamType] = useState('IBPS PO - Prelims');
   const [directMockDuration, setDirectMockDuration] = useState(60);
   const [directMockMarks, setDirectMockMarks] = useState(100);
 
-  // PDF Course & File Upload States (BSPS / BSCA)
   const [courseTitle, setCourseTitle] = useState('');
   const [courseCategory, setCourseCategory] = useState<'BSPS' | 'BSCA'>('BSPS');
   const [courseDesc, setCourseDesc] = useState('');
@@ -118,7 +132,6 @@ export default function AdminPage() {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [uploadedPdfs, setUploadedPdfs] = useState<CoursePdf[]>([]);
 
-  // Updates & One-Liners Publisher States
   const [postCategory, setPostCategory] = useState<'ONE_LINER' | 'NOTIFICATION' | 'RESULT' | 'EXPECTED_CUTOFF' | 'EXAM_ANALYSIS'>('ONE_LINER');
   const [postTitle, setPostTitle] = useState('');
   const [postContent, setPostContent] = useState('');
@@ -130,7 +143,6 @@ export default function AdminPage() {
   const [postExternalLink, setPostExternalLink] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
 
-  // BSCA Quiz Builder States
   const [quizTitle, setQuizTitle] = useState('');
   const [quizDate, setQuizDate] = useState(new Date().toISOString().split('T')[0]);
   const [quizDuration, setQuizDuration] = useState(10);
@@ -142,7 +154,6 @@ export default function AdminPage() {
   const [quizCorrectOption, setQuizCorrectOption] = useState(0);
   const [quizExplanation, setQuizExplanation] = useState('');
 
-  // Daily Targets, Countdowns & Day-Wise Checklist Manager States
   const [targetDayNo, setTargetDayNo] = useState(1);
   const [targetTrackMode, setTargetTrackMode] = useState<'beginner' | 'repeater'>('beginner');
   const [targetVideoUrl, setTargetVideoUrl] = useState('');
@@ -155,16 +166,13 @@ export default function AdminPage() {
   const [dayChecklistInput, setDayChecklistInput] = useState('');
   const [dayChecklistItems, setDayChecklistItems] = useState<any[]>([]);
 
-  // Marquee Ticker States
   const [marqueeInput, setMarqueeInput] = useState('');
   const [adminMarqueeList, setAdminMarqueeList] = useState<any[]>([]);
 
-  // Check auth & profile on mount
   useEffect(() => {
     checkAdminAuth();
   }, []);
 
-  // Fetch day-specific checklist items and video URL whenever targetDayNo or targetTrackMode changes
   useEffect(() => {
     if (isAdmin) {
       fetchDaySpecificData(targetDayNo, targetTrackMode);
@@ -229,6 +237,11 @@ export default function AdminPage() {
       setSelectedSubject(subData[0].id);
     }
 
+    const { data: examCatData } = await supabase.from('exam_categories').select('*').order('created_at', { ascending: false });
+    if (examCatData) {
+      setDynamicExamsList(examCatData);
+    }
+
     const { data: qData } = await supabase
       .from('questions')
       .select('id, question_text, subject_id, options, correct_option_index, solution_text, subjects(name)');
@@ -280,6 +293,40 @@ export default function AdminPage() {
     }
 
     fetchDaySpecificData(targetDayNo, targetTrackMode);
+  }
+
+  // 🟢 Save hierarchical exam category (e.g., IBPS PO - Mains)
+  async function handleSaveNewExamCategory(e: React.FormEvent) {
+    e.preventDefault();
+    if (!parentExamName.trim()) return setStatusMsg('⚠️ Please enter Parent Exam Name!');
+
+    const formattedFullName = `${parentExamName.trim()} - ${subCategoryType}`;
+
+    setStatusMsg('Saving hierarchical exam category...');
+    const { error } = await supabase.from('exam_categories').insert([
+      {
+        exam_name: formattedFullName,
+        sub_category: subCategoryType,
+        total_duration_minutes: Number(newExamDuration),
+        sections: examSections,
+      },
+    ]);
+
+    if (error) {
+      setStatusMsg(`Error creating exam category: ${error.message}`);
+    } else {
+      setStatusMsg(`🎉 Successfully created "${formattedFullName}"!`);
+      fetchInitialData();
+    }
+  }
+
+  async function handleDeleteExamCategory(id: string, name: string) {
+    if (!confirm(`Delete exam category "${name}"?`)) return;
+    const { error } = await supabase.from('exam_categories').delete().eq('id', id);
+    if (!error) {
+      setStatusMsg(`🗑️ Deleted category "${name}".`);
+      fetchInitialData();
+    }
   }
 
   async function fetchDaySpecificData(day: number, mode: string) {
@@ -583,13 +630,27 @@ export default function AdminPage() {
         if (!data || data.length === 0) return setStatusMsg('⚠️ Excel file is empty!');
 
         const formattedJSONQuestions = data.map((row, idx) => {
-          let rawSec = String(row.section || row.Subject || 'QUANT').trim().toUpperCase();
-          let normSec = 'QUANT';
+          let rawSec = String(row.section || row.Subject || '').trim().toUpperCase();
+          let normSec = 'GA';
 
-          if (rawSec.includes('ENG')) normSec = 'ENGLISH';
-          else if (rawSec.includes('REASON')) normSec = 'REASONING';
-          else if (rawSec.includes('QUANT') || rawSec.includes('MATH')) normSec = 'QUANT';
-          else if (rawSec.includes('GA') || rawSec.includes('CURRENT') || rawSec.includes('AWARE')) normSec = 'GA';
+          if (!rawSec) {
+            if (directMockExamType.includes('BSCA') || directMockExamType.includes('Current') || directMockExamType.includes('GA')) {
+              normSec = 'GA';
+            } else if (directMockExamType.includes('English')) {
+              normSec = 'ENGLISH';
+            } else if (directMockExamType.includes('Reasoning')) {
+              normSec = 'REASONING';
+            } else if (directMockExamType.includes('Quant')) {
+              normSec = 'QUANT';
+            } else {
+              normSec = 'GA';
+            }
+          } else {
+            if (rawSec.includes('ENG')) normSec = 'ENGLISH';
+            else if (rawSec.includes('REASON')) normSec = 'REASONING';
+            else if (rawSec.includes('QUANT') || rawSec.includes('MATH')) normSec = 'QUANT';
+            else if (rawSec.includes('GA') || rawSec.includes('CURRENT') || rawSec.includes('AWARE') || rawSec.includes('GS')) normSec = 'GA';
+          }
 
           const answerLetter = String(row.correctOptionIndex ?? row['Correct Answer'] ?? row.correctOption ?? '0').toUpperCase().trim();
           const optionMap: { [key: string]: number } = { A: 0, B: 1, C: 2, D: 3, E: 4, '0': 0, '1': 1, '2': 2, '3': 3, '4': 4 };
@@ -682,7 +743,6 @@ export default function AdminPage() {
     }
   }
 
-  // --- COPY VIDEO FROM PREVIOUS DAY ---
   async function handleCopyVideoFromPreviousDay() {
     if (targetDayNo <= 1) {
       return setStatusMsg('⚠️ This is Day 1; there is no previous day to copy from!');
@@ -734,7 +794,6 @@ export default function AdminPage() {
     }
   }
 
-  // --- MARQUEE NOTICE HANDLERS ---
   async function handleAddMarqueeNotice(e: React.FormEvent) {
     e.preventDefault();
     if (!marqueeInput.trim()) return setStatusMsg('⚠️ Please enter notice text!');
@@ -1036,6 +1095,14 @@ export default function AdminPage() {
               }`}
             >
               🚀 Direct Mock Upload
+            </button>
+            <button
+              onClick={() => setActiveTab('create_exam_tab')}
+              className={`px-3 py-1.5 font-bold rounded-md transition ${
+                activeTab === 'create_exam_tab' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              ⚙️ Create Exam Category
             </button>
             <button
               onClick={() => setActiveTab('create_mock')}
@@ -1563,6 +1630,136 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* 🟢 NEW TAB: HIERARCHICAL EXAM CREATOR (IBPS PO -> Prelims/Mains/PYQ) */}
+      {activeTab === 'create_exam_tab' && (
+        <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-6 max-w-3xl mx-auto">
+          <div className="flex items-center space-x-2 border-b pb-3">
+            <h2 className="text-lg font-bold text-slate-800">⚙️ Create Hierarchical Exam Category</h2>
+          </div>
+
+          <form onSubmit={handleSaveNewExamCategory} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Exam Name (Parent)</label>
+                <input
+                  type="text"
+                  value={parentExamName}
+                  onChange={(e) => setParentExamName(e.target.value)}
+                  placeholder="e.g. IBPS PO"
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white font-bold"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Sub-Category Type</label>
+                <select
+                  value={subCategoryType}
+                  onChange={(e) => setSubCategoryType(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white font-bold"
+                >
+                  <option value="Prelims">Prelims</option>
+                  <option value="Mains">Mains</option>
+                  <option value="PYQ">PYQ (Previous Year Question)</option>
+                  <option value="Sectional">Sectional</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Overall Test Duration (Minutes)</label>
+              <input
+                type="number"
+                value={newExamDuration}
+                onChange={(e) => setNewExamDuration(Number(e.target.value))}
+                className="w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white font-bold"
+                required
+              />
+            </div>
+
+            <div className="space-y-3 pt-2">
+              <div className="flex justify-between items-center">
+                <label className="block text-xs font-bold uppercase text-slate-500">Configure Sections & Timers</label>
+                <button
+                  type="button"
+                  onClick={() => setExamSections([...examSections, { name: 'General Awareness', time_minutes: 20 }])}
+                  className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold text-xs rounded-lg transition"
+                >
+                  + Add Section
+                </button>
+              </div>
+
+              {examSections.map((sec, idx) => (
+                <div key={idx} className="flex items-center gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                  <input
+                    type="text"
+                    value={sec.name}
+                    onChange={(e) => {
+                      const updated = [...examSections];
+                      updated[idx].name = e.target.value;
+                      setExamSections(updated);
+                    }}
+                    placeholder="Section Name (e.g. Reasoning)"
+                    className="flex-1 border border-slate-300 rounded-lg p-2 text-xs bg-white font-semibold"
+                    required
+                  />
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      value={sec.time_minutes}
+                      onChange={(e) => {
+                        const updated = [...examSections];
+                        updated[idx].time_minutes = Number(e.target.value);
+                        setExamSections(updated);
+                      }}
+                      className="w-20 border border-slate-300 rounded-lg p-2 text-xs bg-white font-bold text-center"
+                      required
+                    />
+                    <span className="text-xs text-slate-500">Mins</span>
+                  </div>
+                  {examSections.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setExamSections(examSections.filter((_, i) => i !== idx))}
+                      className="text-rose-600 hover:text-rose-800 font-bold px-2 py-1 text-xs"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <button type="submit" className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow">
+              Save Exam Category 🚀
+            </button>
+          </form>
+
+          <div className="border-t pt-4 space-y-3">
+            <h3 className="text-sm font-bold text-slate-800">Configured Custom Exams ({dynamicExamsList.length})</h3>
+            <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto border rounded-xl p-2 bg-slate-50">
+              {dynamicExamsList.length === 0 ? (
+                <p className="text-xs text-slate-500 p-2">No custom exams created yet.</p>
+              ) : (
+                dynamicExamsList.map((ex) => (
+                  <div key={ex.id} className="py-2 px-3 flex justify-between items-center text-xs">
+                    <div>
+                      <span className="font-bold text-slate-800 mr-2">{ex.exam_name}</span>
+                      <span className="text-slate-500">({ex.total_duration_minutes} Mins Total)</span>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteExamCategory(ex.id, ex.exam_name)}
+                      className="text-rose-600 hover:text-rose-800 font-bold px-2 py-1 rounded"
+                    >
+                      Delete 🗑️
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* TAB 4: DIRECT EXCEL MOCK UPLOADER */}
       {activeTab === 'direct_mock_upload' && (
         <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-6">
@@ -1577,7 +1774,7 @@ export default function AdminPage() {
                 type="text"
                 value={directMockTitle}
                 onChange={(e) => setDirectMockTitle(e.target.value)}
-                placeholder="e.g. SBI PO Prelims - Direct Mock 01"
+                placeholder="e.g. IBPS PO Mains - Direct Mock 01"
                 className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
                 required
               />
@@ -1592,9 +1789,11 @@ export default function AdminPage() {
               >
                 <option value="SBI PO Prelims">SBI PO Prelims</option>
                 <option value="IBPS PO Prelims">IBPS PO Prelims</option>
-                <option value="Quant Sectional Mock">Quant Sectional Mock</option>
-                <option value="Reasoning Sectional Mock">Reasoning Sectional Mock</option>
-                <option value="English Sectional Mock">English Sectional Mock</option>
+                <option value="BSCA">BSCA (Current Affairs Quiz)</option>
+                <option value="BSPS">BSPS (Practice Sheet Quiz)</option>
+                {dynamicExamsList.map((ex) => (
+                  <option key={ex.id} value={ex.exam_name}>{ex.exam_name}</option>
+                ))}
               </select>
             </div>
 
@@ -1635,444 +1834,6 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* TAB 5: BUILD MOCK FROM QUESTION BANK */}
-      {activeTab === 'create_mock' && (
-        <div className="space-y-6">
-          <form onSubmit={handleMockFromQuestionBankSubmit} className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-6">
-            <h2 className="text-lg font-bold text-slate-800 border-b pb-3">Build Mock Test from Question Bank</h2>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="md:col-span-1">
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Mock Test Title</label>
-                <input
-                  type="text"
-                  value={mockTitle}
-                  onChange={(e) => setMockTitle(e.target.value)}
-                  placeholder="e.g. SBI PO Prelims - Mock 01"
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Category / Exam Type</label>
-                <select
-                  value={mockExamType}
-                  onChange={(e) => setMockExamType(e.target.value)}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white font-semibold"
-                >
-                  <option value="SBI PO Prelims">SBI PO Prelims</option>
-                  <option value="IBPS PO Prelims">IBPS PO Prelims</option>
-                  <option value="Quant Sectional Mock">Quant Sectional Mock</option>
-                  <option value="Reasoning Sectional Mock">Reasoning Sectional Mock</option>
-                  <option value="English Sectional Mock">English Sectional Mock</option>
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Duration (Mins)</label>
-                  <input
-                    type="number"
-                    value={mockDuration}
-                    onChange={(e) => setMockDuration(Number(e.target.value))}
-                    className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Total Marks</label>
-                  <input
-                    type="number"
-                    value={mockMarks}
-                    onChange={(e) => setMockMarks(Number(e.target.value))}
-                    className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
-                <div>
-                  <label className="block text-sm font-bold text-slate-800">Select Questions from Bank</label>
-                  <p className="text-xs text-slate-500">
-                    Selected for this mock: <span className="font-bold text-[#1D63B8]">{selectedQuestionIds.length} Questions</span>
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleSelectAllFiltered}
-                    className="bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold px-3 py-1.5 rounded-lg transition"
-                  >
-                    {isAllFilteredSelected ? 'Deselect Filtered' : 'Select All Filtered'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDeleteSelectedQuestions}
-                    disabled={selectedQuestionIds.length === 0}
-                    className={`text-xs font-bold px-3 py-1.5 rounded-lg transition ${
-                      selectedQuestionIds.length > 0
-                        ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-sm'
-                        : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                    }`}
-                  >
-                    Delete Selected ({selectedQuestionIds.length}) 🗑️
-                  </button>
-                </div>
-              </div>
-
-              <select
-                value={filterSubjectId}
-                onChange={(e) => setFilterSubjectId(e.target.value)}
-                className="w-full border border-slate-300 rounded-lg p-2 text-slate-900 bg-white text-xs font-bold"
-              >
-                <option value="ALL">All Subjects ({allQuestions.length} Questions Available)</option>
-                {subjects.map((subj) => {
-                  const count = allQuestions.filter((q) => q.subject_id === subj.id).length;
-                  return (
-                    <option key={subj.id} value={subj.id}>
-                      {subj.name} ({count} Questions)
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-
-            <div className="max-h-80 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 bg-white p-2">
-              {filteredQuestions.length === 0 ? (
-                <p className="text-xs text-slate-500 p-6 text-center">No questions in Question Bank yet.</p>
-              ) : (
-                filteredQuestions.map((q) => {
-                  const isSelected = selectedQuestionIds.includes(q.id);
-                  return (
-                    <div
-                      key={q.id}
-                      onClick={() => toggleQuestionSelection(q.id)}
-                      className={`p-3 rounded-lg transition flex items-start space-x-3 text-xs cursor-pointer ${
-                        isSelected ? 'bg-blue-50 border border-blue-200 font-medium' : 'hover:bg-slate-50'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => {}}
-                        className="mt-0.5 rounded text-blue-600"
-                      />
-                      <div>
-                        <span className="bg-slate-200 text-slate-700 text-[10px] font-bold px-2 py-0.5 rounded mr-2">
-                          {q.subjects?.name || 'Subject'}
-                        </span>
-                        <span className="text-slate-800">{q.question_text}</span>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            <button
-              type="submit"
-              disabled={selectedQuestionIds.length === 0}
-              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-bold rounded-xl transition shadow text-xs"
-            >
-              Publish Selected {selectedQuestionIds.length} Questions as Mock Test
-            </button>
-          </form>
-        </div>
-      )}
-
-      {/* TAB 6: ADD SINGLE QUESTION TO MASTER BANK */}
-      {activeTab === 'add_question' && (
-        <form onSubmit={handleQuestionSubmit} className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-4">
-          <h2 className="text-lg font-bold text-slate-800 border-b pb-3">Add Single Question to Master Bank</h2>
-
-          <div>
-            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Subject</label>
-            <select
-              value={selectedSubject}
-              onChange={(e) => setSelectedSubject(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
-            >
-              {subjects.map((subj) => (
-                <option key={subj.id} value={subj.id}>{subj.name}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Question Statement</label>
-            <textarea
-              rows={3}
-              value={questionText}
-              onChange={(e) => setQuestionText(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
-              required
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            {options.map((opt, idx) => (
-              <div key={idx}>
-                <label className="block text-[11px] font-bold text-slate-500 mb-1">Option {String.fromCharCode(65 + idx)}</label>
-                <input
-                  type="text"
-                  value={opt}
-                  onChange={(e) => {
-                    const updated = [...options];
-                    updated[idx] = e.target.value;
-                    setOptions(updated);
-                  }}
-                  className="w-full border border-slate-300 rounded-lg p-2 text-slate-900 text-xs bg-white"
-                  required
-                />
-              </div>
-            ))}
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Correct Option (0 = A, 1 = B, 2 = C, 3 = D, 4 = E)</label>
-            <select
-              value={correctOptionIndex}
-              onChange={(e) => setCorrectOptionIndex(Number(e.target.value))}
-              className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
-            >
-              <option value={0}>Option A</option>
-              <option value={1}>Option B</option>
-              <option value={2}>Option C</option>
-              <option value={3}>Option D</option>
-              <option value={4}>Option E</option>
-            </select>
-          </div>
-
-          <button type="submit" className="w-full py-3 bg-[#1D63B8] text-white font-bold rounded-xl text-xs">
-            Add Question to Bank
-          </button>
-        </form>
-      )}
-
-      {/* TAB 7: BULK QUESTION BANK UPLOADER */}
-      {activeTab === 'bulk_upload' && (
-        <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-4">
-          <h2 className="text-lg font-bold text-slate-800 border-b pb-3">Bulk Upload to Master Question Bank</h2>
-          <div>
-            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Target Subject</label>
-            <select
-              value={selectedSubject}
-              onChange={(e) => setSelectedSubject(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
-            >
-              {subjects.map((subj) => (
-                <option key={subj.id} value={subj.id}>{subj.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="border-2 border-dashed border-slate-300 p-8 rounded-xl text-center bg-slate-50 relative cursor-pointer">
-            <input type="file" accept=".xlsx, .xls" onChange={handleExcelUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
-            <span className="text-sm font-bold text-blue-600 block">Click to upload Question Bank Excel (.xlsx)</span>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 8: DAILY TARGETS, COUNTDOWN & DAY-WISE CHECKLIST MANAGER */}
-      {activeTab === 'targets_manager' && (
-        <div className="space-y-6">
-          <form onSubmit={handleSaveTargetConfig} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
-            <div className="flex justify-between items-center border-b pb-2">
-              <h2 className="text-base font-bold text-slate-800">Manage Day-Wise YouTube Video Targets</h2>
-              {targetDayNo > 1 && (
-                <button
-                  type="button"
-                  onClick={handleCopyVideoFromPreviousDay}
-                  className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg border border-slate-300 transition"
-                >
-                  📋 Copy Video from Day {targetDayNo - 1}
-                </button>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Select Day No.</label>
-                <input
-                  type="number"
-                  min={1}
-                  value={targetDayNo}
-                  onChange={(e) => setTargetDayNo(Number(e.target.value))}
-                  className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Target Track Mode</label>
-                <select
-                  value={targetTrackMode}
-                  onChange={(e: any) => setTargetTrackMode(e.target.value)}
-                  className="w-full border p-2.5 rounded-lg text-xs bg-white font-bold"
-                >
-                  <option value="beginner">🌱 Beginner Track</option>
-                  <option value="repeater">🔥 Repeater Track</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">YouTube Embed URL</label>
-                <input
-                  type="text"
-                  value={targetVideoUrl}
-                  onChange={(e) => setTargetVideoUrl(e.target.value)}
-                  placeholder="https://www.youtube.com/embed/VIDEO_ID"
-                  className="w-full border p-2.5 rounded-lg text-sm bg-white"
-                  required
-                />
-              </div>
-            </div>
-
-            <button type="submit" className="w-full py-3 bg-[#1D63B8] hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow">
-              Save Day {targetDayNo} Video Target 🚀
-            </button>
-          </form>
-
-          {/* DAY-SPECIFIC CHECKLIST BUILDER */}
-          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
-            <h2 className="text-base font-bold text-slate-800 border-b pb-2">
-              Manage Checklist Items for Day {targetDayNo} ({targetTrackMode.toUpperCase()})
-            </h2>
-
-            <form onSubmit={handleAddDayChecklistItem} className="flex gap-2">
-              <input
-                type="text"
-                value={dayChecklistInput}
-                onChange={(e) => setDayChecklistInput(e.target.value)}
-                placeholder={`e.g. Day ${targetDayNo} Specific Quant Puzzle or Tables 1-20`}
-                className="flex-1 border p-2.5 rounded-lg text-xs bg-white font-medium"
-                required
-              />
-              <button type="submit" className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow">
-                + Add to Day {targetDayNo}
-              </button>
-            </form>
-
-            <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto">
-              {dayChecklistItems.length === 0 ? (
-                <p className="text-xs text-slate-500">No specific checklist items added for Day {targetDayNo} ({targetTrackMode}) yet.</p>
-              ) : (
-                dayChecklistItems.map((item) => (
-                  <div key={item.id} className="py-2.5 flex justify-between items-center text-xs">
-                    <span className="font-bold text-slate-800">{item.label}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteDayChecklistItem(item.id, item.label)}
-                      className="bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold px-2.5 py-1 rounded transition"
-                    >
-                      Delete 🗑️
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* MARQUEE NOTICE BUILDER */}
-          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
-            <h2 className="text-base font-bold text-slate-800 border-b pb-2">Manage Landing Page Marquee Ticker Notices</h2>
-
-            <form onSubmit={handleAddMarqueeNotice} className="flex gap-2">
-              <input
-                type="text"
-                value={marqueeInput}
-                onChange={(e) => setMarqueeInput(e.target.value)}
-                placeholder="e.g. 🔥 SBI PO 2026 Prelims Mock Test 01 is now live! Attempt now."
-                className="flex-1 border p-2.5 rounded-lg text-xs bg-white font-medium"
-                required
-              />
-              <button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow">
-                + Add Notice
-              </button>
-            </form>
-
-            <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto">
-              {adminMarqueeList.length === 0 ? (
-                <p className="text-xs text-slate-500">No marquee notices active.</p>
-              ) : (
-                adminMarqueeList.map((m) => (
-                  <div key={m.id} className="py-2.5 flex justify-between items-center text-xs">
-                    <span className="font-bold text-slate-800">{m.notice_text}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteMarqueeNotice(m.id)}
-                      className="bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold px-2.5 py-1 rounded transition"
-                    >
-                      Delete 🗑️
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <form onSubmit={handleAddExamCountdown} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
-              <h2 className="text-base font-bold text-slate-800 border-b pb-2">Add Exam Countdown</h2>
-
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Exam Name</label>
-                <input
-                  type="text"
-                  value={examNameInput}
-                  onChange={(e) => setExamNameInput(e.target.value)}
-                  placeholder="e.g. SBI PO Prelims 2026"
-                  className="w-full border p-2.5 rounded-lg text-sm bg-white"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Target Exam Date</label>
-                <input
-                  type="date"
-                  value={examDateInput}
-                  onChange={(e) => setExamDateInput(e.target.value)}
-                  className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold"
-                  required
-                />
-              </div>
-
-              <button type="submit" className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow">
-                Add Exam Countdown
-              </button>
-            </form>
-
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
-              <h2 className="text-base font-bold text-slate-800 border-b pb-2">Active Countdowns ({adminExamsList.length})</h2>
-
-              <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto">
-                {adminExamsList.length === 0 ? (
-                  <p className="text-xs text-slate-500">No active exam countdowns.</p>
-                ) : (
-                  adminExamsList.map((ex) => (
-                    <div key={ex.id} className="py-2.5 flex justify-between items-center text-xs">
-                      <div>
-                        <span className="font-bold text-slate-800 block">{ex.exam_name}</span>
-                        <span className="text-slate-500">Date: {ex.exam_date}</span>
-                      </div>
-                      <button
-                        onClick={() => handleDeleteExamCountdown(ex.id, ex.exam_name)}
-                        className="bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold px-2.5 py-1 rounded transition"
-                      >
-                        Delete 🗑️
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* PUBLISHED MOCK TESTS OVERVIEW */}
       <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-4">
         <div className="flex justify-between items-center border-b pb-3">
@@ -2096,7 +1857,7 @@ export default function AdminPage() {
                     <h3 className="font-bold text-slate-800 text-sm">{test.title}</h3>
                   </div>
                   <p className="text-xs text-slate-500 mt-1">
-                    {test.duration_minutes} Mins | {test.total_marks} Marks | Questions Loaded: {test.questions ? (typeof test.questions === 'string' ? JSON.parse(test.questions).length : test.questions.length) : 0}
+                    {test.duration_minutes} Mins | {test.total_marks} Marks
                   </p>
                 </div>
                 <button
