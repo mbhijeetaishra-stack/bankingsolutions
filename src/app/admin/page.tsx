@@ -33,7 +33,7 @@ interface MockTest {
 interface ExamCategory {
   id: string;
   exam_name: string;
-  sub_category: string; // Prelims, Mains, PYQ, etc.
+  sub_category: string;
   total_duration_minutes: number;
   sections: { name: string; time_minutes: number }[];
 }
@@ -78,6 +78,7 @@ export default function AdminPage() {
     | 'add_question'
     | 'bulk_upload'
     | 'targets_manager'
+    | 'mock_analytics'
   >('updates_publisher');
 
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -90,9 +91,9 @@ export default function AdminPage() {
   const [selectedSubject, setSelectedSubject] = useState<string>('');
   const [statusMsg, setStatusMsg] = useState('');
 
-  // 🟢 Hierarchical Exam Creator States
+  // Hierarchical Exam Creator States
   const [parentExamName, setParentExamName] = useState('IBPS PO');
-  const [subCategoryType, setSubCategoryType] = useState('Prelims'); // Prelims, Mains, PYQ
+  const [subCategoryType, setSubCategoryType] = useState('Prelims');
   const [newExamDuration, setNewExamDuration] = useState(60);
   const [examSections, setExamSections] = useState<{ name: string; time_minutes: number }[]>([
     { name: 'Quantitative Aptitude', time_minutes: 20 },
@@ -101,11 +102,13 @@ export default function AdminPage() {
   ]);
   const [dynamicExamsList, setDynamicExamsList] = useState<ExamCategory[]>([]);
 
+  // Single Question Form State
   const [questionText, setQuestionText] = useState('');
   const [options, setOptions] = useState(['', '', '', '', '']);
   const [correctOptionIndex, setCorrectOptionIndex] = useState(0);
   const [solutionText, setSolutionText] = useState('');
 
+  // Mock Test Builder State
   const [allQuestions, setAllQuestions] = useState<Question[]>([]);
   const [filterSubjectId, setFilterSubjectId] = useState<string>('ALL');
   const [mockTitle, setMockTitle] = useState('');
@@ -115,11 +118,18 @@ export default function AdminPage() {
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<string[]>([]);
   const [existingMocks, setExistingMocks] = useState<MockTest[]>([]);
 
+  // Direct Mock Upload State
   const [directMockTitle, setDirectMockTitle] = useState('');
   const [directMockExamType, setDirectMockExamType] = useState('IBPS PO - Prelims');
   const [directMockDuration, setDirectMockDuration] = useState(60);
   const [directMockMarks, setDirectMockMarks] = useState(100);
 
+  // Mock Analytics States
+  const [selectedAnalyticsMockId, setSelectedAnalyticsMockId] = useState<string>('');
+  const [mockAttemptsList, setMockAttemptsList] = useState<any[]>([]);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+
+  // PDF Course & File Upload States (BSPS / BSCA)
   const [courseTitle, setCourseTitle] = useState('');
   const [courseCategory, setCourseCategory] = useState<'BSPS' | 'BSCA'>('BSPS');
   const [courseDesc, setCourseDesc] = useState('');
@@ -132,6 +142,7 @@ export default function AdminPage() {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [uploadedPdfs, setUploadedPdfs] = useState<CoursePdf[]>([]);
 
+  // Updates & One-Liners Publisher States
   const [postCategory, setPostCategory] = useState<'ONE_LINER' | 'NOTIFICATION' | 'RESULT' | 'EXPECTED_CUTOFF' | 'EXAM_ANALYSIS'>('ONE_LINER');
   const [postTitle, setPostTitle] = useState('');
   const [postContent, setPostContent] = useState('');
@@ -143,6 +154,7 @@ export default function AdminPage() {
   const [postExternalLink, setPostExternalLink] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
 
+  // BSCA Quiz Builder States
   const [quizTitle, setQuizTitle] = useState('');
   const [quizDate, setQuizDate] = useState(new Date().toISOString().split('T')[0]);
   const [quizDuration, setQuizDuration] = useState(10);
@@ -154,6 +166,7 @@ export default function AdminPage() {
   const [quizCorrectOption, setQuizCorrectOption] = useState(0);
   const [quizExplanation, setQuizExplanation] = useState('');
 
+  // Daily Targets, Countdowns & Day-Wise Checklist Manager States
   const [targetDayNo, setTargetDayNo] = useState(1);
   const [targetTrackMode, setTargetTrackMode] = useState<'beginner' | 'repeater'>('beginner');
   const [targetVideoUrl, setTargetVideoUrl] = useState('');
@@ -166,6 +179,7 @@ export default function AdminPage() {
   const [dayChecklistInput, setDayChecklistInput] = useState('');
   const [dayChecklistItems, setDayChecklistItems] = useState<any[]>([]);
 
+  // Marquee Ticker States
   const [marqueeInput, setMarqueeInput] = useState('');
   const [adminMarqueeList, setAdminMarqueeList] = useState<any[]>([]);
 
@@ -295,7 +309,24 @@ export default function AdminPage() {
     fetchDaySpecificData(targetDayNo, targetTrackMode);
   }
 
-  // 🟢 Save hierarchical exam category (e.g., IBPS PO - Mains)
+  async function fetchMockAnalytics(mockId: string) {
+    if (!mockId) return;
+    setLoadingAnalytics(true);
+
+    const { data, error } = await supabase
+      .from('mock_attempts')
+      .select('*')
+      .eq('test_id', mockId)
+      .order('score', { ascending: false });
+
+    if (!error && data) {
+      setMockAttemptsList(data);
+    } else {
+      setMockAttemptsList([]);
+    }
+    setLoadingAnalytics(false);
+  }
+
   async function handleSaveNewExamCategory(e: React.FormEvent) {
     e.preventDefault();
     if (!parentExamName.trim()) return setStatusMsg('⚠️ Please enter Parent Exam Name!');
@@ -354,6 +385,46 @@ export default function AdminPage() {
       setTargetVideoUrl(videoData.youtube_url || '');
     } else {
       setTargetVideoUrl('');
+    }
+  }
+
+  // 🟢 Copy checklist items from previous day handler
+  async function handleCopyChecklistFromPreviousDay() {
+    if (targetDayNo <= 1) {
+      return setStatusMsg('⚠️ This is Day 1; there is no previous day to copy from!');
+    }
+
+    const prevDay = targetDayNo - 1;
+    setStatusMsg(`Fetching checklist items from Day ${prevDay} (${targetTrackMode})...`);
+
+    const { data: prevItems, error: fetchErr } = await supabase
+      .from('admin_day_checklist_items')
+      .select('label, display_order')
+      .eq('day_number', prevDay)
+      .eq('track_mode', targetTrackMode)
+      .order('display_order', { ascending: true });
+
+    if (fetchErr || !prevItems || prevItems.length === 0) {
+      return setStatusMsg(`⚠️ No checklist items found for Day ${prevDay} under ${targetTrackMode} track.`);
+    }
+
+    // Format new items for current day
+    const newItemsToInsert = prevItems.map((item, idx) => ({
+      day_number: Number(targetDayNo),
+      track_mode: targetTrackMode,
+      label: item.label,
+      display_order: dayChecklistItems.length + idx + 1,
+    }));
+
+    const { error: insertErr } = await supabase
+      .from('admin_day_checklist_items')
+      .insert(newItemsToInsert);
+
+    if (insertErr) {
+      setStatusMsg(`Error copying checklist: ${insertErr.message}`);
+    } else {
+      setStatusMsg(`📋 Successfully copied ${prevItems.length} checklist items from Day ${prevDay} to Day ${targetDayNo}!`);
+      fetchDaySpecificData(targetDayNo, targetTrackMode);
     }
   }
 
@@ -1136,6 +1207,20 @@ export default function AdminPage() {
             >
               🎯 Daily Targets & Countdowns
             </button>
+            <button
+              onClick={() => {
+                setActiveTab('mock_analytics');
+                if (existingMocks.length > 0 && !selectedAnalyticsMockId) {
+                  setSelectedAnalyticsMockId(existingMocks[0].id);
+                  fetchMockAnalytics(existingMocks[0].id);
+                }
+              }}
+              className={`px-3 py-1.5 font-bold rounded-md transition ${
+                activeTab === 'mock_analytics' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              📊 Mock-wise Stats
+            </button>
             <Link
               href="/admin/computer-quiz"
               className="px-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 text-slate-700 hover:text-blue-600 hover:bg-slate-100"
@@ -1159,7 +1244,7 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* TAB 1: UPDATES & CURRENT AFFAIRS ONE-LINERS PUBLISHER */}
+      {/* UPDATES PUBLISHER TAB */}
       {activeTab === 'updates_publisher' && (
         <div className="space-y-6">
           <form onSubmit={handlePublishPost} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
@@ -1293,7 +1378,7 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* TAB 2: BSCA QUIZ BUILDER */}
+      {/* BSCA QUIZ BUILDER TAB */}
       {activeTab === 'bsca_quiz_builder' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1456,7 +1541,7 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* TAB 3: BSPS & BSCA DAY-WISE PDF UPLOADER & MANAGER */}
+      {/* BSPS & BSCA MANAGER TAB */}
       {activeTab === 'pdf_uploader' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1630,7 +1715,81 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* 🟢 NEW TAB: HIERARCHICAL EXAM CREATOR (IBPS PO -> Prelims/Mains/PYQ) */}
+      {/* DIRECT EXCEL MOCK UPLOAD TAB */}
+      {activeTab === 'direct_mock_upload' && (
+        <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-6">
+          <div className="flex items-center space-x-2 border-b pb-3">
+            <h2 className="text-lg font-bold text-slate-800">1-Click Direct Mock Upload (Excel .xlsx)</h2>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="md:col-span-1">
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Mock Test Title</label>
+              <input
+                type="text"
+                value={directMockTitle}
+                onChange={(e) => setDirectMockTitle(e.target.value)}
+                placeholder="e.g. IBPS PO Mains - Direct Mock 01"
+                className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Category / Exam Type</label>
+              <select
+                value={directMockExamType}
+                onChange={(e) => setDirectMockExamType(e.target.value)}
+                className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white font-semibold"
+              >
+                <option value="SBI PO Prelims">SBI PO Prelims</option>
+                <option value="IBPS PO Prelims">IBPS PO Prelims</option>
+                <option value="BSCA">BSCA (Current Affairs Quiz)</option>
+                <option value="BSPS">BSPS (Practice Sheet Quiz)</option>
+                {dynamicExamsList.map((ex) => (
+                  <option key={ex.id} value={ex.exam_name}>{ex.exam_name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Duration (Mins)</label>
+                <input
+                  type="number"
+                  value={directMockDuration}
+                  onChange={(e) => setDirectMockDuration(Number(e.target.value))}
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Total Marks</label>
+                <input
+                  type="number"
+                  value={directMockMarks}
+                  onChange={(e) => setDirectMockMarks(Number(e.target.value))}
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="border-2 border-dashed border-blue-300 hover:border-blue-500 rounded-xl p-8 text-center bg-blue-50/40 transition cursor-pointer relative">
+            <input
+              type="file"
+              accept=".xlsx, .xls"
+              onChange={handleDirectMockUpload}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            />
+            <div className="text-blue-900 space-y-2">
+              <span className="text-4xl block">📊</span>
+              <p className="font-bold text-sm text-[#1D63B8]">Click to upload Excel Mock File (.xlsx)</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CREATE EXAM CATEGORY TAB */}
       {activeTab === 'create_exam_tab' && (
         <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-6 max-w-3xl mx-auto">
           <div className="flex items-center space-x-2 border-b pb-3">
@@ -1760,77 +1919,554 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* TAB 4: DIRECT EXCEL MOCK UPLOADER */}
-      {activeTab === 'direct_mock_upload' && (
-        <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-6">
-          <div className="flex items-center space-x-2 border-b pb-3">
-            <h2 className="text-lg font-bold text-slate-800">1-Click Direct Mock Upload (Excel .xlsx)</h2>
-          </div>
+      {/* BUILD MOCK FROM QUESTION BANK TAB */}
+      {activeTab === 'create_mock' && (
+        <div className="space-y-6">
+          <form onSubmit={handleMockFromQuestionBankSubmit} className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-6">
+            <h2 className="text-lg font-bold text-slate-800 border-b pb-3">Build Mock Test from Question Bank</h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="md:col-span-1">
-              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Mock Test Title</label>
-              <input
-                type="text"
-                value={directMockTitle}
-                onChange={(e) => setDirectMockTitle(e.target.value)}
-                placeholder="e.g. IBPS PO Mains - Direct Mock 01"
-                className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
-                required
-              />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="md:col-span-1">
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Mock Test Title</label>
+                <input
+                  type="text"
+                  value={mockTitle}
+                  onChange={(e) => setMockTitle(e.target.value)}
+                  placeholder="e.g. SBI PO Prelims - Mock 01"
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Category / Exam Type</label>
+                <select
+                  value={mockExamType}
+                  onChange={(e) => setMockExamType(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white font-semibold"
+                >
+                  <option value="SBI PO Prelims">SBI PO Prelims</option>
+                  <option value="IBPS PO Prelims">IBPS PO Prelims</option>
+                  <option value="BSCA">BSCA (Current Affairs Quiz)</option>
+                  <option value="BSPS">BSPS (Practice Sheet Quiz)</option>
+                  {dynamicExamsList.map((ex) => (
+                    <option key={ex.id} value={ex.exam_name}>{ex.exam_name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Duration (Mins)</label>
+                  <input
+                    type="number"
+                    value={mockDuration}
+                    onChange={(e) => setMockDuration(Number(e.target.value))}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Total Marks</label>
+                  <input
+                    type="number"
+                    value={mockMarks}
+                    onChange={(e) => setMockMarks(Number(e.target.value))}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+                  />
+                </div>
+              </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Category / Exam Type</label>
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                <div>
+                  <label className="block text-sm font-bold text-slate-800">Select Questions from Bank</label>
+                  <p className="text-xs text-slate-500">
+                    Selected for this mock: <span className="font-bold text-[#1D63B8]">{selectedQuestionIds.length} Questions</span>
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSelectAllFiltered}
+                    className="bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold px-3 py-1.5 rounded-lg transition"
+                  >
+                    {isAllFilteredSelected ? 'Deselect Filtered' : 'Select All Filtered'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDeleteSelectedQuestions}
+                    disabled={selectedQuestionIds.length === 0}
+                    className={`text-xs font-bold px-3 py-1.5 rounded-lg transition ${
+                      selectedQuestionIds.length > 0
+                        ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-sm'
+                        : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                    }`}
+                  >
+                    Delete Selected ({selectedQuestionIds.length}) 🗑️
+                  </button>
+                </div>
+              </div>
+
               <select
-                value={directMockExamType}
-                onChange={(e) => setDirectMockExamType(e.target.value)}
-                className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white font-semibold"
+                value={filterSubjectId}
+                onChange={(e) => setFilterSubjectId(e.target.value)}
+                className="w-full border border-slate-300 rounded-lg p-2 text-slate-900 bg-white text-xs font-bold"
               >
-                <option value="SBI PO Prelims">SBI PO Prelims</option>
-                <option value="IBPS PO Prelims">IBPS PO Prelims</option>
-                <option value="BSCA">BSCA (Current Affairs Quiz)</option>
-                <option value="BSPS">BSPS (Practice Sheet Quiz)</option>
-                {dynamicExamsList.map((ex) => (
-                  <option key={ex.id} value={ex.exam_name}>{ex.exam_name}</option>
-                ))}
+                <option value="ALL">All Subjects ({allQuestions.length} Questions Available)</option>
+                {subjects.map((subj) => {
+                  const count = allQuestions.filter((q) => q.subject_id === subj.id).length;
+                  return (
+                    <option key={subj.id} value={subj.id}>
+                      {subj.name} ({count} Questions)
+                    </option>
+                  );
+                })}
               </select>
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Duration (Mins)</label>
+            <div className="max-h-80 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 bg-white p-2">
+              {filteredQuestions.length === 0 ? (
+                <p className="text-xs text-slate-500 p-6 text-center">No questions in Question Bank yet.</p>
+              ) : (
+                filteredQuestions.map((q) => {
+                  const isSelected = selectedQuestionIds.includes(q.id);
+                  return (
+                    <div
+                      key={q.id}
+                      onClick={() => toggleQuestionSelection(q.id)}
+                      className={`p-3 rounded-lg transition flex items-start space-x-3 text-xs cursor-pointer ${
+                        isSelected ? 'bg-blue-50 border border-blue-200 font-medium' : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => {}}
+                        className="mt-0.5 rounded text-blue-600"
+                      />
+                      <div>
+                        <span className="bg-slate-200 text-slate-700 text-[10px] font-bold px-2 py-0.5 rounded mr-2">
+                          {q.subjects?.name || 'Subject'}
+                        </span>
+                        <span className="text-slate-800">{q.question_text}</span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <button
+              type="submit"
+              disabled={selectedQuestionIds.length === 0}
+              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-bold rounded-xl transition shadow text-xs"
+            >
+              Publish Selected {selectedQuestionIds.length} Questions as Mock Test
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* ADD SINGLE QUESTION TAB */}
+      {activeTab === 'add_question' && (
+        <form onSubmit={handleQuestionSubmit} className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-4">
+          <h2 className="text-lg font-bold text-slate-800 border-b pb-3">Add Single Question to Master Bank</h2>
+
+          <div>
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Subject</label>
+            <select
+              value={selectedSubject}
+              onChange={(e) => setSelectedSubject(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+            >
+              {subjects.map((subj) => (
+                <option key={subj.id} value={subj.id}>{subj.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Question Statement</label>
+            <textarea
+              rows={3}
+              value={questionText}
+              onChange={(e) => setQuestionText(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            {options.map((opt, idx) => (
+              <div key={idx}>
+                <label className="block text-[11px] font-bold text-slate-500 mb-1">Option {String.fromCharCode(65 + idx)}</label>
                 <input
-                  type="number"
-                  value={directMockDuration}
-                  onChange={(e) => setDirectMockDuration(Number(e.target.value))}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+                  type="text"
+                  value={opt}
+                  onChange={(e) => {
+                    const updated = [...options];
+                    updated[idx] = e.target.value;
+                    setOptions(updated);
+                  }}
+                  className="w-full border border-slate-300 rounded-lg p-2 text-slate-900 text-xs bg-white"
+                  required
                 />
               </div>
+            ))}
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Correct Option (0 = A, 1 = B, 2 = C, 3 = D, 4 = E)</label>
+            <select
+              value={correctOptionIndex}
+              onChange={(e) => setCorrectOptionIndex(Number(e.target.value))}
+              className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+            >
+              <option value={0}>Option A</option>
+              <option value={1}>Option B</option>
+              <option value={2}>Option C</option>
+              <option value={3}>Option D</option>
+              <option value={4}>Option E</option>
+            </select>
+          </div>
+
+          <button type="submit" className="w-full py-3 bg-[#1D63B8] text-white font-bold rounded-xl text-xs">
+            Add Question to Bank
+          </button>
+        </form>
+      )}
+
+      {/* BULK UPLOAD TAB */}
+      {activeTab === 'bulk_upload' && (
+        <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-4">
+          <h2 className="text-lg font-bold text-slate-800 border-b pb-3">Bulk Upload to Master Question Bank</h2>
+          <div>
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Target Subject</label>
+            <select
+              value={selectedSubject}
+              onChange={(e) => setSelectedSubject(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+            >
+              {subjects.map((subj) => (
+                <option key={subj.id} value={subj.id}>{subj.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="border-2 border-dashed border-slate-300 p-8 rounded-xl text-center bg-slate-50 relative cursor-pointer">
+            <input type="file" accept=".xlsx, .xls" onChange={handleExcelUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
+            <span className="text-sm font-bold text-blue-600 block">Click to upload Question Bank Excel (.xlsx)</span>
+          </div>
+        </div>
+      )}
+
+      {/* TARGETS MANAGER TAB */}
+      {activeTab === 'targets_manager' && (
+        <div className="space-y-6">
+          <form onSubmit={handleSaveTargetConfig} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+            <div className="flex justify-between items-center border-b pb-2">
+              <h2 className="text-base font-bold text-slate-800">Manage Day-Wise YouTube Video Targets</h2>
+              {targetDayNo > 1 && (
+                <button
+                  type="button"
+                  onClick={handleCopyVideoFromPreviousDay}
+                  className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg border border-slate-300 transition"
+                >
+                  📋 Copy Video from Day {targetDayNo - 1}
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Total Marks</label>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Select Day No.</label>
                 <input
                   type="number"
-                  value={directMockMarks}
-                  onChange={(e) => setDirectMockMarks(Number(e.target.value))}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+                  min={1}
+                  value={targetDayNo}
+                  onChange={(e) => setTargetDayNo(Number(e.target.value))}
+                  className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold"
+                  required
                 />
               </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Target Track Mode</label>
+                <select
+                  value={targetTrackMode}
+                  onChange={(e: any) => setTargetTrackMode(e.target.value)}
+                  className="w-full border p-2.5 rounded-lg text-xs bg-white font-bold"
+                >
+                  <option value="beginner">🌱 Beginner Track</option>
+                  <option value="repeater">🔥 Repeater Track</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">YouTube Embed URL</label>
+                <input
+                  type="text"
+                  value={targetVideoUrl}
+                  onChange={(e) => setTargetVideoUrl(e.target.value)}
+                  placeholder="https://www.youtube.com/embed/VIDEO_ID"
+                  className="w-full border p-2.5 rounded-lg text-sm bg-white"
+                  required
+                />
+              </div>
+            </div>
+
+            <button type="submit" className="w-full py-3 bg-[#1D63B8] hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow">
+              Save Day {targetDayNo} Video Target 🚀
+            </button>
+          </form>
+
+          {/* DAY-SPECIFIC CHECKLIST BUILDER */}
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+            <div className="flex justify-between items-center border-b pb-2">
+              <h2 className="text-base font-bold text-slate-800">
+                Manage Checklist Items for Day {targetDayNo} ({targetTrackMode.toUpperCase()})
+              </h2>
+              {targetDayNo > 1 && (
+                <button
+                  type="button"
+                  onClick={handleCopyChecklistFromPreviousDay}
+                  className="px-3 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-lg border border-emerald-300 transition flex items-center gap-1.5"
+                >
+                  <span>📋</span> Copy Checklist from Day {targetDayNo - 1}
+                </button>
+              )}
+            </div>
+
+            <form onSubmit={handleAddDayChecklistItem} className="flex gap-2">
+              <input
+                type="text"
+                value={dayChecklistInput}
+                onChange={(e) => setDayChecklistInput(e.target.value)}
+                placeholder={`e.g. Day ${targetDayNo} Specific Quant Puzzle or Tables 1-20`}
+                className="flex-1 border p-2.5 rounded-lg text-xs bg-white font-medium"
+                required
+              />
+              <button type="submit" className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow">
+                + Add to Day {targetDayNo}
+              </button>
+            </form>
+
+            <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto">
+              {dayChecklistItems.length === 0 ? (
+                <p className="text-xs text-slate-500">No specific checklist items added for Day {targetDayNo} ({targetTrackMode}) yet.</p>
+              ) : (
+                dayChecklistItems.map((item) => (
+                  <div key={item.id} className="py-2.5 flex justify-between items-center text-xs">
+                    <span className="font-bold text-slate-800">{item.label}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteDayChecklistItem(item.id, item.label)}
+                      className="bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold px-2.5 py-1 rounded transition"
+                    >
+                      Delete 🗑️
+                    </button>
+                  </div>
+                ))
+              )}
             </div>
           </div>
 
-          <div className="border-2 border-dashed border-blue-300 hover:border-blue-500 rounded-xl p-8 text-center bg-blue-50/40 transition cursor-pointer relative">
-            <input
-              type="file"
-              accept=".xlsx, .xls"
-              onChange={handleDirectMockUpload}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-            />
-            <div className="text-blue-900 space-y-2">
-              <span className="text-4xl block">📊</span>
-              <p className="font-bold text-sm text-[#1D63B8]">Click to upload Excel Mock File (.xlsx)</p>
+          {/* MARQUEE NOTICE BUILDER */}
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+            <h2 className="text-base font-bold text-slate-800 border-b pb-2">Manage Landing Page Marquee Ticker Notices</h2>
+
+            <form onSubmit={handleAddMarqueeNotice} className="flex gap-2">
+              <input
+                type="text"
+                value={marqueeInput}
+                onChange={(e) => setMarqueeInput(e.target.value)}
+                placeholder="e.g. 🔥 SBI PO 2026 Prelims Mock Test 01 is now live! Attempt now."
+                className="flex-1 border p-2.5 rounded-lg text-xs bg-white font-medium"
+                required
+              />
+              <button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow">
+                + Add Notice
+              </button>
+            </form>
+
+            <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto">
+              {adminMarqueeList.length === 0 ? (
+                <p className="text-xs text-slate-500">No marquee notices active.</p>
+              ) : (
+                adminMarqueeList.map((m) => (
+                  <div key={m.id} className="py-2.5 flex justify-between items-center text-xs">
+                    <span className="font-bold text-slate-800">{m.notice_text}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteMarqueeNotice(m.id)}
+                      className="bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold px-2.5 py-1 rounded transition"
+                    >
+                      Delete 🗑️
+                    </button>
+                  </div>
+                ))
+              )}
             </div>
           </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <form onSubmit={handleAddExamCountdown} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+              <h2 className="text-base font-bold text-slate-800 border-b pb-2">Add Exam Countdown</h2>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Exam Name</label>
+                <input
+                  type="text"
+                  value={examNameInput}
+                  onChange={(e) => setExamNameInput(e.target.value)}
+                  placeholder="e.g. SBI PO Prelims 2026"
+                  className="w-full border p-2.5 rounded-lg text-sm bg-white"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Target Exam Date</label>
+                <input
+                  type="date"
+                  value={examDateInput}
+                  onChange={(e) => setExamDateInput(e.target.value)}
+                  className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold"
+                  required
+                />
+              </div>
+
+              <button type="submit" className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow">
+                Add Exam Countdown
+              </button>
+            </form>
+
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+              <h2 className="text-base font-bold text-slate-800 border-b pb-2">Active Countdowns ({adminExamsList.length})</h2>
+
+              <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto">
+                {adminExamsList.length === 0 ? (
+                  <p className="text-xs text-slate-500">No active exam countdowns.</p>
+                ) : (
+                  adminExamsList.map((ex) => (
+                    <div key={ex.id} className="py-2.5 flex justify-between items-center text-xs">
+                      <div>
+                        <span className="font-bold text-slate-800 block">{ex.exam_name}</span>
+                        <span className="text-slate-500">Date: {ex.exam_date}</span>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteExamCountdown(ex.id, ex.exam_name)}
+                        className="bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold px-2.5 py-1 rounded transition"
+                      >
+                        Delete 🗑️
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MOCK ANALYTICS TAB */}
+      {activeTab === 'mock_analytics' && (
+        <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-6">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-4">
+            <div>
+              <h2 className="text-lg font-bold text-slate-800">📊 Mock-wise Student Attempt Statistics</h2>
+              <p className="text-xs text-slate-500">Analyze aspirant performance, scores, and completion metrics per test.</p>
+            </div>
+
+            <div className="w-full md:w-72">
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Select Mock Test</label>
+              <select
+                value={selectedAnalyticsMockId}
+                onChange={(e) => {
+                  setSelectedAnalyticsMockId(e.target.value);
+                  fetchMockAnalytics(e.target.value);
+                }}
+                className="w-full border border-slate-300 rounded-lg p-2.5 text-xs bg-white font-bold text-slate-800"
+              >
+                <option value="">-- Choose Test --</option>
+                {existingMocks.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.title} ({m.exam_type || 'General'})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {loadingAnalytics ? (
+            <div className="text-center py-12 text-slate-400 text-xs font-bold">
+              Loading Attempt Statistics...
+            </div>
+          ) : !selectedAnalyticsMockId ? (
+            <div className="text-center py-12 text-slate-400 text-xs">
+              Please select a mock test from the dropdown above to view student statistics.
+            </div>
+          ) : mockAttemptsList.length === 0 ? (
+            <div className="text-center py-12 text-slate-500 text-xs bg-slate-50 rounded-xl border border-dashed">
+              📝 No student attempts recorded for this mock test yet.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl">
+                  <span className="text-[10px] font-bold text-blue-600 uppercase block">Total Aspirants Attempted</span>
+                  <span className="text-2xl font-black text-blue-900">{mockAttemptsList.length}</span>
+                </div>
+                <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl">
+                  <span className="text-[10px] font-bold text-emerald-600 uppercase block">Highest Score Recorded</span>
+                  <span className="text-2xl font-black text-emerald-900">
+                    {Math.max(...mockAttemptsList.map((a) => Number(a.score) || 0)).toFixed(1)}
+                  </span>
+                </div>
+                <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl">
+                  <span className="text-[10px] font-bold text-amber-600 uppercase block">Average Score</span>
+                  <span className="text-2xl font-black text-amber-900">
+                    {(
+                      mockAttemptsList.reduce((acc, curr) => acc + (Number(curr.score) || 0), 0) /
+                      mockAttemptsList.length
+                    ).toFixed(1)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-100 text-slate-600 uppercase font-bold border-b border-slate-200">
+                    <tr>
+                      <th className="p-3 text-center">Rank / Position</th>
+                      <th className="p-3">Aspirant User ID</th>
+                      <th className="p-3 text-center">Score Obtained</th>
+                      <th className="p-3 text-center">Total Marks</th>
+                      <th className="p-3 text-right">Attempt Date & Time</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                    {mockAttemptsList.map((attempt, index) => (
+                      <tr key={attempt.id || index} className="hover:bg-slate-50 transition">
+                        <td className="p-3 text-center font-bold text-indigo-600">#{index + 1}</td>
+                        <td className="p-3 font-mono text-slate-500 text-[11px]">{attempt.user_id}</td>
+                        <td className="p-3 text-center font-black text-emerald-600 text-sm">
+                          {Number(attempt.score).toFixed(1)}
+                        </td>
+                        <td className="p-3 text-center font-semibold text-slate-600">
+                          {Number(attempt.total_marks) || 100}
+                        </td>
+                        <td className="p-3 text-right text-slate-400">
+                          {attempt.created_at ? new Date(attempt.created_at).toLocaleString() : 'N/A'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
