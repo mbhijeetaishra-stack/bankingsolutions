@@ -123,7 +123,9 @@ export default function BankingSolutionsHomePage() {
             >
               Calculation Lab ⚡
             </Link>
-
+            <Link href="/profile" className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-lg transition">
+              👤 Profile
+            </Link>    
             {/* Admin Panel Link */}
             {isAdmin && (
               <Link
