@@ -263,7 +263,7 @@ export default function BankingSolutionsHomePage() {
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-950/60 p-6 rounded-2xl border border-slate-800/80 backdrop-blur max-w-4xl mx-auto text-center">
           <div>
-            <span className="text-2xl md:text-3xl font-black text-amber-400 block">11.3K+</span>
+            <span className="text-2xl md:text-3xl font-black text-amber-400 block">11.5K+</span>
             <span className="text-xs text-slate-400 font-medium uppercase tracking-wider">Subscribers</span>
           </div>
           <div>
@@ -516,7 +516,7 @@ export default function BankingSolutionsHomePage() {
               BankingSolutions is a professional ed-tech platform dedicated to empowering banking exam aspirants with structured practice sheets (BSPS), current affairs (BSCA), test series, and consistency habit hubs.
             </p>
             <p className="text-[11px] text-slate-600 font-semibold">
-              Official Channel: @Banking_Solutions | 11.3K+ Aspirants
+              Official Channel: @Banking_Solutions | 11.5K+ Aspirants
             </p>
           </div>
 
