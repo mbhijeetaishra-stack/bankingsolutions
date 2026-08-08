@@ -57,7 +57,8 @@ export default function ProfilePage() {
     setStatusMsg('');
 
     try {
-      const { error } = await supabase.from('profiles').upsert([
+      // 1. Update the public profiles table
+      const { error: profileError } = await supabase.from('profiles').upsert([
         {
           id: user.id,
           email: user.email,
@@ -66,12 +67,24 @@ export default function ProfilePage() {
         }
       ], { onConflict: 'id' });
 
-      if (error) throw error;
+      if (profileError) throw profileError;
 
-      setStatusMsg('✅ Profile updated successfully!');
+      // 2. Update Supabase Auth user_metadata so the active session instantly reflects the new name
+      const { error: authError } = await supabase.auth.updateUser({
+        data: { full_name: studentName.trim() }
+      });
+
+      if (authError) throw authError;
+
+      setStatusMsg('✅ Profile updated successfully! Redirecting...');
+
+      // 3. Redirect back to homepage after 1 second to load fresh state
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 1000);
+
     } catch (err: any) {
       setStatusMsg(`⚠️ Error updating profile: ${err.message}`);
-    } finally {
       setSaving(false);
     }
   }
@@ -88,21 +101,39 @@ export default function ProfilePage() {
     <div className="min-h-screen bg-slate-900 text-slate-100 font-sans flex flex-col">
       {/* Header */}
       <header className="bg-slate-950 border-b border-slate-800 px-6 py-4 flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-amber-400 text-slate-950 rounded-lg flex items-center justify-center font-black text-sm shadow-md">
-            BS
+        {/* Logo & Branding */}
+        <Link href="/" className="flex items-center space-x-3 group cursor-pointer">
+          <div className="relative h-11 w-11 rounded-xl overflow-hidden bg-gradient-to-tr from-amber-50 to-amber-50 p-0.5 shadow-lg shadow-amber-400/20 flex-shrink-0 group-hover:scale-105 transition">
+            <img
+              src="/channel-logo.png"
+              alt="BankingSolutions Logo"
+              className="h-full w-full object-cover rounded-[10px]"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+            <div className="h-full w-full bg-amber-400 flex items-center justify-center text-slate-950 font-black text-lg">
+              BS
+            </div>
           </div>
-          <div>
-            <h1 className="text-base font-bold text-white tracking-wide">Aspirant Profile</h1>
-            <p className="text-xs text-slate-400">Manage your account settings</p>
+
+          <div className="text-left">
+            <span className="text-lg font-black tracking-tight text-white group-hover:text-amber-400 transition block leading-tight">
+              BankingSolutions
+            </span>
+            <span className="text-[10px] text-amber-400 font-bold uppercase tracking-widest block">
+              Touch the sky with glory
+            </span>
           </div>
-        </div>
+        </Link>
+        
+        <h1 className="text-lg text-amber-400 font-bold uppercase tracking-widest hidden md:block">Aspirant Profile</h1>
 
         <Link
-          href="/tests"
+          href="/"
           className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-lg transition"
         >
-          ← Back to Test Portal
+          ← Back to Home Page
         </Link>
       </header>
 
