@@ -119,7 +119,7 @@ export default function AdminPage() {
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<string[]>([]);
   const [existingMocks, setExistingMocks] = useState<MockTest[]>([]);
 
-  // Direct Mock Upload State (With Cutoff Added)
+  // Direct Mock Upload State (With Cutoff & Total Marks Added)
   const [directMockTitle, setDirectMockTitle] = useState('');
   const [directMockExamType, setDirectMockExamType] = useState('IBPS PO - Prelims');
   const [directMockDuration, setDirectMockDuration] = useState(60);
@@ -448,7 +448,7 @@ export default function AdminPage() {
     }
   }
 
-  // 🟢 Fixed Section Normalizer for Direct & Replacement Excel Uploads
+  // 🟢 Direct Mock Upload Handler (With Total Marks, Cutoff, and Image support)
   const handleDirectMockUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -558,7 +558,7 @@ export default function AdminPage() {
     
     const { data, error } = await supabase
       .from('mock_tests')
-      .update({ cutoff_marks: Number(newCutoff) }) // Change 'cutoff_marks' to 'cutoff' here if your database column is named 'cutoff'
+      .update({ cutoff_marks: Number(newCutoff) })
       .eq('id', testId)
       .select();
 
@@ -953,6 +953,7 @@ export default function AdminPage() {
       else if (subjectName.includes('QUANT') || subjectName.includes('MATH')) normSec = 'QUANT';
       else if (subjectName.includes('GA') || subjectName.includes('CURRENT') || subjectName.includes('AWARE')) normSec = 'GA';
       else if (subjectName.includes('HIN')) normSec = 'HINDI';
+
       return {
         id: q.id || `q-${idx + 1}-${Date.now()}`,
         section: normSec,
@@ -2094,16 +2095,16 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* DIRECT EXCEL MOCK UPLOAD TAB (With Cutoff & Publish Option) */}
+      {/* DIRECT EXCEL MOCK UPLOAD TAB (With Cutoff & Total Marks restored + Image support) */}
       {activeTab === 'direct_mock_upload' && (
         <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-6">
           <div className="flex items-center space-x-2 border-b pb-3">
-            <h2 className="text-lg font-bold text-slate-800">1-Click Direct Mock Upload (Excel .xlsx)</h2>
+            <h2 className="text-lg font-bold text-slate-800">1-Click Direct Mock Upload (Excel .xlsx with Image Support)</h2>
           </div>
 
           {!pendingDirectMock ? (
             <>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                 <div className="md:col-span-1">
                   <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Mock Test Title</label>
                   <input
@@ -2143,8 +2144,19 @@ export default function AdminPage() {
                   />
                 </div>
 
+                {/* 🟢 RESTORED: Total Marks Input Field */}
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Target Cut-Off Marks</label>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Total Marks</label>
+                  <input
+                    type="number"
+                    value={directMockMarks}
+                    onChange={(e) => setDirectMockMarks(Number(e.target.value))}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Target Cut-Off</label>
                   <input
                     type="number"
                     value={directMockCutoff}
@@ -2166,6 +2178,7 @@ export default function AdminPage() {
                 <div className="text-blue-900 space-y-2">
                   <span className="text-4xl block">📊</span>
                   <p className="font-bold text-sm text-[#1D63B8]">Click to upload Excel Mock File (.xlsx)</p>
+                  <p className="text-[11px] text-slate-500">Tip: You can put image URLs or markdown tags like <code>![Image](https://link.com/pic.png)</code> inside Passage and Solution columns.</p>
                 </div>
               </div>
             </>
@@ -2179,8 +2192,8 @@ export default function AdminPage() {
                   <b className="block truncate">{pendingDirectMock.title}</b>
                 </div>
                 <div>
-                  <span className="block text-[10px] uppercase font-bold text-emerald-600 mb-1">Category</span>
-                  <b>{pendingDirectMock.exam_type}</b>
+                  <span className="block text-[10px] uppercase font-bold text-emerald-600 mb-1">Total Marks</span>
+                  <b>{pendingDirectMock.total_marks} Marks</b>
                 </div>
                 <div>
                   <span className="block text-[10px] uppercase font-bold text-emerald-600 mb-1">Questions Parsed</span>

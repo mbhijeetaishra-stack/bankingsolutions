@@ -331,7 +331,7 @@ export default function MockResultAnalysisPage() {
           </div>
         </div>
 
-        {/* 🟢 REPLACED COMPARE WITH TOPPER SECTION WITH CORRECT, INCORRECT & SKIPPED BREAKDOWN */}
+        {/* DETAILED ATTEMPT BREAKDOWN (CORRECT, INCORRECT, SKIPPED) */}
         <div className="space-y-4 pt-2">
           <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider">Detailed Attempt Breakdown</h3>
           
