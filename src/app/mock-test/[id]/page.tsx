@@ -26,11 +26,6 @@ interface MockTest {
   questions: Question[] | string;
 }
 
-interface DbAttempt {
-  user_id: string;
-  score: number;
-}
-
 export default function TCSiONMockTestPlayerPage() {
   const params = useParams();
   const router = useRouter();
@@ -230,7 +225,8 @@ export default function TCSiONMockTestPlayerPage() {
     }
 
     setIsSubmitted(true);
-    router.push(`/mock-test/analysis/${test.id}`);
+    // 🟢 Routed to the exact /result folder path
+    router.push(`/mock-test/${test.id}/result`);
   };
 
   const handleSelectQuestion = (globalIdx: number) => {
@@ -399,7 +395,7 @@ export default function TCSiONMockTestPlayerPage() {
               Submit Section ({activeSection})
             </button>
           ) : (
-            <Link href={`/mock-test/analysis/${test.id}`} className="px-3 py-1 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs rounded shadow">
+            <Link href={`/mock-test/${test.id}/result`} className="px-3 py-1 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs rounded shadow">
               📊 View Scorecard & Analysis
             </Link>
           )}
@@ -767,7 +763,7 @@ export default function TCSiONMockTestPlayerPage() {
             </button>
           ) : (
             <Link
-              href={`/mock-test/analysis/${test.id}`}
+              href={`/mock-test/${test.id}/result`}
               className="block text-center w-full py-2.5 bg-[#1D63B8] hover:bg-blue-700 text-white font-bold text-xs rounded uppercase tracking-wider transition shadow shrink-0"
             >
               📊 View Scorecard & Rank

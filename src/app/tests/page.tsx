@@ -11,6 +11,7 @@ interface MockItem {
   exam_type?: string;
   duration_minutes?: number;
   total_marks?: number;
+  cutoff_marks?: number;
   questions?: any[];
   created_at: string;
 }
@@ -19,6 +20,9 @@ interface MockAttempt {
   test_id: string;
   score: number;
   total_marks: number;
+  correctCount?: number;
+  wrongCount?: number;
+  unattemptedCount?: number;
 }
 
 function TestListContent() {
@@ -36,7 +40,6 @@ function TestListContent() {
   const [completedAttempts, setCompletedAttempts] = useState<Record<string, MockAttempt>>({});
   const [searchTerm, setSearchTerm] = useState('');
   
-  // 🟢 Hierarchical Navigation States
   const [selectedParentExam, setSelectedParentExam] = useState('ALL');
   const [selectedSubCategory, setSelectedSubCategory] = useState('ALL');
 
@@ -90,7 +93,36 @@ function TestListContent() {
     let attemptsMap: Record<string, MockAttempt> = {};
     try {
       const localSaved = JSON.parse(localStorage.getItem('bsca_mock_attempts') || '{}');
-      attemptsMap = { ...localSaved };
+      Object.keys(localSaved).forEach((tid) => {
+        const att = localSaved[tid];
+        const testObj = mockData?.find(m => m.id === tid);
+        let correct = 0, wrong = 0, unattempted = 0;
+
+        if (testObj && att.answers) {
+          let questionsArr: any[] = [];
+          if (typeof testObj.questions === 'string') {
+            try { questionsArr = JSON.parse(testObj.questions); } catch (e) {}
+          } else if (Array.isArray(testObj.questions)) {
+            questionsArr = testObj.questions;
+          }
+
+          questionsArr.forEach((q: any, qIdx: number) => {
+            const userAns = att.answers[qIdx];
+            if (userAns === undefined) unattempted++;
+            else if (userAns === q.correctOptionIndex) correct++;
+            else wrong++;
+          });
+        }
+
+        attemptsMap[tid] = {
+          test_id: tid,
+          score: Number(att.score || 0),
+          total_marks: Number(att.total_marks || 100),
+          correctCount: correct,
+          wrongCount: wrong,
+          unattemptedCount: unattempted,
+        };
+      });
     } catch (e) {}
 
     if (userId) {
@@ -101,10 +133,33 @@ function TestListContent() {
 
       if (attemptData) {
         attemptData.forEach((att: any) => {
+          const testObj = mockData?.find(m => m.id === att.test_id);
+          let correct = 0, wrong = 0, unattempted = 0;
+          const userAnswers = att.answers || {};
+
+          if (testObj) {
+            let questionsArr: any[] = [];
+            if (typeof testObj.questions === 'string') {
+              try { questionsArr = JSON.parse(testObj.questions); } catch (e) {}
+            } else if (Array.isArray(testObj.questions)) {
+              questionsArr = testObj.questions;
+            }
+
+            questionsArr.forEach((q: any, qIdx: number) => {
+              const userAns = userAnswers[qIdx];
+              if (userAns === undefined) unattempted++;
+              else if (userAns === q.correctOptionIndex) correct++;
+              else wrong++;
+            });
+          }
+
           attemptsMap[att.test_id] = {
             test_id: att.test_id,
             score: Number(att.score),
             total_marks: Number(att.total_marks),
+            correctCount: correct,
+            wrongCount: wrong,
+            unattemptedCount: unattempted,
           };
         });
       }
@@ -185,10 +240,8 @@ function TestListContent() {
     setCompletedAttempts({});
   }
 
-  // 🟢 Parse parent exams dynamically from mock exam_types (e.g. "IBPS PO - Prelims" -> Parent: "IBPS PO", Sub: "Prelims")
   const parentExamsList = ['SBI PO', 'IBPS PO', 'RRB PO', 'BSCA', 'BSPS'];
   
-  // Extract custom parent exams from database tests if any exist
   const dynamicParents = Array.from(new Set(mocks.map(m => {
     const raw = m.exam_type || '';
     return raw.split('-')[0].trim();
@@ -196,7 +249,6 @@ function TestListContent() {
 
   const finalParentExams = Array.from(new Set([...parentExamsList, ...dynamicParents]));
 
-  // Get available sub-categories for the currently selected parent exam
   const getSubCategoriesForParent = (parent: string) => {
     if (parent === 'ALL' || parent === 'BSCA' || parent === 'BSPS') return [];
     
@@ -214,7 +266,6 @@ function TestListContent() {
 
   const currentSubCategories = getSubCategoriesForParent(selectedParentExam);
 
-  // 🟢 Filter mocks based on hierarchical selection & search input
   const filteredMocks = mocks.filter((mock) => {
     const matchesSearch = mock.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           (mock.exam_type || '').toLowerCase().includes(searchTerm.toLowerCase());
@@ -351,8 +402,8 @@ function TestListContent() {
             </Link>
           )}
            <Link href="/" className="px-4 py-1.5 bg-white/10 hover:bg-white/20 text-white font-bold text-xs rounded-lg transition border border-white/20">
-                ← Home
-              </Link>
+              ← Home
+            </Link>
           <button
             onClick={handleLogout}
             className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-lg transition"
@@ -383,14 +434,13 @@ function TestListContent() {
             </div>
           </div>
 
-          {/* 🟢 Parent Exam Category Navigation Bar (with ALL at the very end) */}
           <div className="flex gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800 flex-wrap justify-center max-w-4xl mx-auto">
             {[...finalParentExams, 'ALL'].map((parent) => (
               <button
                 key={parent}
                 onClick={() => {
                   setSelectedParentExam(parent);
-                  setSelectedSubCategory('ALL'); // Reset sub-filter on parent switch
+                  setSelectedSubCategory('ALL');
                 }}
                 className={`px-4 py-2 rounded-lg text-xs font-bold transition uppercase ${
                   selectedParentExam === parent ? 'bg-[#1D63B8] text-white shadow' : 'text-slate-400 hover:text-white'
@@ -401,7 +451,6 @@ function TestListContent() {
             ))}
           </div>
 
-          {/* 🟢 Nested Sub-Category Navigation Bar (Prelims / Mains / PYQ) appears only when a parent exam is clicked */}
           {currentSubCategories.length > 0 && (
             <div className="flex gap-2 bg-slate-900 p-1.5 rounded-xl border border-slate-700/60 flex-wrap justify-center max-w-2xl mx-auto animate-fadeIn">
               <span className="text-[10px] text-slate-400 self-center uppercase font-bold px-2">Filter Sub-Type:</span>
@@ -444,6 +493,8 @@ function TestListContent() {
               }
 
               const attempt = completedAttempts[mock.id];
+              const cutoff = mock.cutoff_marks ?? 55;
+              const isPassed = attempt ? attempt.score >= cutoff : false;
 
               return (
                 <div
@@ -458,9 +509,15 @@ function TestListContent() {
                         {mock.exam_type || 'IBPS PO - Prelims'}
                       </span>
 
-                      {attempt && (
-                        <span className="text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded">
-                          ✓ Completed ({attempt.score.toFixed(1)}/{mock.total_marks || 100})
+                      {attempt ? (
+                        <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded border ${
+                          isPassed ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                        }`}>
+                          {isPassed ? '✓ Cleared Cut-Off' : '⚠️ Below Cut-Off'} ({attempt.score.toFixed(1)})
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-700">
+                          Cut-off: {cutoff}
                         </span>
                       )}
                     </div>
@@ -483,22 +540,50 @@ function TestListContent() {
                         <span className="font-bold text-slate-200">{mock.total_marks || 100} Marks</span>
                       </div>
                     </div>
+
+                    {/* 🟢 Correct, Incorrect, Skipped Preview Badge on Attempted Card */}
+                    {attempt && (
+                      <div className="grid grid-cols-3 gap-1 pt-2 text-center text-[10px] font-bold bg-slate-900/80 p-2 rounded-xl border border-slate-800">
+                        <div className="text-emerald-400">
+                          <span className="block text-[9px] text-slate-500 uppercase">Correct</span>
+                          {attempt.correctCount ?? 0}
+                        </div>
+                        <div className="text-rose-400 border-x border-slate-800">
+                          <span className="block text-[9px] text-slate-500 uppercase">Wrong</span>
+                          {attempt.wrongCount ?? 0}
+                        </div>
+                        <div className="text-slate-400">
+                          <span className="block text-[9px] text-slate-500 uppercase">Skipped</span>
+                          {attempt.unattemptedCount ?? 0}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {attempt ? (
-                    <div className="grid grid-cols-2 gap-2 pt-2">
+                    <div className="flex flex-col gap-2 pt-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <Link
+                          href={`/mock-test/${mock.id}/result`}
+                          className="py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow transition text-center"
+                        >
+                          📊 View Analysis
+                        </Link>
+
+                        <Link
+                          href={`/mock-test/${mock.id}?mode=solution`}
+                          className="py-2.5 bg-slate-800 hover:bg-slate-700 text-amber-400 font-extrabold text-xs border border-amber-400/30 rounded-xl transition text-center"
+                        >
+                          👁️ Solutions
+                        </Link>
+                      </div>
+
+                      {/* 🟢 Reattempt Mock Option */}
                       <Link
                         href={`/mock-test/${mock.id}?mode=reattempt`}
-                        className="py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs rounded-xl shadow transition text-center"
+                        className="w-full py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 font-bold text-xs border border-blue-500/30 rounded-xl transition text-center flex items-center justify-center gap-1.5"
                       >
-                        🔄 Reattempt
-                      </Link>
-
-                      <Link
-                        href={`/mock-test/${mock.id}?mode=solution`}
-                        className="py-2.5 bg-slate-800 hover:bg-slate-700 text-amber-400 font-extrabold text-xs border border-amber-400/30 rounded-xl transition text-center"
-                      >
-                        👁️ View Solution
+                        <span>🔄 Reattempt Mock</span>
                       </Link>
                     </div>
                   ) : (

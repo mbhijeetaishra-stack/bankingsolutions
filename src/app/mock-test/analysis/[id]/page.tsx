@@ -23,6 +23,7 @@ interface MockTest {
   exam_type: string;
   duration_minutes: number;
   total_marks: number;
+  cutoff_marks?: number;
   questions: Question[] | string;
 }
 
@@ -52,7 +53,6 @@ export default function MockAnalysisPage() {
   async function fetchAnalysisData() {
     setLoading(true);
 
-    // 1. Fetch Mock Test Details & Questions
     const { data: testData, error: testErr } = await supabase
       .from('mock_tests')
       .select('*')
@@ -75,7 +75,6 @@ export default function MockAnalysisPage() {
     setTest(mock);
     setQuestions(parsedQ);
 
-    // 2. Fetch User's Attempt from LocalStorage or Supabase
     let savedAnswers: Record<number, number> = {};
     let savedTime: Record<number, number> = {};
 
@@ -104,7 +103,6 @@ export default function MockAnalysisPage() {
     setUserAnswers(savedAnswers);
     setTimeSpent(savedTime);
 
-    // 3. Fetch All Student Attempts for Rank Computation
     const { data: attemptsData } = await supabase
       .from('mock_attempts')
       .select('user_id, score')
@@ -117,7 +115,6 @@ export default function MockAnalysisPage() {
     setLoading(false);
   }
 
-  // Calculations
   const calculateMetrics = () => {
     let totalScore = 0;
     let correctCount = 0;
@@ -138,6 +135,10 @@ export default function MockAnalysisPage() {
       const sec = q.section || 'QUANT';
       const userAns = userAnswers[idx];
       const spent = timeSpent[idx] || 0;
+
+      if (!sectionStats[sec]) {
+        sectionStats[sec] = { total: 0, attempted: 0, correct: 0, wrong: 0, score: 0 };
+      }
 
       sectionStats[sec].total += 1;
 
@@ -197,7 +198,7 @@ export default function MockAnalysisPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center font-bold">
-        <div className="w-8 h-8 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mr-3"></div>
+        <div className="w-8 h-8 border-4 border-[#1D63B8] border-t-transparent rounded-full animate-spin mr-3"></div>
         Generating Performance Analytics & Leaderboard...
       </div>
     );
@@ -207,7 +208,7 @@ export default function MockAnalysisPage() {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center space-y-4">
         <h2 className="text-xl font-bold">Report Not Found</h2>
-        <Link href="/tests" className="px-5 py-2.5 bg-amber-400 text-slate-950 font-bold text-xs rounded-xl">
+        <Link href="/tests" className="px-5 py-2.5 bg-[#1D63B8] text-white font-bold text-xs rounded-xl">
           Back to Tests Portal
         </Link>
       </div>
@@ -215,8 +216,9 @@ export default function MockAnalysisPage() {
   }
 
   const metrics = calculateMetrics();
+  const cutoff = Number(test.cutoff_marks ?? 55);
+  const passed = metrics.totalScore >= cutoff;
 
-  // Solution Filtering
   const filteredSolutionQuestions = questions.filter((q, idx) => {
     const ans = userAnswers[idx];
     if (solutionFilter === 'CORRECT') return ans === q.correctOptionIndex;
@@ -269,7 +271,23 @@ export default function MockAnalysisPage() {
       <main className="max-w-6xl mx-auto px-6 py-8 flex-1 w-full space-y-6">
         {activeTab === 'summary' ? (
           <div className="space-y-6">
-            {/* TOP CARDS */}
+            
+            {/* CUTOFF STATUS FLASH MESSAGE */}
+            <div className={`p-5 rounded-2xl border flex items-center gap-4 shadow-xl ${
+              passed ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200' : 'bg-amber-950/40 border-amber-500/40 text-amber-200'
+            }`}>
+              <span className="text-3xl">{passed ? '🎉' : '⚠️'}</span>
+              <div>
+                <h3 className="text-base font-black text-white">{passed ? 'Congratulations!' : 'Thank you for appearing!'}</h3>
+                <p className="text-xs mt-0.5 opacity-90 leading-relaxed">
+                  {passed 
+                    ? `Based on your performance (Score: ${metrics.totalScore.toFixed(1)}), you have successfully cleared the cut-off (${cutoff} marks). Touch the sky with glory!` 
+                    : `Based on your performance (Score: ${metrics.totalScore.toFixed(1)}), you have not cleared the cut-off (${cutoff} marks). Keep practicing with BankingSolutions to bridge the gap!`}
+                </p>
+              </div>
+            </div>
+
+            {/* TOP METRIC CARDS */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
               <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl space-y-1">
                 <span className="text-3xl font-black text-amber-400 block">{metrics.totalScore.toFixed(2)} <span className="text-xs text-slate-500 font-normal">/ {test.total_marks}</span></span>
@@ -289,23 +307,22 @@ export default function MockAnalysisPage() {
               </div>
             </div>
 
-            {/* ATTEMPT BREAKDOWN GRID */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center text-xs font-mono">
-              <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-xl">
-                <span className="text-emerald-400 font-bold text-lg block">{metrics.correctCount}</span>
-                <span className="text-[10px] text-slate-400 uppercase font-sans">Correct Answers</span>
-              </div>
-              <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-xl">
-                <span className="text-rose-400 font-bold text-lg block">{metrics.wrongCount}</span>
-                <span className="text-[10px] text-slate-400 uppercase font-sans">Incorrect Answers</span>
-              </div>
-              <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-xl">
-                <span className="text-slate-400 font-bold text-lg block">{metrics.unattemptedCount}</span>
-                <span className="text-[10px] text-slate-400 uppercase font-sans">Unattempted</span>
-              </div>
-              <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-xl">
-                <span className="text-amber-400 font-bold text-lg block">{metrics.correctCount + metrics.wrongCount} / {questions.length}</span>
-                <span className="text-[10px] text-slate-400 uppercase font-sans">Total Attempted</span>
+            {/* 🟢 CORRECT, INCORRECT & SKIPPED SUMMARY CARDS */}
+            <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4 shadow-xl">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">📌 Detailed Attempt Breakdown</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+                <div className="bg-emerald-950/30 border border-emerald-500/30 p-5 rounded-xl space-y-1">
+                  <span className="text-3xl font-black text-emerald-400 block">{metrics.correctCount}</span>
+                  <span className="text-xs font-bold uppercase tracking-wider text-emerald-300 block">Correct Answers</span>
+                </div>
+                <div className="bg-rose-950/30 border border-rose-500/30 p-5 rounded-xl space-y-1">
+                  <span className="text-3xl font-black text-rose-400 block">{metrics.wrongCount}</span>
+                  <span className="text-xs font-bold uppercase tracking-wider text-rose-300 block">Wrong Answers</span>
+                </div>
+                <div className="bg-slate-950 border border-slate-800 p-5 rounded-xl space-y-1">
+                  <span className="text-3xl font-black text-slate-400 block">{metrics.unattemptedCount}</span>
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block">Skipped Questions</span>
+                </div>
               </div>
             </div>
 
@@ -362,7 +379,6 @@ export default function MockAnalysisPage() {
         ) : (
           /* SOLUTIONS TAB */
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            {/* LEFT SOLUTION VIEWER */}
             <div className="md:col-span-3 bg-slate-900 border border-slate-800 p-6 rounded-2xl flex flex-col justify-between space-y-6">
               {currentSolQ ? (
                 <div className="space-y-5">
@@ -397,7 +413,6 @@ export default function MockAnalysisPage() {
                     {currentSolQ.questionText}
                   </h3>
 
-                  {/* OPTIONS WITH COLOR CODING */}
                   <div className="space-y-2.5 pt-1">
                     {currentSolQ.options.map((opt, optIdx) => {
                       const userSelected = userAnswers[originalIndex] === optIdx;
@@ -436,7 +451,6 @@ export default function MockAnalysisPage() {
                     })}
                   </div>
 
-                  {/* EXPLANATION */}
                   {currentSolQ.explanation && (
                     <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-1 mt-4">
                       <span className="text-[11px] font-black uppercase text-amber-400 block">💡 Official Solution & Explanation:</span>
@@ -448,7 +462,6 @@ export default function MockAnalysisPage() {
                 <p className="text-slate-500 text-xs text-center py-12">No questions found under this solution filter.</p>
               )}
 
-              {/* SOLUTION NAVIGATION BUTTONS */}
               <div className="flex justify-between items-center border-t border-slate-800 pt-4">
                 <button
                   disabled={solutionIndex === 0}
@@ -467,7 +480,6 @@ export default function MockAnalysisPage() {
               </div>
             </div>
 
-            {/* RIGHT FILTER & JUMP SIDEBAR */}
             <div className="space-y-4">
               <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-2">
                 <label className="block text-[11px] font-bold text-slate-400 uppercase">Filter Solutions</label>

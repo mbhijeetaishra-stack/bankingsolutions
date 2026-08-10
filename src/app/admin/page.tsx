@@ -26,6 +26,7 @@ interface MockTest {
   exam_type?: string;
   duration_minutes: number;
   total_marks: number;
+  cutoff_marks?: number;
   is_published: boolean;
   questions?: any[];
 }
@@ -118,11 +119,17 @@ export default function AdminPage() {
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<string[]>([]);
   const [existingMocks, setExistingMocks] = useState<MockTest[]>([]);
 
-  // Direct Mock Upload State
+  // Direct Mock Upload State (With Cutoff Added)
   const [directMockTitle, setDirectMockTitle] = useState('');
   const [directMockExamType, setDirectMockExamType] = useState('IBPS PO - Prelims');
   const [directMockDuration, setDirectMockDuration] = useState(60);
   const [directMockMarks, setDirectMockMarks] = useState(100);
+  const [directMockCutoff, setDirectMockCutoff] = useState(55);
+  const [pendingDirectMock, setPendingDirectMock] = useState<any>(null);
+
+  // Inline Cut-off Editor States for Old Mocks
+  const [editingCutoffId, setEditingCutoffId] = useState<string | null>(null);
+  const [tempCutoffValue, setTempCutoffValue] = useState<number>(55);
 
   // Mock Analytics States
   const [selectedAnalyticsMockId, setSelectedAnalyticsMockId] = useState<string>('');
@@ -166,7 +173,6 @@ export default function AdminPage() {
   const [quizCorrectOption, setQuizCorrectOption] = useState(0);
   const [quizExplanation, setQuizExplanation] = useState('');
   
-  // BSCA Quiz Question Editor States
   const [bscaQuizQuestions, setBscaQuizQuestions] = useState<any[]>([]);
   const [editingQuizQuestionId, setEditingQuizQuestionId] = useState<string | null>(null);
 
@@ -183,7 +189,6 @@ export default function AdminPage() {
   const [dayChecklistInput, setDayChecklistInput] = useState('');
   const [dayChecklistItems, setDayChecklistItems] = useState<any[]>([]);
 
-  // Marquee Ticker States
   const [marqueeInput, setMarqueeInput] = useState('');
   const [adminMarqueeList, setAdminMarqueeList] = useState<any[]>([]);
 
@@ -376,11 +381,8 @@ export default function AdminPage() {
     setLoadingAnalytics(false);
   }
 
-  // 🟢 Robust Recalculate Scores Function (Fixing 0 marks issue)
   async function handleRecalculateScores(mockId: string) {
-    if (!confirm("Are you sure you want to recalculate scores for ALL students? This will compare their submitted answers with the latest correct options.")) {
-      return;
-    }
+    if (!confirm("Are you sure you want to recalculate scores for ALL students?")) return;
 
     setStatusMsg("Fetching data for score matching...");
     setLoadingAnalytics(true);
@@ -406,8 +408,6 @@ export default function AdminPage() {
         setLoadingAnalytics(false);
         return;
       }
-
-      setStatusMsg(`Matching and recalculating scores for ${attempts.length} students...`);
 
       for (const attempt of attempts) {
         let newScore = 0;
@@ -448,6 +448,140 @@ export default function AdminPage() {
     }
   }
 
+  // 🟢 Fixed Section Normalizer for Direct & Replacement Excel Uploads
+  const handleDirectMockUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!directMockTitle.trim()) return setStatusMsg('⚠️ Please enter a Mock Test Title first!');
+
+    setStatusMsg('Processing Direct Mock Upload...');
+    const reader = new FileReader();
+
+    reader.onload = async (evt) => {
+      try {
+        const arrayBuffer = evt.target?.result;
+        const wb = XLSX.read(arrayBuffer, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const data: any[] = XLSX.utils.sheet_to_json(ws);
+
+        if (!data || data.length === 0) return setStatusMsg('⚠️ Excel file is empty!');
+
+        const formattedJSONQuestions = data.map((row, idx) => {
+          let rawSec = String(row.section || row.Subject || row.SECTION || row.SUBJECT || '').trim().toUpperCase();
+          let normSec = 'QUANT';
+
+          if (rawSec.includes('ENG')) normSec = 'ENGLISH';
+          else if (rawSec.includes('REASON')) normSec = 'REASONING';
+          else if (rawSec.includes('QUANT') || rawSec.includes('MATH')) normSec = 'QUANT';
+          else if (rawSec.includes('GA') || rawSec.includes('CURRENT') || rawSec.includes('AWARE') || rawSec.includes('GS')) normSec = 'GA';
+          else if (rawSec.includes('HIN')) normSec = 'HINDI';
+
+          const answerLetter = String(row.correctOptionIndex ?? row['Correct Answer'] ?? row.correctOption ?? '0').toUpperCase().trim();
+          const optionMap: { [key: string]: number } = { A: 0, B: 1, C: 2, D: 3, E: 4, '0': 0, '1': 1, '2': 2, '3': 3, '4': 4 };
+          const correctIdx = optionMap[answerLetter] !== undefined ? optionMap[answerLetter] : 0;
+
+          const qText = String(
+            row.questionText || row.question_text || row['Question Text'] || row.Question || row.statement || row.Text || row.question || `Question ${idx + 1}`
+          ).trim();
+
+          const pText = String(
+            row.passageText || row.passage_text || row.passage || row.Direction || row.direction || row['Solution Text'] || ''
+          ).trim();
+
+          const explanationText = String(
+            row.explanation || row.Explanation || row.Solution || row.solution || row.solution_text || ''
+          ).trim();
+
+          const options = [
+            String(row.optionA || row['Option A'] || row.option_1 || row.option1 || row.A || row.choice1 || row.ChoiceA || '').trim(),
+            String(row.optionB || row['Option B'] || row.option_2 || row.option2 || row.B || row.choice2 || row.ChoiceB || '').trim(),
+            String(row.optionC || row['Option C'] || row.option_3 || row.option3 || row.C || row.choice3 || row.ChoiceC || '').trim(),
+            String(row.optionD || row['Option D'] || row.option_4 || row.option4 || row.D || row.choice4 || row.ChoiceD || '').trim(),
+            String(row.optionE || row['Option E'] || row.option_5 || row.option5 || row.E || row.choice5 || row.ChoiceE || '').trim(),
+          ].filter(Boolean);
+
+          return {
+            id: `q-${idx + 1}-${Date.now()}`,
+            section: normSec,
+            passageText: pText,
+            questionText: qText,
+            options: options.length > 0 ? options : ['Option A', 'Option B', 'Option C', 'Option D', 'Option E'],
+            correctOptionIndex: correctIdx,
+            marks: Number(row.marks ?? 1.0),
+            negativeMarks: Number(row.negativeMarks ?? 0.25),
+            explanation: explanationText,
+          };
+        });
+
+        const payload = {
+          title: directMockTitle.trim(),
+          exam_type: directMockExamType,
+          duration_minutes: Number(directMockDuration),
+          total_marks: Number(directMockMarks),
+          cutoff_marks: Number(directMockCutoff),
+          questions: formattedJSONQuestions,
+          is_published: true,
+          created_at: new Date().toISOString(),
+        };
+
+        setPendingDirectMock(payload);
+        setStatusMsg(`✅ Excel parsed successfully! Review and click Publish Mock Test below.`);
+      } catch (err: any) {
+        setStatusMsg(`Direct Upload Error: ${err.message}`);
+      }
+    };
+
+    reader.readAsArrayBuffer(file);
+  };
+
+  async function handlePublishPendingMock() {
+    if (!pendingDirectMock) return;
+    setStatusMsg(`Publishing "${pendingDirectMock.title}"...`);
+
+    try {
+      const { data: testData, error: tErr } = await supabase.from('mock_tests').insert([pendingDirectMock]).select();
+
+      if (tErr || !testData) return setStatusMsg(`Publish Error: ${tErr?.message}`);
+
+      setStatusMsg(`🎉 Successfully published "${pendingDirectMock.title}" with ${pendingDirectMock.questions.length} questions!`);
+      setPendingDirectMock(null);
+      setDirectMockTitle('');
+      fetchInitialData();
+    } catch (err: any) {
+      setStatusMsg(`Publish Error: ${err.message}`);
+    }
+  }
+
+  async function handleUpdateCutoff(testId: string, newCutoff: number) {
+    setStatusMsg('Updating cut-off marks...');
+    
+    const { data, error } = await supabase
+      .from('mock_tests')
+      .update({ cutoff_marks: Number(newCutoff) }) // Change 'cutoff_marks' to 'cutoff' here if your database column is named 'cutoff'
+      .eq('id', testId)
+      .select();
+
+    if (error) {
+      console.error('Supabase Update Error:', error);
+      setStatusMsg(`❌ Error updating cutoff: ${error.message}`);
+      alert(`Update failed: ${error.message}`);
+    } else {
+      setStatusMsg(`✅ Successfully updated cut-off to ${newCutoff}!`);
+      setEditingCutoffId(null);
+      fetchInitialData();
+    }
+  }
+
+  async function handleDeleteMockTest(testId: string, title: string) {
+    if (!confirm(`Are you sure you want to delete "${title}"?`)) return;
+    const { error } = await supabase.from('mock_tests').delete().eq('id', testId);
+    if (!error) {
+      setStatusMsg(`🗑️ Deleted "${title}".`);
+      fetchInitialData();
+    }
+  }
+
   async function handleReplaceMockExcel(testId: string, testTitle: string, e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -473,17 +607,14 @@ export default function AdminPage() {
         }
 
         const formattedJSONQuestions = data.map((row, idx) => {
-          let rawSec = String(row.section || row.Subject || '').trim().toUpperCase();
-          let normSec = 'GA';
+          let rawSec = String(row.section || row.Subject || row.SECTION || row.SUBJECT || '').trim().toUpperCase();
+          let normSec = 'QUANT';
 
-          if (!rawSec) {
-            normSec = 'GA';
-          } else {
-            if (rawSec.includes('ENG')) normSec = 'ENGLISH';
-            else if (rawSec.includes('REASON')) normSec = 'REASONING';
-            else if (rawSec.includes('QUANT') || rawSec.includes('MATH')) normSec = 'QUANT';
-            else if (rawSec.includes('GA') || rawSec.includes('CURRENT') || rawSec.includes('AWARE') || rawSec.includes('GS')) normSec = 'GA';
-          }
+          if (rawSec.includes('ENG')) normSec = 'ENGLISH';
+          else if (rawSec.includes('REASON')) normSec = 'REASONING';
+          else if (rawSec.includes('QUANT') || rawSec.includes('MATH')) normSec = 'QUANT';
+          else if (rawSec.includes('GA') || rawSec.includes('CURRENT') || rawSec.includes('AWARE') || rawSec.includes('GS')) normSec = 'GA';
+          else if (rawSec.includes('HIN')) normSec = 'HINDI';
 
           const answerLetter = String(row.correctOptionIndex ?? row['Correct Answer'] ?? row.correctOption ?? '0').toUpperCase().trim();
           const optionMap: { [key: string]: number } = { A: 0, B: 1, C: 2, D: 3, E: 4, '0': 0, '1': 1, '2': 2, '3': 3, '4': 4 };
@@ -546,240 +677,7 @@ export default function AdminPage() {
     reader.readAsArrayBuffer(file);
   }
 
-  async function handleReplacePdf(pdfId: string, pdfTitleName: string, e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!confirm(`Replace PDF file for "${pdfTitleName}"?`)) {
-      e.target.value = '';
-      return;
-    }
-
-    setStatusMsg(`Uploading new PDF for "${pdfTitleName}"...`);
-    try {
-      const filePath = `pdfs/${Date.now()}_${file.name}`;
-      const { error: uploadErr } = await supabase.storage.from('course_pdfs').upload(filePath, file);
-      if (uploadErr) throw uploadErr;
-
-      const { data: publicUrlData } = supabase.storage.from('course_pdfs').getPublicUrl(filePath);
-
-      const { error: dbErr } = await supabase
-        .from('course_pdfs')
-        .update({ pdf_url: publicUrlData.publicUrl })
-        .eq('id', pdfId);
-
-      if (dbErr) throw dbErr;
-
-      setStatusMsg(`🎉 Successfully replaced PDF for "${pdfTitleName}"!`);
-      fetchInitialData();
-    } catch (err: any) {
-      setStatusMsg(`PDF Replacement Error: ${err.message}`);
-    } finally {
-      e.target.value = '';
-    }
-  }
-
-  async function handleDeleteBscaQuestion(qId: string) {
-    if (!confirm('Delete this question from the quiz?')) return;
-    const { error } = await supabase.from('bsca_quiz_questions').delete().eq('id', qId);
-    if (!error) {
-      setStatusMsg('🗑️ Deleted quiz question.');
-      if (selectedQuizId) fetchBscaQuizQuestions(selectedQuizId);
-    }
-  }
-
-  function handleStartEditBscaQuestion(q: any) {
-    setEditingQuizQuestionId(q.id);
-    setQuizQuestionText(q.question_text);
-    setQuizOptions(q.options || ['', '', '', '']);
-    setQuizCorrectOption(q.correct_option_index || 0);
-    setQuizExplanation(q.explanation || '');
-  }
-
-  async function handleUpdateBscaQuestion(e: React.FormEvent) {
-    e.preventDefault();
-    if (!editingQuizQuestionId) return;
-
-    setStatusMsg('Updating quiz question...');
-    const { error } = await supabase
-      .from('bsca_quiz_questions')
-      .update({
-        question_text: quizQuestionText,
-        options: quizOptions,
-        correct_option_index: Number(quizCorrectOption),
-        explanation: quizExplanation,
-      })
-      .eq('id', editingQuizQuestionId);
-
-    if (error) {
-      setStatusMsg(`Update Error: ${error.message}`);
-    } else {
-      setStatusMsg('✅ Successfully updated quiz question!');
-      setEditingQuizQuestionId(null);
-      setQuizQuestionText('');
-      setQuizOptions(['', '', '', '']);
-      setQuizExplanation('');
-      setQuizCorrectOption(0);
-      if (selectedQuizId) fetchBscaQuizQuestions(selectedQuizId);
-    }
-  }
-
-  async function handleSaveNewExamCategory(e: React.FormEvent) {
-    e.preventDefault();
-    if (!parentExamName.trim()) return setStatusMsg('⚠️ Please enter Parent Exam Name!');
-
-    const formattedFullName = `${parentExamName.trim()} - ${subCategoryType}`;
-
-    setStatusMsg('Saving hierarchical exam category...');
-    const { error } = await supabase.from('exam_categories').insert([
-      {
-        exam_name: formattedFullName,
-        sub_category: subCategoryType,
-        total_duration_minutes: Number(newExamDuration),
-        sections: examSections,
-      },
-    ]);
-
-    if (error) {
-      setStatusMsg(`Error creating exam category: ${error.message}`);
-    } else {
-      setStatusMsg(`🎉 Successfully created "${formattedFullName}"!`);
-      fetchInitialData();
-    }
-  }
-
-  async function handleDeleteExamCategory(id: string, name: string) {
-    if (!confirm(`Delete exam category "${name}"?`)) return;
-    const { error } = await supabase.from('exam_categories').delete().eq('id', id);
-    if (!error) {
-      setStatusMsg(`🗑️ Deleted category "${name}".`);
-      fetchInitialData();
-    }
-  }
-
-  async function fetchDaySpecificData(day: number, mode: string) {
-    const { data: checklistData } = await supabase
-      .from('admin_day_checklist_items')
-      .select('*')
-      .eq('day_number', day)
-      .eq('track_mode', mode)
-      .order('display_order', { ascending: true });
-
-    if (checklistData) {
-      setDayChecklistItems(checklistData);
-    } else {
-      setDayChecklistItems([]);
-    }
-
-    const { data: videoData } = await supabase
-      .from('admin_targets_config')
-      .select('youtube_url')
-      .eq('day_number', day)
-      .eq('track_mode', mode)
-      .single();
-
-    if (videoData) {
-      setTargetVideoUrl(videoData.youtube_url || '');
-    } else {
-      setTargetVideoUrl('');
-    }
-  }
-
-  async function handleCopyChecklistFromPreviousDay() {
-    if (targetDayNo <= 1) {
-      return setStatusMsg('⚠️ This is Day 1; there is no previous day to copy from!');
-    }
-
-    const prevDay = targetDayNo - 1;
-    setStatusMsg(`Fetching checklist items from Day ${prevDay} (${targetTrackMode})...`);
-
-    const { data: prevItems, error: fetchErr } = await supabase
-      .from('admin_day_checklist_items')
-      .select('label, display_order')
-      .eq('day_number', prevDay)
-      .eq('track_mode', targetTrackMode)
-      .order('display_order', { ascending: true });
-
-    if (fetchErr || !prevItems || prevItems.length === 0) {
-      return setStatusMsg(`⚠️ No checklist items found for Day ${prevDay} under ${targetTrackMode} track.`);
-    }
-
-    const newItemsToInsert = prevItems.map((item, idx) => ({
-      day_number: Number(targetDayNo),
-      track_mode: targetTrackMode,
-      label: item.label,
-      display_order: dayChecklistItems.length + idx + 1,
-    }));
-
-    const { error: insertErr } = await supabase
-      .from('admin_day_checklist_items')
-      .insert(newItemsToInsert);
-
-    if (insertErr) {
-      setStatusMsg(`Error copying checklist: ${insertErr.message}`);
-    } else {
-      setStatusMsg(`📋 Successfully copied ${prevItems.length} checklist items from Day ${prevDay} to Day ${targetDayNo}!`);
-      fetchDaySpecificData(targetDayNo, targetTrackMode);
-    }
-  }
-
-  async function handlePublishPost(e: React.FormEvent) {
-    e.preventDefault();
-    if (!postTitle.trim() || !postContent.trim()) return setStatusMsg('⚠️ Please enter Title and Content!');
-
-    setStatusMsg('Publishing update...');
-    let finalImageUrl = postImageUrl.trim();
-
-    if (imageFile) {
-      try {
-        const filePath = `updates/${Date.now()}_${imageFile.name}`;
-        const { error: uploadErr } = await supabase.storage.from('course_pdfs').upload(filePath, imageFile);
-        if (!uploadErr) {
-          const { data: publicUrlData } = supabase.storage.from('course_pdfs').getPublicUrl(filePath);
-          finalImageUrl = publicUrlData.publicUrl;
-        }
-      } catch (err) {
-        console.error('Image Upload Error:', err);
-      }
-    }
-
-    const { error } = await supabase.from('updates_feed').insert([
-      {
-        category: postCategory,
-        title: postTitle.trim(),
-        content: postContent,
-        exam_tag: postExamTag,
-        is_pinned: postIsPinned,
-        post_date: postDate,
-        image_url: finalImageUrl || null,
-        external_link: postExternalLink.trim() || null,
-      },
-    ]);
-
-    if (error) {
-      setStatusMsg(`Publish Error: ${error.message}`);
-    } else {
-      setStatusMsg(`🎉 Published ${postCategory}: "${postTitle}"`);
-      setPostTitle('');
-      setPostContent('');
-      setPostImageUrl('');
-      setPostExternalLink('');
-      setImageFile(null);
-      setPostIsPinned(false);
-      fetchInitialData();
-    }
-  }
-
-  async function handleDeletePost(postId: string, title: string) {
-    if (!confirm(`Are you sure you want to delete "${title}"?`)) return;
-
-    const { error } = await supabase.from('updates_feed').delete().eq('id', postId);
-    if (!error) {
-      setStatusMsg(`🗑️ Deleted update.`);
-      fetchInitialData();
-    }
-  }
-
+  // Quiz Handlers
   async function handleCreateQuiz(e: React.FormEvent) {
     e.preventDefault();
     if (!quizTitle.trim()) return setStatusMsg('⚠️ Enter Quiz Title!');
@@ -833,6 +731,261 @@ export default function AdminPage() {
       setStatusMsg(`🗑️ Deleted Quiz "${title}".`);
       fetchInitialData();
     }
+  }
+
+  async function handleUpdateBscaQuestion(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingQuizQuestionId) return;
+
+    setStatusMsg('Updating quiz question...');
+    const { error } = await supabase
+      .from('bsca_quiz_questions')
+      .update({
+        question_text: quizQuestionText,
+        options: quizOptions,
+        correct_option_index: Number(quizCorrectOption),
+        explanation: quizExplanation,
+      })
+      .eq('id', editingQuizQuestionId);
+
+    if (error) {
+      setStatusMsg(`Update Error: ${error.message}`);
+    } else {
+      setStatusMsg('✅ Successfully updated quiz question!');
+      setEditingQuizQuestionId(null);
+      setQuizQuestionText('');
+      setQuizOptions(['', '', '', '']);
+      setQuizExplanation('');
+      setQuizCorrectOption(0);
+      if (selectedQuizId) fetchBscaQuizQuestions(selectedQuizId);
+    }
+  }
+
+  function handleStartEditBscaQuestion(q: any) {
+    setEditingQuizQuestionId(q.id);
+    setQuizQuestionText(q.question_text);
+    setQuizOptions(q.options || ['', '', '', '']);
+    setQuizCorrectOption(q.correct_option_index || 0);
+    setQuizExplanation(q.explanation || '');
+  }
+
+  async function handleDeleteBscaQuestion(qId: string) {
+    if (!confirm('Delete this question from the quiz?')) return;
+    const { error } = await supabase.from('bsca_quiz_questions').delete().eq('id', qId);
+    if (!error) {
+      setStatusMsg('🗑️ Deleted quiz question.');
+      if (selectedQuizId) fetchBscaQuizQuestions(selectedQuizId);
+    }
+  }
+
+  // PDF & Course Handlers
+  async function handleCreateCourseContainer(e: React.FormEvent) {
+    e.preventDefault();
+    if (!courseTitle.trim()) return setStatusMsg('⚠️ Please enter a Course Title!');
+
+    setStatusMsg('Creating PDF Course Container...');
+    const { error } = await supabase.from('pdf_courses').insert([
+      {
+        title: courseTitle.trim(),
+        category: courseCategory,
+        description: courseDesc,
+      },
+    ]);
+
+    if (error) {
+      setStatusMsg(`Course Creation Error: ${error.message}`);
+    } else {
+      setStatusMsg(`🎉 Created ${courseCategory} Course Container: "${courseTitle}"`);
+      setCourseTitle('');
+      setCourseDesc('');
+      fetchInitialData();
+    }
+  }
+
+  async function handlePdfUpload(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedCourseId) return setStatusMsg('⚠️ Please select a Course Container first!');
+    if (!pdfFile) return setStatusMsg('⚠️ Please select a PDF file!');
+
+    try {
+      setStatusMsg('Uploading PDF to Supabase Storage...');
+      const filePath = `pdfs/${Date.now()}_${pdfFile.name}`;
+
+      const { error: uploadErr } = await supabase.storage.from('course_pdfs').upload(filePath, pdfFile);
+      if (uploadErr) throw uploadErr;
+
+      const { data: publicUrlData } = supabase.storage.from('course_pdfs').getPublicUrl(filePath);
+
+      setStatusMsg('Saving Day-Wise PDF Record...');
+      const { error: dbErr } = await supabase.from('course_pdfs').insert([
+        {
+          course_id: selectedCourseId,
+          day_number: Number(dayNumber),
+          title: pdfTitle || `Day ${dayNumber} PDF Sheet`,
+          topic_list: topicList,
+          pdf_url: publicUrlData.publicUrl,
+        },
+      ]);
+
+      if (dbErr) throw dbErr;
+
+      setStatusMsg(`🎉 Uploaded Day ${dayNumber} PDF successfully!`);
+      setPdfTitle('');
+      setTopicList('');
+      setPdfFile(null);
+      setDayNumber((prev) => prev + 1);
+      fetchInitialData();
+    } catch (err: any) {
+      setStatusMsg(`Upload Error: ${err.message}`);
+    }
+  }
+
+  async function handleDeleteCourse(courseId: string, title: string) {
+    if (!confirm(`Delete entire course "${title}" and all its Day PDFs?`)) return;
+
+    setStatusMsg('Deleting Course...');
+    const { error } = await supabase.from('pdf_courses').delete().eq('id', courseId);
+
+    if (error) {
+      setStatusMsg(`Delete Error: ${error.message}`);
+    } else {
+      setStatusMsg(`🗑️ Deleted Course "${title}".`);
+      fetchInitialData();
+    }
+  }
+
+  async function handleDeletePdf(pdfId: string, title: string) {
+    if (!confirm(`Are you sure you want to delete "${title}"?`)) return;
+
+    setStatusMsg('Deleting Day PDF...');
+    const { error } = await supabase.from('course_pdfs').delete().eq('id', pdfId);
+
+    if (error) {
+      setStatusMsg(`Delete Error: ${error.message}`);
+    } else {
+      setStatusMsg(`🗑️ Deleted "${title}" successfully.`);
+      fetchInitialData();
+    }
+  }
+
+  async function handleReplacePdf(pdfId: string, pdfTitleName: string, e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!confirm(`Replace PDF file for "${pdfTitleName}"?`)) {
+      e.target.value = '';
+      return;
+    }
+
+    setStatusMsg(`Uploading new PDF for "${pdfTitleName}"...`);
+    try {
+      const filePath = `pdfs/${Date.now()}_${file.name}`;
+      const { error: uploadErr } = await supabase.storage.from('course_pdfs').upload(filePath, file);
+      if (uploadErr) throw uploadErr;
+
+      const { data: publicUrlData } = supabase.storage.from('course_pdfs').getPublicUrl(filePath);
+
+      const { error: dbErr } = await supabase
+        .from('course_pdfs')
+        .update({ pdf_url: publicUrlData.publicUrl })
+        .eq('id', pdfId);
+
+      if (dbErr) throw dbErr;
+
+      setStatusMsg(`🎉 Successfully replaced PDF for "${pdfTitleName}"!`);
+      fetchInitialData();
+    } catch (err: any) {
+      setStatusMsg(`PDF Replacement Error: ${err.message}`);
+    } finally {
+      e.target.value = '';
+    }
+  }
+
+  // Exam Category & Question Bank Handlers
+  async function handleSaveNewExamCategory(e: React.FormEvent) {
+    e.preventDefault();
+    if (!parentExamName.trim()) return setStatusMsg('⚠️ Please enter Parent Exam Name!');
+
+    const formattedFullName = `${parentExamName.trim()} - ${subCategoryType}`;
+
+    setStatusMsg('Saving hierarchical exam category...');
+    const { error } = await supabase.from('exam_categories').insert([
+      {
+        exam_name: formattedFullName,
+        sub_category: subCategoryType,
+        total_duration_minutes: Number(newExamDuration),
+        sections: examSections,
+      },
+    ]);
+
+    if (error) {
+      setStatusMsg(`Error creating exam category: ${error.message}`);
+    } else {
+      setStatusMsg(`🎉 Successfully created "${formattedFullName}"!`);
+      fetchInitialData();
+    }
+  }
+
+  async function handleDeleteExamCategory(id: string, name: string) {
+    if (!confirm(`Delete exam category "${name}"?`)) return;
+    const { error } = await supabase.from('exam_categories').delete().eq('id', id);
+    if (!error) {
+      setStatusMsg(`🗑️ Deleted category "${name}".`);
+      fetchInitialData();
+    }
+  }
+
+  async function handleMockFromQuestionBankSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!mockTitle.trim()) return setStatusMsg('⚠️ Please enter a Mock Test Title!');
+    if (selectedQuestionIds.length === 0) return setStatusMsg('⚠️ Please select at least 1 question!');
+
+    setStatusMsg('Building Mock Test from selected questions...');
+
+    const selectedQuestionObjects = allQuestions.filter((q) => selectedQuestionIds.includes(q.id));
+
+    const compiledJSONQuestions = selectedQuestionObjects.map((q, idx) => {
+      let subjectName = (q.subjects?.name || 'QUANT').toUpperCase();
+      let normSec = 'QUANT';
+
+      if (subjectName.includes('ENG')) normSec = 'ENGLISH';
+      else if (subjectName.includes('REASON')) normSec = 'REASONING';
+      else if (subjectName.includes('QUANT') || subjectName.includes('MATH')) normSec = 'QUANT';
+      else if (subjectName.includes('GA') || subjectName.includes('CURRENT') || subjectName.includes('AWARE')) normSec = 'GA';
+      else if (subjectName.includes('HIN')) normSec = 'HINDI';
+      return {
+        id: q.id || `q-${idx + 1}-${Date.now()}`,
+        section: normSec,
+        passageText: q.solution_text || '',
+        questionText: q.question_text || `Question ${idx + 1}`,
+        options: q.options && q.options.length > 0 ? q.options : ['Option A', 'Option B', 'Option C', 'Option D', 'Option E'],
+        correctOptionIndex: Number(q.correct_option_index ?? 0),
+        marks: 1.0,
+        negativeMarks: 0.25,
+      };
+    });
+
+    const payload = {
+      title: mockTitle.trim(),
+      exam_type: mockExamType,
+      duration_minutes: Number(mockDuration),
+      total_marks: Number(mockMarks),
+      questions: compiledJSONQuestions,
+      is_published: true,
+      created_at: new Date().toISOString(),
+    };
+
+    const { data: testData, error: testError } = await supabase.from('mock_tests').insert([payload]).select();
+
+    if (testError || !testData) {
+      setStatusMsg(`Error creating test: ${testError?.message}`);
+      return;
+    }
+
+    setStatusMsg(`✅ Published "${mockTitle}" with ${selectedQuestionIds.length} questions!`);
+    setMockTitle('');
+    setSelectedQuestionIds([]);
+    fetchInitialData();
   }
 
   async function handleQuestionSubmit(e: React.FormEvent) {
@@ -925,161 +1078,91 @@ export default function AdminPage() {
     reader.readAsArrayBuffer(file);
   };
 
-  async function handleMockFromQuestionBankSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!mockTitle.trim()) return setStatusMsg('⚠️ Please enter a Mock Test Title!');
-    if (selectedQuestionIds.length === 0) return setStatusMsg('⚠️ Please select at least 1 question!');
-
-    setStatusMsg('Building Mock Test from selected questions...');
-
-    const selectedQuestionObjects = allQuestions.filter((q) => selectedQuestionIds.includes(q.id));
-
-    const compiledJSONQuestions = selectedQuestionObjects.map((q, idx) => {
-      let subjectName = (q.subjects?.name || 'QUANT').toUpperCase();
-      let normSec = 'QUANT';
-
-      if (subjectName.includes('ENG')) normSec = 'ENGLISH';
-      else if (subjectName.includes('REASON')) normSec = 'REASONING';
-      else if (subjectName.includes('QUANT') || subjectName.includes('MATH')) normSec = 'QUANT';
-      else if (subjectName.includes('GA') || subjectName.includes('CURRENT') || subjectName.includes('AWARE')) normSec = 'GA';
-
-      return {
-        id: q.id || `q-${idx + 1}-${Date.now()}`,
-        section: normSec,
-        passageText: q.solution_text || '',
-        questionText: q.question_text || `Question ${idx + 1}`,
-        options: q.options && q.options.length > 0 ? q.options : ['Option A', 'Option B', 'Option C', 'Option D', 'Option E'],
-        correctOptionIndex: Number(q.correct_option_index ?? 0),
-        marks: 1.0,
-        negativeMarks: 0.25,
-      };
-    });
-
-    const payload = {
-      title: mockTitle.trim(),
-      exam_type: mockExamType,
-      duration_minutes: Number(mockDuration),
-      total_marks: Number(mockMarks),
-      questions: compiledJSONQuestions,
-      is_published: true,
-      created_at: new Date().toISOString(),
-    };
-
-    const { data: testData, error: testError } = await supabase.from('mock_tests').insert([payload]).select();
-
-    if (testError || !testData) {
-      setStatusMsg(`Error creating test: ${testError?.message}`);
-      return;
+  const toggleQuestionSelection = (qId: string) => {
+    if (selectedQuestionIds.includes(qId)) {
+      setSelectedQuestionIds(selectedQuestionIds.filter((id) => id !== qId));
+    } else {
+      setSelectedQuestionIds([...selectedQuestionIds, qId]);
     }
+  };
 
-    setStatusMsg(`✅ Published "${mockTitle}" with ${selectedQuestionIds.length} questions!`);
-    setMockTitle('');
-    setSelectedQuestionIds([]);
-    fetchInitialData();
+  const filteredQuestions = filterSubjectId === 'ALL'
+    ? allQuestions
+    : allQuestions.filter((q) => q.subject_id === filterSubjectId);
+
+  const isAllFilteredSelected = filteredQuestions.length > 0 && filteredQuestions.every((q) => selectedQuestionIds.includes(q.id));
+
+  const handleSelectAllFiltered = () => {
+    if (isAllFilteredSelected) {
+      const filteredIds = new Set(filteredQuestions.map((q) => q.id));
+      setSelectedQuestionIds(selectedQuestionIds.filter((id) => !filteredIds.has(id)));
+    } else {
+      const filteredIds = filteredQuestions.map((q) => q.id);
+      const combined = Array.from(new Set([...selectedQuestionIds, ...filteredIds]));
+      setSelectedQuestionIds(combined);
+    }
+  };
+
+  async function handleDeleteSelectedQuestions() {
+    if (selectedQuestionIds.length === 0) return;
+    if (!confirm(`Delete ${selectedQuestionIds.length} question(s) permanently?`)) return;
+
+    setStatusMsg(`Deleting ${selectedQuestionIds.length} question(s)...`);
+    const { error } = await supabase.from('questions').delete().in('id', selectedQuestionIds);
+
+    if (!error) {
+      setStatusMsg(`🗑️ Deleted ${selectedQuestionIds.length} question(s).`);
+      setSelectedQuestionIds([]);
+      fetchInitialData();
+    }
   }
 
-  const handleDirectMockUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // Targets & Checklist Handlers
+  async function fetchDaySpecificData(day: number, mode: string) {
+    const { data: checklistData } = await supabase
+      .from('admin_day_checklist_items')
+      .select('*')
+      .eq('day_number', day)
+      .eq('track_mode', mode)
+      .order('display_order', { ascending: true });
 
-    if (!directMockTitle.trim()) return setStatusMsg('⚠️ Please enter a Mock Test Title first!');
+    if (checklistData) {
+      setDayChecklistItems(checklistData);
+    } else {
+      setDayChecklistItems([]);
+    }
 
-    setStatusMsg('Processing Direct Mock Upload...');
-    const reader = new FileReader();
+    const { data: videoData } = await supabase
+      .from('admin_targets_config')
+      .select('youtube_url')
+      .eq('day_number', day)
+      .eq('track_mode', mode)
+      .single();
 
-    reader.onload = async (evt) => {
-      try {
-        const arrayBuffer = evt.target?.result;
-        const wb = XLSX.read(arrayBuffer, { type: 'array' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const data: any[] = XLSX.utils.sheet_to_json(ws);
+    if (videoData) {
+      setTargetVideoUrl(videoData.youtube_url || '');
+    } else {
+      setTargetVideoUrl('');
+    }
+  }
 
-        if (!data || data.length === 0) return setStatusMsg('⚠️ Excel file is empty!');
+  async function handleCopyVideoFromPreviousDay() {
+    if (targetDayNo <= 1) {
+      return setStatusMsg('⚠️ This is Day 1; there is no previous day to copy from!');
+    }
 
-        const formattedJSONQuestions = data.map((row, idx) => {
-          let rawSec = String(row.section || row.Subject || '').trim().toUpperCase();
-          let normSec = 'GA';
+    const prevDay = targetDayNo - 1;
+    const foundPrev = allConfiguredTargets.find(
+      (t) => t.day_number === prevDay && t.track_mode === targetTrackMode
+    );
 
-          if (!rawSec) {
-            if (directMockExamType.includes('BSCA') || directMockExamType.includes('Current') || directMockExamType.includes('GA')) {
-              normSec = 'GA';
-            } else if (directMockExamType.includes('English')) {
-              normSec = 'ENGLISH';
-            } else if (directMockExamType.includes('Reasoning')) {
-              normSec = 'REASONING';
-            } else if (directMockExamType.includes('Quant')) {
-              normSec = 'QUANT';
-            } else {
-              normSec = 'GA';
-            }
-          } else {
-            if (rawSec.includes('ENG')) normSec = 'ENGLISH';
-            else if (rawSec.includes('REASON')) normSec = 'REASONING';
-            else if (rawSec.includes('QUANT') || rawSec.includes('MATH')) normSec = 'QUANT';
-            else if (rawSec.includes('GA') || rawSec.includes('CURRENT') || rawSec.includes('AWARE') || rawSec.includes('GS')) normSec = 'GA';
-          }
-
-          const answerLetter = String(row.correctOptionIndex ?? row['Correct Answer'] ?? row.correctOption ?? '0').toUpperCase().trim();
-          const optionMap: { [key: string]: number } = { A: 0, B: 1, C: 2, D: 3, E: 4, '0': 0, '1': 1, '2': 2, '3': 3, '4': 4 };
-          const correctIdx = optionMap[answerLetter] !== undefined ? optionMap[answerLetter] : 0;
-
-          const qText = String(
-            row.questionText || row.question_text || row['Question Text'] || row.Question || row.statement || row.Text || row.question || `Question ${idx + 1}`
-          ).trim();
-
-          const pText = String(
-            row.passageText || row.passage_text || row.passage || row.Direction || row.direction || row['Solution Text'] || ''
-          ).trim();
-
-          const explanationText = String(
-            row.explanation || row.Explanation || row.Solution || row.solution || row.solution_text || ''
-          ).trim();
-
-          const options = [
-            String(row.optionA || row['Option A'] || row.option_1 || row.option1 || row.A || row.choice1 || row.ChoiceA || '').trim(),
-            String(row.optionB || row['Option B'] || row.option_2 || row.option2 || row.B || row.choice2 || row.ChoiceB || '').trim(),
-            String(row.optionC || row['Option C'] || row.option_3 || row.option3 || row.C || row.choice3 || row.ChoiceC || '').trim(),
-            String(row.optionD || row['Option D'] || row.option_4 || row.option4 || row.D || row.choice4 || row.ChoiceD || '').trim(),
-            String(row.optionE || row['Option E'] || row.option_5 || row.option5 || row.E || row.choice5 || row.ChoiceE || '').trim(),
-          ].filter(Boolean);
-
-          return {
-            id: `q-${idx + 1}-${Date.now()}`,
-            section: normSec,
-            passageText: pText,
-            questionText: qText,
-            options: options.length > 0 ? options : ['Option A', 'Option B', 'Option C', 'Option D', 'Option E'],
-            correctOptionIndex: correctIdx,
-            marks: Number(row.marks ?? 1.0),
-            negativeMarks: Number(row.negativeMarks ?? 0.25),
-            explanation: explanationText,
-          };
-        });
-
-        const payload = {
-          title: directMockTitle.trim(),
-          exam_type: directMockExamType,
-          duration_minutes: Number(directMockDuration),
-          total_marks: Number(directMockMarks),
-          questions: formattedJSONQuestions,
-          is_published: true,
-          created_at: new Date().toISOString(),
-        };
-
-        const { data: testData, error: tErr } = await supabase.from('mock_tests').insert([payload]).select();
-
-        if (tErr || !testData) return setStatusMsg(`Publish Error: ${tErr?.message}`);
-
-        setStatusMsg(`🎉 Created "${directMockTitle}" with ${data.length} questions!`);
-        setDirectMockTitle('');
-        fetchInitialData();
-      } catch (err: any) {
-        setStatusMsg(`Direct Upload Error: ${err.message}`);
-      }
-    };
-
-    reader.readAsArrayBuffer(file);
-  };
+    if (foundPrev && foundPrev.youtube_url) {
+      setTargetVideoUrl(foundPrev.youtube_url);
+      setStatusMsg(`📋 Copied video URL from Day ${prevDay} (${targetTrackMode})! Click Save to confirm.`);
+    } else {
+      setStatusMsg(`⚠️ No video found for Day ${prevDay} under ${targetTrackMode} track.`);
+    }
+  }
 
   async function handleSaveTargetConfig(e: React.FormEvent) {
     e.preventDefault();
@@ -1101,30 +1184,41 @@ export default function AdminPage() {
     }
   }
 
-  async function handleDeleteTargetConfig(id: string, day: number, mode: string) {
-    if (!confirm(`Delete Day ${day} (${mode}) video config?`)) return;
-    const { error } = await supabase.from('admin_targets_config').delete().eq('id', id);
-    if (!error) {
-      setStatusMsg(`🗑️ Deleted Day ${day} config.`);
-      fetchInitialData();
-    }
-  }
-
-  async function handleCopyVideoFromPreviousDay() {
+  async function handleCopyChecklistFromPreviousDay() {
     if (targetDayNo <= 1) {
       return setStatusMsg('⚠️ This is Day 1; there is no previous day to copy from!');
     }
 
     const prevDay = targetDayNo - 1;
-    const foundPrev = allConfiguredTargets.find(
-      (t) => t.day_number === prevDay && t.track_mode === targetTrackMode
-    );
+    setStatusMsg(`Fetching checklist items from Day ${prevDay} (${targetTrackMode})...`);
 
-    if (foundPrev && foundPrev.youtube_url) {
-      setTargetVideoUrl(foundPrev.youtube_url);
-      setStatusMsg(`📋 Copied video URL from Day ${prevDay} (${targetTrackMode})! Click Save to confirm.`);
+    const { data: prevItems, error: fetchErr } = await supabase
+      .from('admin_day_checklist_items')
+      .select('label, display_order')
+      .eq('day_number', prevDay)
+      .eq('track_mode', targetTrackMode)
+      .order('display_order', { ascending: true });
+
+    if (fetchErr || !prevItems || prevItems.length === 0) {
+      return setStatusMsg(`⚠️ No checklist items found for Day ${prevDay} under ${targetTrackMode} track.`);
+    }
+
+    const newItemsToInsert = prevItems.map((item, idx) => ({
+      day_number: Number(targetDayNo),
+      track_mode: targetTrackMode,
+      label: item.label,
+      display_order: dayChecklistItems.length + idx + 1,
+    }));
+
+    const { error: insertErr } = await supabase
+      .from('admin_day_checklist_items')
+      .insert(newItemsToInsert);
+
+    if (insertErr) {
+      setStatusMsg(`Error copying checklist: ${insertErr.message}`);
     } else {
-      setStatusMsg(`⚠️ No video found for Day ${prevDay} under ${targetTrackMode} track.`);
+      setStatusMsg(`📋 Successfully copied ${prevItems.length} checklist items from Day ${prevDay} to Day ${targetDayNo}!`);
+      fetchDaySpecificData(targetDayNo, targetTrackMode);
     }
   }
 
@@ -1216,138 +1310,61 @@ export default function AdminPage() {
     }
   }
 
-  async function handleCreateCourseContainer(e: React.FormEvent) {
+  async function handlePublishPost(e: React.FormEvent) {
     e.preventDefault();
-    if (!courseTitle.trim()) return setStatusMsg('⚠️ Please enter a Course Title!');
+    if (!postTitle.trim() || !postContent.trim()) return setStatusMsg('⚠️ Please enter Title and Content!');
 
-    setStatusMsg('Creating PDF Course Container...');
-    const { error } = await supabase.from('pdf_courses').insert([
+    setStatusMsg('Publishing update...');
+    let finalImageUrl = postImageUrl.trim();
+
+    if (imageFile) {
+      try {
+        const filePath = `updates/${Date.now()}_${imageFile.name}`;
+        const { error: uploadErr } = await supabase.storage.from('course_pdfs').upload(filePath, imageFile);
+        if (!uploadErr) {
+          const { data: publicUrlData } = supabase.storage.from('course_pdfs').getPublicUrl(filePath);
+          finalImageUrl = publicUrlData.publicUrl;
+        }
+      } catch (err) {
+        console.error('Image Upload Error:', err);
+      }
+    }
+
+    const { error } = await supabase.from('updates_feed').insert([
       {
-        title: courseTitle.trim(),
-        category: courseCategory,
-        description: courseDesc,
+        category: postCategory,
+        title: postTitle.trim(),
+        content: postContent,
+        exam_tag: postExamTag,
+        is_pinned: postIsPinned,
+        post_date: postDate,
+        image_url: finalImageUrl || null,
+        external_link: postExternalLink.trim() || null,
       },
     ]);
 
     if (error) {
-      setStatusMsg(`Course Creation Error: ${error.message}`);
+      setStatusMsg(`Publish Error: ${error.message}`);
     } else {
-      setStatusMsg(`🎉 Created ${courseCategory} Course Container: "${courseTitle}"`);
-      setCourseTitle('');
-      setCourseDesc('');
+      setStatusMsg(`🎉 Published ${postCategory}: "${postTitle}"`);
+      setPostTitle('');
+      setPostContent('');
+      setPostImageUrl('');
+      setPostExternalLink('');
+      setImageFile(null);
+      setPostIsPinned(false);
       fetchInitialData();
     }
   }
 
-  async function handlePdfUpload(e: React.FormEvent) {
-    e.preventDefault();
-    if (!selectedCourseId) return setStatusMsg('⚠️ Please select a Course Container first!');
-    if (!pdfFile) return setStatusMsg('⚠️ Please select a PDF file!');
-
-    try {
-      setStatusMsg('Uploading PDF to Supabase Storage...');
-      const filePath = `pdfs/${Date.now()}_${pdfFile.name}`;
-
-      const { error: uploadErr } = await supabase.storage.from('course_pdfs').upload(filePath, pdfFile);
-      if (uploadErr) throw uploadErr;
-
-      const { data: publicUrlData } = supabase.storage.from('course_pdfs').getPublicUrl(filePath);
-
-      setStatusMsg('Saving Day-Wise PDF Record...');
-      const { error: dbErr } = await supabase.from('course_pdfs').insert([
-        {
-          course_id: selectedCourseId,
-          day_number: Number(dayNumber),
-          title: pdfTitle || `Day ${dayNumber} PDF Sheet`,
-          topic_list: topicList,
-          pdf_url: publicUrlData.publicUrl,
-        },
-      ]);
-
-      if (dbErr) throw dbErr;
-
-      setStatusMsg(`🎉 Uploaded Day ${dayNumber} PDF successfully!`);
-      setPdfTitle('');
-      setTopicList('');
-      setPdfFile(null);
-      setDayNumber((prev) => prev + 1);
-      fetchInitialData();
-    } catch (err: any) {
-      setStatusMsg(`Upload Error: ${err.message}`);
-    }
-  }
-
-  async function handleDeletePdf(pdfId: string, title: string) {
+  async function handleDeletePost(postId: string, title: string) {
     if (!confirm(`Are you sure you want to delete "${title}"?`)) return;
 
-    setStatusMsg('Deleting Day PDF...');
-    const { error } = await supabase.from('course_pdfs').delete().eq('id', pdfId);
-
-    if (error) {
-      setStatusMsg(`Delete Error: ${error.message}`);
-    } else {
-      setStatusMsg(`🗑️ Deleted "${title}" successfully.`);
-      fetchInitialData();
-    }
-  }
-
-  async function handleDeleteCourse(courseId: string, title: string) {
-    if (!confirm(`Delete entire course "${title}" and all its Day PDFs?`)) return;
-
-    setStatusMsg('Deleting Course...');
-    const { error } = await supabase.from('pdf_courses').delete().eq('id', courseId);
-
-    if (error) {
-      setStatusMsg(`Delete Error: ${error.message}`);
-    } else {
-      setStatusMsg(`🗑️ Deleted Course "${title}".`);
-      fetchInitialData();
-    }
-  }
-
-  const toggleQuestionSelection = (qId: string) => {
-    if (selectedQuestionIds.includes(qId)) {
-      setSelectedQuestionIds(selectedQuestionIds.filter((id) => id !== qId));
-    } else {
-      setSelectedQuestionIds([...selectedQuestionIds, qId]);
-    }
-  };
-
-  const filteredQuestions = filterSubjectId === 'ALL'
-    ? allQuestions
-    : allQuestions.filter((q) => q.subject_id === filterSubjectId);
-
-  const isAllFilteredSelected = filteredQuestions.length > 0 && filteredQuestions.every((q) => selectedQuestionIds.includes(q.id));
-
-  const handleSelectAllFiltered = () => {
-    if (isAllFilteredSelected) {
-      const filteredIds = new Set(filteredQuestions.map((q) => q.id));
-      setSelectedQuestionIds(selectedQuestionIds.filter((id) => !filteredIds.has(id)));
-    } else {
-      const filteredIds = filteredQuestions.map((q) => q.id);
-      const combined = Array.from(new Set([...selectedQuestionIds, ...filteredIds]));
-      setSelectedQuestionIds(combined);
-    }
-  };
-
-  async function handleDeleteSelectedQuestions() {
-    if (selectedQuestionIds.length === 0) return;
-    if (!confirm(`Delete ${selectedQuestionIds.length} question(s) permanently?`)) return;
-
-    setStatusMsg(`Deleting ${selectedQuestionIds.length} question(s)...`);
-    const { error } = await supabase.from('questions').delete().in('id', selectedQuestionIds);
-
+    const { error } = await supabase.from('updates_feed').delete().eq('id', postId);
     if (!error) {
-      setStatusMsg(`🗑️ Deleted ${selectedQuestionIds.length} question(s).`);
-      setSelectedQuestionIds([]);
+      setStatusMsg(`🗑️ Deleted update.`);
       fetchInitialData();
     }
-  }
-
-  async function handleDeleteMockTest(testId: string, title: string) {
-    if (!confirm(`Are you sure you want to delete "${title}"?`)) return;
-    const { error } = await supabase.from('mock_tests').delete().eq('id', testId);
-    if (!error) fetchInitialData();
   }
 
   if (checkingAuth) {
@@ -2077,77 +2094,123 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* DIRECT EXCEL MOCK UPLOAD TAB */}
+      {/* DIRECT EXCEL MOCK UPLOAD TAB (With Cutoff & Publish Option) */}
       {activeTab === 'direct_mock_upload' && (
         <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-6">
           <div className="flex items-center space-x-2 border-b pb-3">
             <h2 className="text-lg font-bold text-slate-800">1-Click Direct Mock Upload (Excel .xlsx)</h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="md:col-span-1">
-              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Mock Test Title</label>
-              <input
-                type="text"
-                value={directMockTitle}
-                onChange={(e) => setDirectMockTitle(e.target.value)}
-                placeholder="e.g. IBPS PO Mains - Direct Mock 01"
-                className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
-                required
-              />
-            </div>
+          {!pendingDirectMock ? (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="md:col-span-1">
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Mock Test Title</label>
+                  <input
+                    type="text"
+                    value={directMockTitle}
+                    onChange={(e) => setDirectMockTitle(e.target.value)}
+                    placeholder="e.g. IBPS PO Mains - Direct Mock 01"
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+                    required
+                  />
+                </div>
 
-            <div>
-              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Category / Exam Type</label>
-              <select
-                value={directMockExamType}
-                onChange={(e) => setDirectMockExamType(e.target.value)}
-                className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white font-semibold"
-              >
-                <option value="SBI PO Prelims">SBI PO Prelims</option>
-                <option value="IBPS PO Prelims">IBPS PO Prelims</option>
-                <option value="BSCA">BSCA (Current Affairs Quiz)</option>
-                <option value="BSPS">BSPS (Practice Sheet Quiz)</option>
-                {dynamicExamsList.map((ex) => (
-                  <option key={ex.id} value={ex.exam_name}>{ex.exam_name}</option>
-                ))}
-              </select>
-            </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Category / Exam Type</label>
+                  <select
+                    value={directMockExamType}
+                    onChange={(e) => setDirectMockExamType(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white font-semibold"
+                  >
+                    <option value="SBI PO Prelims">SBI PO Prelims</option>
+                    <option value="IBPS PO Prelims">IBPS PO Prelims</option>
+                    <option value="BSCA">BSCA (Current Affairs Quiz)</option>
+                    <option value="BSPS">BSPS (Practice Sheet Quiz)</option>
+                    {dynamicExamsList.map((ex) => (
+                      <option key={ex.id} value={ex.exam_name}>{ex.exam_name}</option>
+                    ))}
+                  </select>
+                </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Duration (Mins)</label>
-                <input
-                  type="number"
-                  value={directMockDuration}
-                  onChange={(e) => setDirectMockDuration(Number(e.target.value))}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
-                />
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Duration (Mins)</label>
+                  <input
+                    type="number"
+                    value={directMockDuration}
+                    onChange={(e) => setDirectMockDuration(Number(e.target.value))}
+                    className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Target Cut-Off Marks</label>
+                  <input
+                    type="number"
+                    value={directMockCutoff}
+                    onChange={(e) => setDirectMockCutoff(Number(e.target.value))}
+                    placeholder="e.g. 58"
+                    className="w-full border border-amber-300 bg-amber-50 rounded-lg p-2.5 text-slate-900 text-sm font-bold"
+                    required
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Total Marks</label>
+
+              <div className="border-2 border-dashed border-blue-300 hover:border-blue-500 rounded-xl p-8 text-center bg-blue-50/40 transition cursor-pointer relative">
                 <input
-                  type="number"
-                  value={directMockMarks}
-                  onChange={(e) => setDirectMockMarks(Number(e.target.value))}
-                  className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
+                  type="file"
+                  accept=".xlsx, .xls"
+                  onChange={handleDirectMockUpload}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 />
+                <div className="text-blue-900 space-y-2">
+                  <span className="text-4xl block">📊</span>
+                  <p className="font-bold text-sm text-[#1D63B8]">Click to upload Excel Mock File (.xlsx)</p>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="bg-emerald-50 border border-emerald-200 p-6 rounded-xl space-y-4">
+              <h3 className="text-lg font-bold text-emerald-900 border-b border-emerald-200 pb-2">Preview & Publish</h3>
+              
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-emerald-900">
+                <div>
+                  <span className="block text-[10px] uppercase font-bold text-emerald-600 mb-1">Title</span>
+                  <b className="block truncate">{pendingDirectMock.title}</b>
+                </div>
+                <div>
+                  <span className="block text-[10px] uppercase font-bold text-emerald-600 mb-1">Category</span>
+                  <b>{pendingDirectMock.exam_type}</b>
+                </div>
+                <div>
+                  <span className="block text-[10px] uppercase font-bold text-emerald-600 mb-1">Questions Parsed</span>
+                  <b>{pendingDirectMock.questions.length} Qs</b>
+                </div>
+                <div>
+                  <span className="block text-[10px] uppercase font-bold text-emerald-600 mb-1">Target Cut-off</span>
+                  <b>{pendingDirectMock.cutoff_marks} Marks</b>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 pt-4 border-t border-emerald-200">
+                <button
+                  onClick={handlePublishPendingMock}
+                  className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow transition"
+                >
+                  🚀 Publish Mock Test Now
+                </button>
+                <button
+                  onClick={() => {
+                    setPendingDirectMock(null);
+                    setStatusMsg('Upload cancelled.');
+                  }}
+                  className="px-6 py-3 bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold text-xs rounded-xl transition"
+                >
+                  Cancel & Discard
+                </button>
               </div>
             </div>
-          </div>
-
-          <div className="border-2 border-dashed border-blue-300 hover:border-blue-500 rounded-xl p-8 text-center bg-blue-50/40 transition cursor-pointer relative">
-            <input
-              type="file"
-              accept=".xlsx, .xls"
-              onChange={handleDirectMockUpload}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-            />
-            <div className="text-blue-900 space-y-2">
-              <span className="text-4xl block">📊</span>
-              <p className="font-bold text-sm text-[#1D63B8]">Click to upload Excel Mock File (.xlsx)</p>
-            </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -2785,28 +2848,77 @@ export default function AdminPage() {
               📝 No student attempts recorded for this mock test yet.
             </div>
           ) : (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl">
-                  <span className="text-[10px] font-bold text-blue-600 uppercase block">Total Aspirants Attempted</span>
-                  <span className="text-2xl font-black text-blue-900">{mockAttemptsList.length}</span>
-                </div>
-                <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl">
-                  <span className="text-[10px] font-bold text-emerald-600 uppercase block">Highest Score Recorded</span>
-                  <span className="text-2xl font-black text-emerald-900">
-                    {Math.max(...mockAttemptsList.map((a) => Number(a.score) || 0)).toFixed(1)}
-                  </span>
-                </div>
-                <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl">
-                  <span className="text-[10px] font-bold text-amber-600 uppercase block">Average Score</span>
-                  <span className="text-2xl font-black text-amber-900">
-                    {(
-                      mockAttemptsList.reduce((acc, curr) => acc + (Number(curr.score) || 0), 0) /
-                      mockAttemptsList.length
-                    ).toFixed(1)}
-                  </span>
+            <div className="space-y-6">
+              <div className="space-y-3">
+                <h3 className="text-sm font-bold text-slate-800">Overall Performance Summary</h3>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                  <div className="flex items-center gap-3 p-2">
+                    <div className="w-10 h-10 rounded-full bg-rose-500 text-white flex items-center justify-center font-black">🏆</div>
+                    <div>
+                      <span className="text-xs text-slate-400 block font-bold">Rank</span>
+                      <span className="text-base font-black text-slate-800">1 / {mockAttemptsList.length}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 p-2">
+                    <div className="w-10 h-10 rounded-full bg-purple-500 text-white flex items-center justify-center font-black">🎯</div>
+                    <div>
+                      <span className="text-xs text-slate-400 block font-bold">Score</span>
+                      <span className="text-base font-black text-slate-800">
+                        {Number(mockAttemptsList[0]?.score || 0).toFixed(1)} / {existingMocks.find(m => m.id === selectedAnalyticsMockId)?.total_marks || 100}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 p-2">
+                    <div className="w-10 h-10 rounded-full bg-cyan-500 text-white flex items-center justify-center font-black">📝</div>
+                    <div>
+                      <span className="text-xs text-slate-400 block font-bold">Attempted</span>
+                      <span className="text-base font-black text-slate-800">
+                        {Object.keys(mockAttemptsList[0]?.user_answers || mockAttemptsList[0]?.answers || {}).length} Qs
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 p-2">
+                    <div className="w-10 h-10 rounded-full bg-emerald-500 text-white flex items-center justify-center font-black">⚡</div>
+                    <div>
+                      <span className="text-xs text-slate-400 block font-bold">Accuracy</span>
+                      <span className="text-base font-black text-slate-800">100%</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 p-2">
+                    <div className="w-10 h-10 rounded-full bg-indigo-500 text-white flex items-center justify-center font-black">📈</div>
+                    <div>
+                      <span className="text-xs text-slate-400 block font-bold">Percentile</span>
+                      <span className="text-base font-black text-slate-800">95.0%</span>
+                    </div>
+                  </div>
                 </div>
               </div>
+
+              {/* Cutoff Status Flash Message */}
+              {(() => {
+                const currentTest = existingMocks.find(m => m.id === selectedAnalyticsMockId);
+                const cutoff = currentTest?.cutoff_marks ?? 55;
+                const topScore = Number(mockAttemptsList[0]?.score || 0);
+                const passed = topScore >= cutoff;
+
+                return (
+                  <div className={`p-4 rounded-xl border font-bold text-xs flex items-center gap-3 ${passed ? 'bg-emerald-50 border-emerald-300 text-emerald-800' : 'bg-amber-50 border-amber-300 text-amber-900'}`}>
+                    <span className="text-xl">{passed ? '🎉' : '⚠️'}</span>
+                    <div>
+                      <span className="block text-sm font-black">{passed ? 'Congratulations!' : 'Thank you for appearing!'}</span>
+                      <p className="font-medium mt-0.5">
+                        {passed 
+                          ? `Based on your performance (Score: ${topScore.toFixed(1)}), you have cleared the cut-off (${cutoff} marks). Touch the sky with glory!` 
+                          : `Based on your performance (Score: ${topScore.toFixed(1)}), you have not cleared the cut-off (${cutoff} marks). Keep practicing with BankingSolutions!`}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div className="overflow-x-auto border border-slate-200 rounded-xl">
                 <table className="w-full text-left text-xs">
@@ -2865,10 +2977,49 @@ export default function AdminPage() {
                     </span>
                     <h3 className="font-bold text-slate-800 text-sm">{test.title}</h3>
                   </div>
-                  <p className="text-xs text-slate-500 mt-1">
-                    {test.duration_minutes} Mins | {test.total_marks} Marks | 
-                    {Array.isArray(test.questions) ? ` ${test.questions.length} Qs` : ''}
-                  </p>
+                  <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                    <span>{test.duration_minutes} Mins</span>
+                    <span>|</span>
+                    <span>{test.total_marks} Marks</span>
+                    <span>|</span>
+                    <span className="flex items-center gap-1">
+                      Cut-off: 
+                      {editingCutoffId === test.id ? (
+                        <div className="flex items-center gap-1 ml-1">
+                          <input
+                            type="number"
+                            value={tempCutoffValue}
+                            onChange={(e) => setTempCutoffValue(Number(e.target.value))}
+                            className="w-16 border border-blue-500 rounded px-1.5 py-0.5 text-xs text-slate-900 font-bold bg-white"
+                          />
+                          <button
+                            onClick={() => handleUpdateCutoff(test.id, tempCutoffValue)}
+                            className="bg-emerald-600 text-white px-2 py-0.5 rounded text-[10px] font-bold"
+                          >
+                            Save
+                          </button>
+                          <button
+                            onClick={() => setEditingCutoffId(null)}
+                            className="bg-slate-300 text-slate-800 px-2 py-0.5 rounded text-[10px] font-bold"
+                          >
+                            X
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setEditingCutoffId(test.id);
+                            setTempCutoffValue(test.cutoff_marks ?? 55);
+                          }}
+                          className="font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded hover:bg-amber-100 transition"
+                        >
+                          {test.cutoff_marks ?? 55} ✏️
+                        </button>
+                      )}
+                    </span>
+                    <span>|</span>
+                    <span>{Array.isArray(test.questions) ? `${test.questions.length} Qs` : ''}</span>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-2">
