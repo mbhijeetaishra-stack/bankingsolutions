@@ -6,11 +6,25 @@ import { supabase } from '../lib/supabase';
 import AuthModal from '../components/AuthModal';
 import ReviewsSection from '@/components/ReviewsSection';
 
+interface EBook {
+  id: string;
+  title: string;
+  author: string;
+  description: string;
+  cover_url: string;
+  pdf_url: string;
+  price: number;
+}
+
 export default function BankingSolutionsHomePage() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [marqueeNotices, setMarqueeNotices] = useState<any[]>([]);
+  
+  // Computer Course Pop-up & E-Books State
+  const [showPopup, setShowPopup] = useState(false);
+  const [ebooks, setEbooks] = useState<EBook[]>([]);
 
   useEffect(() => {
     // Check active session on load
@@ -30,6 +44,26 @@ export default function BankingSolutionsHomePage() {
       .then(({ data }) => {
         if (data) setMarqueeNotices(data);
       });
+
+    // Fetch Published E-Books (Limit to 3 for Homepage preview)
+    supabase
+      .from('ebooks')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(3)
+      .then(({ data }) => {
+        if (data) setEbooks(data);
+      });
+
+    // Show computer course pop-up if not seen in this session
+    const hasSeenPopup = sessionStorage.getItem('bs_computer_popup_seen');
+    if (!hasSeenPopup) {
+      const timer = setTimeout(() => {
+        setShowPopup(true);
+        sessionStorage.setItem('bs_computer_popup_seen', 'true');
+      }, 1000); // Pops up 1 second after loading
+      return () => clearTimeout(timer);
+    }
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       const user = session?.user || null;
@@ -57,6 +91,51 @@ export default function BankingSolutionsHomePage() {
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 font-sans selection:bg-amber-400 selection:text-slate-950">
+      
+      {/* COMPUTER COURSE POP-UP MODAL */}
+      {showPopup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+          <div className="relative w-full max-w-lg bg-gradient-to-b from-slate-900 to-slate-950 border border-amber-500/40 rounded-3xl p-6 md:p-8 shadow-2xl text-center space-y-6">
+            <button
+              onClick={() => setShowPopup(false)}
+              className="absolute top-4 right-4 w-8 h-8 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-full flex items-center justify-center text-xs font-bold transition"
+            >
+              ✕
+            </button>
+
+            <div className="w-16 h-16 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-2xl flex items-center justify-center text-3xl mx-auto shadow-inner">
+              💻
+            </div>
+
+            <div className="space-y-2">
+              <span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full">
+                🔥 Special Launch Offer
+              </span>
+              <h2 className="text-xl md:text-2xl font-black text-white tracking-tight">Complete Computer Awareness Course</h2>
+              <p className="text-xs text-slate-400 leading-relaxed max-w-sm mx-auto">
+                Master computer awareness for IBPS, SBI, and RBI exams. Get full syllabus, chapter MCQs, and 6 months access. Use code <strong className="text-amber-400 font-mono">BSOL</strong> for ₹50 OFF!
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 pt-2">
+              <Link
+                href="/computer-awareness"
+                onClick={() => setShowPopup(false)}
+                className="flex-1 py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs rounded-xl shadow-lg transition transform hover:scale-105"
+              >
+                🚀 Explore Course (₹149 Onwards)
+              </Link>
+              <button
+                onClick={() => setShowPopup(false)}
+                className="py-3.5 px-5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition"
+              >
+                Maybe Later
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Auth Modal Overlay */}
       <AuthModal
         isOpen={isAuthOpen}
@@ -99,17 +178,18 @@ export default function BankingSolutionsHomePage() {
 
           {/* Navigation Links */}
           <div className="flex items-center space-x-3">
-            <Link
-              href="/pdf-courses?category=BSPS"
-              className="text-xs font-semibold text-blue-400 hover:text-blue-300 px-3 py-2 rounded-lg transition hidden md:block"
-            >
-              BSPS Sheets 📄
-            </Link>
+        
             <Link
               href="/pdf-courses?category=BSCA"
               className="text-xs font-semibold text-amber-400 hover:text-amber-300 px-3 py-2 rounded-lg transition hidden md:block"
             >
               BSCA Current Affairs 📰
+            </Link>
+            <Link
+              href="/ebooks"
+              className="text-xs font-semibold text-amber-300 hover:text-amber-200 px-3 py-2 rounded-lg transition hidden md:block"
+            >
+              E-Books Store 📖
             </Link>
             <Link
               href="/tests"
@@ -126,6 +206,7 @@ export default function BankingSolutionsHomePage() {
             <Link href="/profile" className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-lg transition">
               👤 Profile
             </Link>    
+            
             {/* Admin Panel Link */}
             {isAdmin && (
               <Link
@@ -231,6 +312,14 @@ export default function BankingSolutionsHomePage() {
           </Link>
 
           <Link
+            href="/ebooks"
+            className="px-6 py-3.5 bg-amber-600 hover:bg-amber-500 text-white font-black text-xs rounded-xl transition shadow-xl shadow-amber-600/20 uppercase tracking-wider flex items-center gap-2"
+          >
+            <span>📖</span>
+            <span>E-BOOK STORE</span>
+          </Link>
+
+          <Link
             href="/updates"
             className="px-6 py-3.5 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs rounded-xl transition shadow-xl shadow-rose-600/20 uppercase tracking-wider flex items-center gap-2"
           >
@@ -246,11 +335,11 @@ export default function BankingSolutionsHomePage() {
             <span>Full Mock Tests</span>
           </Link>
           <Link
-            href="/computer-quiz"
-            className="px-6 py-3.5 bg-purple-400 hover:bg-purple-200 text-slate-950 font-black text-xs rounded-xl transition shadow-xl shadow-purple-400/30 uppercase tracking-wider flex items-center gap-2"
+            href="/computer-awareness"
+            className="px-6 py-3.5 bg-purple-600 hover:bg-purple-500 text-white font-black text-xs rounded-xl transition shadow-xl shadow-purple-600/30 uppercase tracking-wider flex items-center gap-2"
           >
             <span>💻</span>
-            <span>Computer Awareness Quiz</span>
+            <span>Computer Awareness Course</span>
           </Link>
           <Link
             href="/calc-lab"
@@ -436,28 +525,87 @@ export default function BankingSolutionsHomePage() {
             </Link>
           </div>
           
-          {/* Card 7: Computer Quiz */}
+          {/* Card 7: Computer Awareness Course */}
           <div className="bg-slate-900 border border-slate-800 hover:border-amber-400/50 rounded-2xl p-6 shadow-xl transition group flex flex-col justify-between">
             <div className="space-y-3">
               <div className="w-12 h-12 bg-amber-400/10 text-amber-400 border border-amber-400/20 rounded-2xl flex items-center justify-center font-bold text-2xl">
                 💻
               </div>
               <h3 className="text-xl font-bold text-white group-hover:text-amber-400 transition">
-                Computer Awareness Quiz
+                Computer Awareness Master Course
               </h3>
               <p className="text-xs text-slate-400 leading-relaxed">
-                TCS iON-style test series targeted for IBPS RRB PO & Clerk Mains (20 Marks / 40 Questions).
+                Complete markdown chapters, tables, exam shortcuts, and practice MCQ PDFs for 6 months access.
               </p>
             </div>
 
             <Link
-              href="/computer-quiz"
+              href="/computer-awareness"
               className="mt-6 w-full py-3 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl text-center shadow-lg transition block"
             >
-              Explore Tests →
+              Explore Course →
             </Link>
           </div>
         </div>
+
+        {/* FEATURED COMPUTER COURSE BANNER */}
+        <div className="mt-10">
+          <div className="bg-gradient-to-r from-blue-950/60 to-slate-950 border border-blue-500/30 rounded-3xl p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-6 shadow-xl text-left">
+            <div className="space-y-3 max-w-xl">
+              <span className="bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-lg">
+                Featured Master Course
+              </span>
+              <h3 className="text-xl md:text-2xl font-black text-white">Complete Computer Awareness (2026 Edition)</h3>
+              <p className="text-xs md:text-sm text-slate-300 leading-relaxed">
+                6 Months Complete Access • Chapter-wise Markdown Notes • Practice MCQ PDFs • 3-Day Launch Offer with Coupon <strong className="text-amber-400 font-mono">BSOL</strong>.
+              </p>
+            </div>
+            <Link
+              href="/computer-awareness"
+              className="px-6 py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs rounded-xl shadow-lg transition whitespace-nowrap"
+            >
+              Access Computer Course →
+            </Link>
+          </div>
+        </div>
+
+        {/* PUBLISHED E-BOOKS SECTION */}
+        {ebooks.length > 0 && (
+          <div className="mt-16 space-y-6">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-4">
+              <h2 className="text-lg md:text-xl font-extrabold text-white">📚 Published E-Books Library</h2>
+              <Link href="/ebooks" className="text-xs font-bold text-amber-400 hover:underline">
+                View All E-Books →
+              </Link>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+              {ebooks.map((book) => (
+                <div key={book.id} className="bg-slate-950 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between space-y-4 shadow-lg hover:border-slate-700 transition">
+                  <div className="flex gap-4 items-start">
+                    {book.cover_url && (
+                      <img src={book.cover_url} alt={book.title} className="w-20 h-28 object-cover rounded-xl border border-slate-800 shadow" />
+                    )}
+                    <div className="space-y-1.5 flex-1">
+                      <span className="text-[10px] font-black bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded">
+                        ₹{book.price}
+                      </span>
+                      <h4 className="font-bold text-white text-sm leading-snug">{book.title}</h4>
+                      <p className="text-[11px] text-slate-400 line-clamp-2">{book.description}</p>
+                    </div>
+                  </div>
+
+                  <Link
+                    href="/ebooks"
+                    className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl text-center transition shadow-sm block"
+                  >
+                    Buy / Get E-Book →
+                  </Link>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Admin Portal Button */}
         {isAdmin && (
@@ -469,7 +617,7 @@ export default function BankingSolutionsHomePage() {
               <div>
                 <h3 className="text-lg font-bold text-white">Admin Test & Content Portal</h3>
                 <p className="text-xs text-slate-400">
-                  Publish One-Liners, build BSCA Quizzes, upload Excel Mock Tests, and manage day-wise BSPS / BSCA PDFs.
+                  Publish One-Liners, build BSCA Quizzes, upload Excel Mock Tests, and manage day-wise BSPS / BSCA PDFs & E-Books.
                 </p>
               </div>
             </div>
@@ -540,7 +688,8 @@ export default function BankingSolutionsHomePage() {
               <h4 className="text-white font-bold uppercase tracking-wider text-[11px]">Resources</h4>
               <ul className="space-y-2 font-medium">
                 <li><Link href="/tests" className="hover:text-amber-400 transition">Mock Test Series</Link></li>
-                <li><Link href="/computer-quiz" className="hover:text-purple-400 transition">Computer Awareness</Link></li>
+                <li><Link href="/computer-awareness" className="hover:text-purple-400 transition">Computer Awareness</Link></li>
+                <li><Link href="/ebooks" className="hover:text-amber-400 transition">E-Books Store</Link></li>
                 <li><Link href="/updates" className="hover:text-rose-400 transition">Exam One-Liners</Link></li>
                 {isAdmin && <li><Link href="/admin" className="hover:text-amber-400 transition">Admin Portal ⚙️</Link></li>}
               </ul>

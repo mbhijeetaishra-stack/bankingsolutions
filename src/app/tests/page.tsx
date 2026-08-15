@@ -9,6 +9,7 @@ interface MockItem {
   id: string;
   title: string;
   exam_type?: string;
+  sub_category_id?: string;
   duration_minutes?: number;
   total_marks?: number;
   cutoff_marks?: number;
@@ -16,10 +17,20 @@ interface MockItem {
   created_at: string;
 }
 
+interface SubCategoryItem {
+  id: string;
+  parent_exam_name: string;
+  sub_card_title: string;
+  description?: string;
+  display_order?: number;
+}
+
 interface MockAttempt {
+  id?: string;
   test_id: string;
   score: number;
   total_marks: number;
+  status?: 'in_progress' | 'submitted';
   correctCount?: number;
   wrongCount?: number;
   unattemptedCount?: number;
@@ -37,6 +48,7 @@ function TestListContent() {
   const [authError, setAuthError] = useState('');
 
   const [mocks, setMocks] = useState<MockItem[]>([]);
+  const [subCategories, setSubCategories] = useState<SubCategoryItem[]>([]);
   const [completedAttempts, setCompletedAttempts] = useState<Record<string, MockAttempt>>({});
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -72,15 +84,26 @@ function TestListContent() {
         setUserRole('student');
       }
 
-      await fetchMocksAndAttempts(session.user.id);
+      await fetchMocksAndSubCategories(session.user.id);
     } else {
       setUser(null);
-      await fetchMocksAndAttempts();
+      await fetchMocksAndSubCategories();
     }
     setLoading(false);
   }
 
-  async function fetchMocksAndAttempts(userId?: string) {
+  async function fetchMocksAndSubCategories(userId?: string) {
+    // 1. Fetch Sub-Cards / Exam Sub-Categories
+    const { data: subCatData } = await supabase
+      .from('exam_sub_categories')
+      .select('*')
+      .order('display_order', { ascending: true });
+
+    if (subCatData) {
+      setSubCategories(subCatData);
+    }
+
+    // 2. Fetch Mock Tests
     const { data: mockData, error } = await supabase
       .from('mock_tests')
       .select('*')
@@ -90,7 +113,30 @@ function TestListContent() {
       setMocks(mockData);
     }
 
+    // 3. Process Attempts & Active Sessions
     let attemptsMap: Record<string, MockAttempt> = {};
+
+    // A. Check LocalStorage Session Cache (for Instant Resume Detection)
+    if (mockData) {
+      mockData.forEach((m) => {
+        try {
+          const cachedSession = localStorage.getItem(`mock_session_${m.id}`);
+          if (cachedSession) {
+            const parsed = JSON.parse(cachedSession);
+            if (parsed && parsed.status === 'in_progress') {
+              attemptsMap[m.id] = {
+                test_id: m.id,
+                score: 0,
+                total_marks: m.total_marks || 100,
+                status: 'in_progress',
+              };
+            }
+          }
+        } catch (e) {}
+      });
+    }
+
+    // B. Check Local Storage Completed Attempts
     try {
       const localSaved = JSON.parse(localStorage.getItem('bsca_mock_attempts') || '{}');
       Object.keys(localSaved).forEach((tid) => {
@@ -114,28 +160,34 @@ function TestListContent() {
           });
         }
 
-        attemptsMap[tid] = {
-          test_id: tid,
-          score: Number(att.score || 0),
-          total_marks: Number(att.total_marks || 100),
-          correctCount: correct,
-          wrongCount: wrong,
-          unattemptedCount: unattempted,
-        };
+        // Only set if not already marked as in_progress locally
+        if (!attemptsMap[tid] || attemptsMap[tid].status !== 'in_progress') {
+          attemptsMap[tid] = {
+            test_id: tid,
+            score: Number(att.score || 0),
+            total_marks: Number(att.total_marks || 100),
+            status: att.status || 'submitted',
+            correctCount: correct,
+            wrongCount: wrong,
+            unattemptedCount: unattempted,
+          };
+        }
       });
     } catch (e) {}
 
+    // C. Check Supabase DB Attempts
     if (userId) {
       const { data: attemptData } = await supabase
         .from('mock_attempts')
         .select('*')
-        .eq('user_id', userId);
+        .eq('user_id', userId)
+        .order('created_at', { ascending: true });
 
       if (attemptData) {
         attemptData.forEach((att: any) => {
           const testObj = mockData?.find(m => m.id === att.test_id);
           let correct = 0, wrong = 0, unattempted = 0;
-          const userAnswers = att.answers || {};
+          const userAnswers = att.user_answers || att.answers || {};
 
           if (testObj) {
             let questionsArr: any[] = [];
@@ -146,21 +198,27 @@ function TestListContent() {
             }
 
             questionsArr.forEach((q: any, qIdx: number) => {
-              const userAns = userAnswers[qIdx];
+              const userAns = typeof userAnswers === 'object' ? userAnswers[q.id || qIdx] : undefined;
               if (userAns === undefined) unattempted++;
-              else if (userAns === q.correctOptionIndex) correct++;
+              else if (Number(userAns) === Number(q.correctOptionIndex)) correct++;
               else wrong++;
             });
           }
 
-          attemptsMap[att.test_id] = {
-            test_id: att.test_id,
-            score: Number(att.score),
-            total_marks: Number(att.total_marks),
-            correctCount: correct,
-            wrongCount: wrong,
-            unattemptedCount: unattempted,
-          };
+          const existing = attemptsMap[att.test_id];
+          // Always prioritize 'in_progress' status
+          if (!existing || att.status === 'in_progress' || existing.status !== 'in_progress') {
+            attemptsMap[att.test_id] = {
+              id: att.id,
+              test_id: att.test_id,
+              score: Number(att.score || 0),
+              total_marks: Number(att.total_marks || 100),
+              status: att.status || 'submitted',
+              correctCount: correct,
+              wrongCount: wrong,
+              unattemptedCount: unattempted,
+            };
+          }
         });
       }
     }
@@ -237,34 +295,22 @@ function TestListContent() {
     await supabase.auth.signOut();
     setUser(null);
     setMocks([]);
+    setSubCategories([]);
     setCompletedAttempts({});
   }
 
-  const parentExamsList = ['SBI PO', 'IBPS PO', 'RRB PO', 'BSCA', 'BSPS'];
-  
-  const dynamicParents = Array.from(new Set(mocks.map(m => {
-    const raw = m.exam_type || '';
-    return raw.split('-')[0].trim();
-  }))).filter(Boolean);
+  const staticParentExams = ['SBI PO', 'IBPS PO', 'IBPS CLERK', 'SBI CLERK', 'IBPS RRB PO', 'IBPS RRB CLERK', 'RBI Grade B', 'BSCA', 'BSPS'];
+  const dynamicSubCatParents = Array.from(new Set(subCategories.map(sc => sc.parent_exam_name)));
+  const mockParents = Array.from(new Set(mocks.map(m => (m.exam_type || '').split('-')[0].trim()))).filter(Boolean);
 
-  const finalParentExams = Array.from(new Set([...parentExamsList, ...dynamicParents]));
+  const finalParentExams = Array.from(new Set([...staticParentExams, ...dynamicSubCatParents, ...mockParents]));
 
-  const getSubCategoriesForParent = (parent: string) => {
-    if (parent === 'ALL' || parent === 'BSCA' || parent === 'BSPS') return [];
-    
-    const matchingMocks = mocks.filter(m => (m.exam_type || '').toUpperCase().includes(parent.toUpperCase()));
-    const subs = matchingMocks.map(m => {
-      const raw = m.exam_type || '';
-      if (raw.includes('-')) {
-        return raw.split('-')[1].trim();
-      }
-      return 'General';
-    });
-    
-    return ['ALL', ...Array.from(new Set(subs))];
+  const getSubCardsForParent = (parent: string) => {
+    if (parent === 'ALL') return [];
+    return subCategories.filter(sc => sc.parent_exam_name.toUpperCase() === parent.toUpperCase());
   };
 
-  const currentSubCategories = getSubCategoriesForParent(selectedParentExam);
+  const currentSubCards = getSubCardsForParent(selectedParentExam);
 
   const filteredMocks = mocks.filter((mock) => {
     const matchesSearch = mock.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -273,13 +319,23 @@ function TestListContent() {
     if (!matchesSearch) return false;
     if (selectedParentExam === 'ALL') return true;
 
-    const examTypeUpper = (mock.exam_type || '').toUpperCase();
     const parentUpper = selectedParentExam.toUpperCase();
+    const examTypeUpper = (mock.exam_type || '').toUpperCase();
 
-    if (!examTypeUpper.includes(parentUpper)) return false;
+    const matchedSubCard = subCategories.find(sc => sc.id === mock.sub_category_id);
+    const matchesParent = (matchedSubCard && matchedSubCard.parent_exam_name.toUpperCase() === parentUpper) ||
+                          examTypeUpper.includes(parentUpper);
+
+    if (!matchesParent) return false;
 
     if (selectedSubCategory !== 'ALL') {
-      return examTypeUpper.includes(selectedSubCategory.toUpperCase());
+      if (mock.sub_category_id) {
+        return mock.sub_category_id === selectedSubCategory;
+      }
+      const matchedSubObj = subCategories.find(sc => sc.id === selectedSubCategory);
+      if (matchedSubObj) {
+        return examTypeUpper.includes(matchedSubObj.sub_card_title.toUpperCase());
+      }
     }
 
     return true;
@@ -401,9 +457,9 @@ function TestListContent() {
               <span>⚙️ Admin Panel</span>
             </Link>
           )}
-           <Link href="/" className="px-4 py-1.5 bg-white/10 hover:bg-white/20 text-white font-bold text-xs rounded-lg transition border border-white/20">
-              ← Home
-            </Link>
+          <Link href="/" className="px-4 py-1.5 bg-white/10 hover:bg-white/20 text-white font-bold text-xs rounded-lg transition border border-white/20">
+            ← Home
+          </Link>
           <button
             onClick={handleLogout}
             className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-lg transition"
@@ -418,12 +474,12 @@ function TestListContent() {
           <div className="text-center space-y-2">
             <h2 className="text-2xl md:text-3xl font-extrabold text-white">Full-Length & Sectional Mock Tests</h2>
             <p className="text-xs text-slate-400 max-w-xl mx-auto">
-              Real exam pattern simulations for SBI PO, IBPS PO, BSCA Current Affairs & BSPS Practice Sheets.
+              Real exam pattern simulations for SBI PO, IBPS PO, RRB PO, BSCA Current Affairs & BSPS Practice Sheets.
             </p>
           </div>
 
           <div className="flex flex-col md:flex-row gap-4 items-center justify-between max-w-4xl mx-auto pt-2">
-            <div className="relative w-full md:w-96">
+            <div className="relative w-full md:w-96 mx-auto">
               <input
                 type="text"
                 placeholder="Search test by name..."
@@ -434,8 +490,20 @@ function TestListContent() {
             </div>
           </div>
 
-          <div className="flex gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800 flex-wrap justify-center max-w-4xl mx-auto">
-            {[...finalParentExams, 'ALL'].map((parent) => (
+          {/* PARENT EXAM CARDS / TABS */}
+          <div className="flex gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800 flex-wrap justify-center max-w-5xl mx-auto">
+            <button
+              onClick={() => {
+                setSelectedParentExam('ALL');
+                setSelectedSubCategory('ALL');
+              }}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition uppercase ${
+                selectedParentExam === 'ALL' ? 'bg-[#1D63B8] text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              ALL EXAMS
+            </button>
+            {finalParentExams.map((parent) => (
               <button
                 key={parent}
                 onClick={() => {
@@ -451,18 +519,29 @@ function TestListContent() {
             ))}
           </div>
 
-          {currentSubCategories.length > 0 && (
-            <div className="flex gap-2 bg-slate-900 p-1.5 rounded-xl border border-slate-700/60 flex-wrap justify-center max-w-2xl mx-auto animate-fadeIn">
-              <span className="text-[10px] text-slate-400 self-center uppercase font-bold px-2">Filter Sub-Type:</span>
-              {currentSubCategories.map((sub) => (
+          {/* SUB-CARDS TABS */}
+          {currentSubCards.length > 0 && (
+            <div className="flex gap-2 bg-slate-900 p-2 rounded-xl border border-slate-700/80 flex-wrap justify-center max-w-3xl mx-auto animate-fadeIn">
+              <span className="text-[10px] text-amber-400 self-center uppercase font-bold px-2 flex items-center gap-1">
+                <span>🗂️</span> Sub-Cards:
+              </span>
+              <button
+                onClick={() => setSelectedSubCategory('ALL')}
+                className={`px-3 py-1 rounded-md text-[11px] font-bold transition uppercase ${
+                  selectedSubCategory === 'ALL' ? 'bg-purple-600 text-white shadow' : 'text-slate-400 hover:text-slate-200 bg-slate-800'
+                }`}
+              >
+                All Series
+              </button>
+              {currentSubCards.map((sc) => (
                 <button
-                  key={sub}
-                  onClick={() => setSelectedSubCategory(sub)}
+                  key={sc.id}
+                  onClick={() => setSelectedSubCategory(sc.id)}
                   className={`px-3 py-1 rounded-md text-[11px] font-bold transition uppercase ${
-                    selectedSubCategory === sub ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-slate-200 bg-slate-800'
+                    selectedSubCategory === sc.id ? 'bg-purple-600 text-white shadow' : 'text-slate-400 hover:text-slate-200 bg-slate-800'
                   }`}
                 >
-                  {sub}
+                  {sc.sub_card_title}
                 </button>
               ))}
             </div>
@@ -481,7 +560,7 @@ function TestListContent() {
           <div className="bg-slate-800/40 border border-slate-800 rounded-2xl p-12 text-center space-y-4 max-w-md mx-auto my-8">
             <div className="text-4xl">📝</div>
             <h4 className="text-lg font-bold text-white">No Tests Found</h4>
-            <p className="text-xs text-slate-400">No mock tests available matching your filter.</p>
+            <p className="text-xs text-slate-400">No mock tests available matching your selected exam filter.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -494,26 +573,41 @@ function TestListContent() {
 
               const attempt = completedAttempts[mock.id];
               const cutoff = mock.cutoff_marks ?? 55;
-              const isPassed = attempt ? attempt.score >= cutoff : false;
+              const isSubmitted = attempt?.status === 'submitted';
+              const isInProgress = attempt?.status === 'in_progress';
+              const isPassed = isSubmitted ? attempt.score >= cutoff : false;
+
+              const matchedSubCard = subCategories.find(sc => sc.id === mock.sub_category_id);
 
               return (
                 <div
                   key={mock.id}
                   className={`bg-slate-800/60 border rounded-2xl p-6 flex flex-col justify-between space-y-5 transition ${
-                    attempt ? 'border-emerald-500/40 bg-slate-800/90' : 'border-slate-700/70 hover:border-blue-500/50 hover:bg-slate-800/80'
+                    isSubmitted ? 'border-emerald-500/40 bg-slate-800/90' :
+                    isInProgress ? 'border-amber-500/60 bg-slate-800/90 shadow-amber-500/10 shadow-lg' : 'border-slate-700/70 hover:border-blue-500/50 hover:bg-slate-800/80'
                   }`}
                 >
                   <div className="space-y-3">
-                    <div className="flex justify-between items-start gap-2">
+                    <div className="flex justify-between items-start gap-2 flex-wrap">
                       <span className="text-[10px] font-extrabold uppercase bg-blue-500/10 text-blue-400 border border-blue-500/30 px-3 py-1 rounded-full">
                         {mock.exam_type || 'IBPS PO - Prelims'}
                       </span>
 
-                      {attempt ? (
+                      {matchedSubCard && (
+                        <span className="text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded">
+                          {matchedSubCard.sub_card_title}
+                        </span>
+                      )}
+
+                      {isSubmitted ? (
                         <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded border ${
                           isPassed ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
                         }`}>
                           {isPassed ? '✓ Cleared Cut-Off' : '⚠️ Below Cut-Off'} ({attempt.score.toFixed(1)})
+                        </span>
+                      ) : isInProgress ? (
+                        <span className="text-[10px] font-black uppercase bg-amber-500/20 text-amber-400 border border-amber-500/40 px-2 py-0.5 rounded animate-pulse">
+                          ⏳ In Progress
                         </span>
                       ) : (
                         <span className="text-[10px] font-bold text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-700">
@@ -541,8 +635,7 @@ function TestListContent() {
                       </div>
                     </div>
 
-                    {/* 🟢 Correct, Incorrect, Skipped Preview Badge on Attempted Card */}
-                    {attempt && (
+                    {isSubmitted && (
                       <div className="grid grid-cols-3 gap-1 pt-2 text-center text-[10px] font-bold bg-slate-900/80 p-2 rounded-xl border border-slate-800">
                         <div className="text-emerald-400">
                           <span className="block text-[9px] text-slate-500 uppercase">Correct</span>
@@ -560,32 +653,31 @@ function TestListContent() {
                     )}
                   </div>
 
-                  {attempt ? (
-                    <div className="flex flex-col gap-2 pt-2">
-                      <div className="grid grid-cols-2 gap-2">
-                        <Link
-                          href={`/mock-test/${mock.id}/result`}
-                          className="py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow transition text-center"
-                        >
-                          📊 View Analysis
-                        </Link>
-
-                        <Link
-                          href={`/mock-test/${mock.id}?mode=solution`}
-                          className="py-2.5 bg-slate-800 hover:bg-slate-700 text-amber-400 font-extrabold text-xs border border-amber-400/30 rounded-xl transition text-center"
-                        >
-                          👁️ Solutions
-                        </Link>
-                      </div>
-
-                      {/* 🟢 Reattempt Mock Option */}
+                  {/* Card Action Buttons */}
+                  {isSubmitted ? (
+                    <div className="grid grid-cols-2 gap-2 pt-2">
                       <Link
-                        href={`/mock-test/${mock.id}?mode=reattempt`}
-                        className="w-full py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 font-bold text-xs border border-blue-500/30 rounded-xl transition text-center flex items-center justify-center gap-1.5"
+                        href={`/mock-test/${mock.id}/result`}
+                        className="py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow transition text-center"
                       >
-                        <span>🔄 Reattempt Mock</span>
+                        📊 View Analysis
+                      </Link>
+
+                      <Link
+                        href={`/mock-test/${mock.id}?mode=solution`}
+                        className="py-2.5 bg-slate-800 hover:bg-slate-700 text-amber-400 font-extrabold text-xs border border-amber-400/30 rounded-xl transition text-center"
+                      >
+                        👁️ Solutions
                       </Link>
                     </div>
+                  ) : isInProgress ? (
+                    <Link
+                      href={`/mock-test/${mock.id}`}
+                      className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs rounded-xl text-center shadow-lg transition flex items-center justify-center gap-2"
+                    >
+                      <span>▶️ Resume Test</span>
+                      <span>→</span>
+                    </Link>
                   ) : (
                     <Link
                       href={`/mock-test/${mock.id}`}

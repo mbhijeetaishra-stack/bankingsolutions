@@ -31,7 +31,7 @@ export default function TCSiONMockTestPlayerPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const testId = params?.id as string;
-  const mode = searchParams.get('mode'); // 'reattempt' | 'solution' | null
+  const mode = searchParams.get('mode'); // 'solution' | null
 
   // Test & User Info
   const [test, setTest] = useState<MockTest | null>(null);
@@ -40,20 +40,25 @@ export default function TCSiONMockTestPlayerPage() {
   const [candidateName, setCandidateName] = useState('Aspirant');
   const [rollCode, setRollCode] = useState('BS2026-GUEST');
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [attemptId, setAttemptId] = useState<string | null>(null);
+  const [isResumedSession, setIsResumedSession] = useState(false);
 
   // Section Management States
   const [sections, setSections] = useState<string[]>([]);
   const [activeSection, setActiveSection] = useState<string>('');
   const [lockedSections, setLockedSections] = useState<Record<string, boolean>>({});
 
-  // Question & Answers Tracking
+  // Question & Answers Tracking (Mapped by Question ID)
   const [activeIndex, setActiveIndex] = useState(0);
-  const [selectedAnswers, setSelectedAnswers] = useState<Record<number, number>>({});
+  const [selectedAnswers, setSelectedAnswers] = useState<Record<string, number>>({});
   const [visitedQuestions, setVisitedQuestions] = useState<Record<number, boolean>>({ 0: true });
   const [markedForReview, setMarkedForReview] = useState<Record<number, boolean>>({});
-  const [questionTimeSpent, setQuestionTimeSpent] = useState<Record<number, number>>({});
+  const [questionTimeSpent, setQuestionTimeSpent] = useState<Record<string, number>>({});
 
-  // ⚡ MOBILE PALETTE DRAWER STATE
+  // PAUSE MODAL STATE
+  const [isPaused, setIsPaused] = useState(false);
+
+  // Mobile Palette Drawer State
   const [isMobilePaletteOpen, setIsMobilePaletteOpen] = useState(false);
 
   // Submission & Timer States
@@ -61,14 +66,26 @@ export default function TCSiONMockTestPlayerPage() {
   const [sectionalTimeLeft, setSectionalTimeLeft] = useState<number>(0);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Synchronized State Refs for Unload & Interval Saving
+  const attemptIdRef = useRef<string | null>(null);
+  const selectedAnswersRef = useRef(selectedAnswers);
+  const sectionalTimeLeftRef = useRef(sectionalTimeLeft);
+  const questionTimeSpentRef = useRef(questionTimeSpent);
+  const activeIndexRef = useRef(activeIndex);
+
+  useEffect(() => { attemptIdRef.current = attemptId; }, [attemptId]);
+  useEffect(() => { selectedAnswersRef.current = selectedAnswers; }, [selectedAnswers]);
+  useEffect(() => { sectionalTimeLeftRef.current = sectionalTimeLeft; }, [sectionalTimeLeft]);
+  useEffect(() => { questionTimeSpentRef.current = questionTimeSpent; }, [questionTimeSpent]);
+  useEffect(() => { activeIndexRef.current = activeIndex; }, [activeIndex]);
+
   useEffect(() => {
-    fetchUserData();
-    if (testId) fetchMockTestAndAttempts();
+    if (testId) initTestSession();
   }, [testId]);
 
   // Sectional Timer & Time Spent Tracker
   useEffect(() => {
-    if (test && !isSubmitted && sectionalTimeLeft > 0) {
+    if (test && !isSubmitted && !isPaused && !loading && sectionalTimeLeft > 0) {
       timerRef.current = setInterval(() => {
         setSectionalTimeLeft((prev) => {
           if (prev <= 1) {
@@ -79,31 +96,78 @@ export default function TCSiONMockTestPlayerPage() {
           return prev - 1;
         });
 
-        setQuestionTimeSpent((prev) => ({
-          ...prev,
-          [activeIndex]: (prev[activeIndex] || 0) + 1,
-        }));
+        const curQ = questions[activeIndexRef.current];
+        if (curQ) {
+          const qKey = curQ.id || activeIndexRef.current.toString();
+          setQuestionTimeSpent((prev) => ({
+            ...prev,
+            [qKey]: (prev[qKey] || 0) + 1,
+          }));
+        }
       }, 1000);
     }
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [test, isSubmitted, sectionalTimeLeft, activeSection, activeIndex]);
+  }, [test, isSubmitted, isPaused, loading, sectionalTimeLeft, activeSection, questions]);
 
-  async function fetchUserData() {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user) {
-      const user = session.user;
-      setCurrentUser(user);
-      setCandidateName(user.user_metadata?.full_name || user.email?.split('@')[0] || 'Aspirant');
-      setRollCode(`BS2026-${user.id.slice(0, 4).toUpperCase()}`);
-    }
-  }
+  // Auto-Save Loop & Unload Listeners
+  useEffect(() => {
+    if (isSubmitted || !attemptId || loading) return;
 
-  async function fetchMockTestAndAttempts() {
+    const interval = setInterval(() => {
+      if (!isPaused) {
+        saveInProgressToSupabase();
+      }
+    }, 4000);
+
+    const handleWindowUnload = () => {
+      saveToLocalStorageFallback();
+      saveInProgressToSupabase();
+    };
+
+    window.addEventListener('beforeunload', handleWindowUnload);
+    window.addEventListener('visibilitychange', handleWindowUnload);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('beforeunload', handleWindowUnload);
+      window.removeEventListener('visibilitychange', handleWindowUnload);
+    };
+  }, [attemptId, isSubmitted, isPaused, loading]);
+
+  // Backup state to LocalStorage so card instantly shows "Resume Test"
+  const saveToLocalStorageFallback = () => {
+    if (!testId) return;
+    const cacheKey = `mock_session_${testId}`;
+    const sessionData = {
+      test_id: testId,
+      status: 'in_progress',
+      user_answers: selectedAnswersRef.current,
+      time_remaining_seconds: sectionalTimeLeftRef.current,
+      time_spent: questionTimeSpentRef.current,
+      updated_at: Date.now(),
+    };
+    try {
+      localStorage.setItem(cacheKey, JSON.stringify(sessionData));
+    } catch (e) {}
+  };
+
+  async function initTestSession() {
     setLoading(true);
 
+    // 1. Fetch User Data
+    const { data: { session } } = await supabase.auth.getSession();
+    let userObj = null;
+    if (session?.user) {
+      userObj = session.user;
+      setCurrentUser(userObj);
+      setCandidateName(userObj.user_metadata?.full_name || userObj.email?.split('@')[0] || 'Aspirant');
+      setRollCode(`BS2026-${userObj.id.slice(0, 4).toUpperCase()}`);
+    }
+
+    // 2. Fetch Mock Test
     const { data, error } = await supabase
       .from('mock_tests')
       .select('*')
@@ -124,30 +188,162 @@ export default function TCSiONMockTestPlayerPage() {
       parsedQuestions = mockData.questions;
     }
 
-    const uniqueSections = Array.from(new Set(parsedQuestions.map((q) => q.section || 'QUANT')));
-    setSections(uniqueSections);
-
-    if (uniqueSections.length > 0) {
-      setActiveSection(uniqueSections[0]);
-      const secTime = Math.floor(((mockData.duration_minutes || 60) * 60) / uniqueSections.length);
-      setSectionalTimeLeft(secTime);
-    }
-
     setTest(mockData);
     setQuestions(parsedQuestions);
 
+    const uniqueSections = Array.from(new Set(parsedQuestions.map((q) => q.section || 'QUANT')));
+    setSections(uniqueSections);
+
+    const defaultSecTime = Math.floor(((mockData.duration_minutes || 60) * 60) / (uniqueSections.length || 1));
+
+    // Solution Mode
     if (mode === 'solution') {
       setIsSubmitted(true);
-      try {
-        const localSaved = JSON.parse(localStorage.getItem('bsca_mock_attempts') || '{}');
-        if (localSaved[testId]?.answers) {
-          setSelectedAnswers(localSaved[testId].answers);
+      setActiveSection(uniqueSections[0] || 'QUANT');
+      if (userObj?.id) {
+        const { data: pastAttempt } = await supabase
+          .from('mock_attempts')
+          .select('user_answers, answers')
+          .eq('user_id', userObj.id)
+          .eq('test_id', testId)
+          .order('created_at', { ascending: false })
+          .maybeSingle();
+
+        if (pastAttempt) {
+          setSelectedAnswers(pastAttempt.user_answers || pastAttempt.answers || {});
         }
-      } catch (e) {}
+      }
+      setLoading(false);
+      return;
+    }
+
+    // 3. Search DB for active in-progress attempt
+    let restoredAttempt: any = null;
+
+    if (userObj?.id) {
+      const { data: inProgressRecord } = await supabase
+        .from('mock_attempts')
+        .select('*')
+        .eq('user_id', userObj.id)
+        .eq('test_id', testId)
+        .eq('status', 'in_progress')
+        .order('created_at', { ascending: false })
+        .maybeSingle();
+
+      if (inProgressRecord) {
+        restoredAttempt = inProgressRecord;
+      }
+    }
+
+    // 4. Read LocalStorage Fallback
+    let localCache: any = null;
+    try {
+      const cachedStr = localStorage.getItem(`mock_session_${testId}`);
+      if (cachedStr) {
+        localCache = JSON.parse(cachedStr);
+      }
+    } catch (e) {}
+
+    // Combine DB or Local Cache for Restoration
+    if (restoredAttempt || localCache) {
+      const activeRecord = restoredAttempt || {};
+      const recordId = activeRecord.id || null;
+
+      if (recordId) {
+        setAttemptId(recordId);
+        attemptIdRef.current = recordId;
+      }
+
+      // Restore Answers
+      const restoredAnswers = localCache?.user_answers || activeRecord.user_answers || activeRecord.answers || {};
+      setSelectedAnswers(restoredAnswers);
+      selectedAnswersRef.current = restoredAnswers;
+
+      // Restore Time Spent
+      if (localCache?.time_spent || activeRecord.time_spent) {
+        const spentObj = localCache?.time_spent || activeRecord.time_spent;
+        setQuestionTimeSpent(spentObj);
+        questionTimeSpentRef.current = spentObj;
+      }
+
+      // Restore Remaining Time
+      const dbSecTime = Number(activeRecord.time_remaining_seconds);
+      const cacheSecTime = Number(localCache?.time_remaining_seconds);
+      
+      let finalSecTime = defaultSecTime;
+      if (!isNaN(cacheSecTime) && cacheSecTime > 0) {
+        finalSecTime = cacheSecTime;
+      } else if (!isNaN(dbSecTime) && dbSecTime > 0) {
+        finalSecTime = dbSecTime;
+      }
+
+      setSectionalTimeLeft(finalSecTime);
+      sectionalTimeLeftRef.current = finalSecTime;
+
+      setActiveSection(uniqueSections[0] || 'QUANT');
+      setIsResumedSession(true);
+    } else {
+      // Initialize Brand New Attempt
+      setActiveSection(uniqueSections[0] || 'QUANT');
+      setSectionalTimeLeft(defaultSecTime);
+      sectionalTimeLeftRef.current = defaultSecTime;
+
+      if (userObj?.id) {
+        const { data: newAttempt } = await supabase
+          .from('mock_attempts')
+          .insert([
+            {
+              user_id: userObj.id,
+              test_id: testId,
+              status: 'in_progress',
+              score: 0,
+              total_marks: mockData.total_marks || 100,
+              user_answers: {},
+              time_remaining_seconds: defaultSecTime,
+            },
+          ])
+          .select()
+          .single();
+
+        if (newAttempt) {
+          setAttemptId(newAttempt.id);
+          attemptIdRef.current = newAttempt.id;
+        }
+      }
     }
 
     setLoading(false);
   }
+
+  // Auto-Save Function
+  const saveInProgressToSupabase = async () => {
+    saveToLocalStorageFallback();
+    const curAttemptId = attemptIdRef.current;
+    if (!curAttemptId || isSubmitted) return;
+
+    await supabase
+      .from('mock_attempts')
+      .update({
+        user_answers: selectedAnswersRef.current,
+        answers: selectedAnswersRef.current,
+        time_remaining_seconds: sectionalTimeLeftRef.current,
+        time_spent: questionTimeSpentRef.current,
+        status: 'in_progress',
+      })
+      .eq('id', curAttemptId);
+  };
+
+  // Pause Handler
+  const handlePauseTest = async () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    await saveInProgressToSupabase();
+    setIsPaused(true);
+  };
+
+  // Resume Handler
+  const handleResumeFromModal = () => {
+    setIsPaused(false);
+  };
 
   const handleSectionTimeout = () => {
     setLockedSections((prev) => ({ ...prev, [activeSection]: true }));
@@ -165,8 +361,9 @@ export default function TCSiONMockTestPlayerPage() {
         setActiveIndex(firstNextIdx);
         setVisitedQuestions((prev) => ({ ...prev, [firstNextIdx]: true }));
       }
+      saveInProgressToSupabase();
     } else {
-      finalizeAndSaveMock(selectedAnswers);
+      finalizeAndSaveMock(selectedAnswersRef.current);
     }
   };
 
@@ -180,16 +377,17 @@ export default function TCSiONMockTestPlayerPage() {
   const handleSubmitFullTest = () => {
     if (confirm('Are you sure you want to submit the entire test?')) {
       if (timerRef.current) clearInterval(timerRef.current);
-      finalizeAndSaveMock(selectedAnswers);
+      finalizeAndSaveMock(selectedAnswersRef.current);
     }
   };
 
-  const finalizeAndSaveMock = async (answers: Record<number, number>) => {
+  const finalizeAndSaveMock = async (answers: Record<string, number>) => {
     if (!test) return;
 
     let score = 0;
     questions.forEach((q, idx) => {
-      const userAns = answers[idx];
+      const qKey = q.id || idx.toString();
+      const userAns = answers[qKey];
       if (userAns === q.correctOptionIndex) {
         score += q.marks || 1.0;
       } else if (userAns !== undefined) {
@@ -197,28 +395,36 @@ export default function TCSiONMockTestPlayerPage() {
       }
     });
 
-    const attemptPayload = {
-      test_id: test.id,
-      score: score,
-      total_marks: test.total_marks,
-      answers: answers,
-    };
+    const finalScore = Number(score.toFixed(2));
 
     try {
-      const localSaved = JSON.parse(localStorage.getItem('bsca_mock_attempts') || '{}');
-      localSaved[test.id] = attemptPayload;
-      localStorage.setItem('bsca_mock_attempts', JSON.stringify(localSaved));
+      localStorage.removeItem(`mock_session_${test.id}`);
     } catch (e) {}
 
-    if (currentUser?.id) {
+    if (attemptIdRef.current) {
+      await supabase
+        .from('mock_attempts')
+        .update({
+          score: finalScore,
+          status: 'submitted',
+          user_answers: answers,
+          answers: answers,
+          time_spent: questionTimeSpentRef.current,
+          time_remaining_seconds: sectionalTimeLeftRef.current,
+          completed_at: new Date().toISOString(),
+        })
+        .eq('id', attemptIdRef.current);
+    } else if (currentUser?.id) {
       await supabase.from('mock_attempts').upsert([
         {
           user_id: currentUser.id,
           test_id: test.id,
-          score: score,
+          score: finalScore,
           total_marks: test.total_marks,
+          status: 'submitted',
+          user_answers: answers,
           answers: answers,
-          time_spent: questionTimeSpent,
+          time_spent: questionTimeSpentRef.current,
           completed_at: new Date().toISOString(),
         },
       ], { onConflict: 'user_id,test_id' });
@@ -284,21 +490,30 @@ export default function TCSiONMockTestPlayerPage() {
   };
 
   const handleSelectOption = (optionIdx: number) => {
-    if (isSubmitted || lockedSections[activeSection]) return;
-    setSelectedAnswers((prev) => ({ ...prev, [activeIndex]: optionIdx }));
+    if (isSubmitted || isPaused || lockedSections[activeSection]) return;
+    const curQ = questions[activeIndex];
+    const qKey = curQ?.id || activeIndex.toString();
+
+    const updated = { ...selectedAnswers, [qKey]: optionIdx };
+    setSelectedAnswers(updated);
+    selectedAnswersRef.current = updated;
+    saveInProgressToSupabase();
   };
 
   const handleClearResponse = () => {
-    if (isSubmitted || lockedSections[activeSection]) return;
-    setSelectedAnswers((prev) => {
-      const updated = { ...prev };
-      delete updated[activeIndex];
-      return updated;
-    });
+    if (isSubmitted || isPaused || lockedSections[activeSection]) return;
+    const curQ = questions[activeIndex];
+    const qKey = curQ?.id || activeIndex.toString();
+
+    const updated = { ...selectedAnswers };
+    delete updated[qKey];
+    setSelectedAnswers(updated);
+    selectedAnswersRef.current = updated;
+    saveInProgressToSupabase();
   };
 
   const handleToggleMarkReview = () => {
-    if (isSubmitted || lockedSections[activeSection]) return;
+    if (isSubmitted || isPaused || lockedSections[activeSection]) return;
     setMarkedForReview((prev) => ({ ...prev, [activeIndex]: !prev[activeIndex] }));
     handleNext();
   };
@@ -308,7 +523,8 @@ export default function TCSiONMockTestPlayerPage() {
     
     questions.forEach((q, idx) => {
       if ((q.section || 'QUANT') === activeSection) {
-        const isAns = selectedAnswers[idx] !== undefined;
+        const qKey = q.id || idx.toString();
+        const isAns = selectedAnswers[qKey] !== undefined;
         const isVisited = visitedQuestions[idx];
         const isMarked = markedForReview[idx];
 
@@ -329,11 +545,9 @@ export default function TCSiONMockTestPlayerPage() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // 🟢 Helper function to render text or parse images/graphs properly
   const renderContentWithImages = (text: string) => {
     if (!text) return null;
 
-    // Check for markdown images ![alt](url)
     const markdownImgRegex = /!\[([^\]]*)]\(([^)]+)\)/g;
     if (markdownImgRegex.test(text)) {
       const parts = [];
@@ -358,7 +572,6 @@ export default function TCSiONMockTestPlayerPage() {
       return <div className="space-y-2">{parts}</div>;
     }
 
-    // Check if text is a direct image URL
     if (text.trim().startsWith('http') && (text.includes('.png') || text.includes('.jpg') || text.includes('.jpeg') || text.includes('.webp') || text.includes('supabase.co'))) {
       return (
         <div className="my-3 text-center">
@@ -374,7 +587,7 @@ export default function TCSiONMockTestPlayerPage() {
     return (
       <div className="min-h-screen bg-[#F4F6F9] text-slate-800 flex items-center justify-center font-bold">
         <div className="w-8 h-8 border-4 border-[#1D63B8] border-t-transparent rounded-full animate-spin mr-3"></div>
-        Loading TCS iON Engine...
+        Restoring TCS iON Test Session...
       </div>
     );
   }
@@ -392,6 +605,7 @@ export default function TCSiONMockTestPlayerPage() {
   }
 
   const activeQuestion = questions[activeIndex];
+  const activeQKey = activeQuestion?.id || activeIndex.toString();
   const hasPassage = Boolean(
     activeQuestion?.passageText && activeQuestion.passageText.trim().length > 0
   );
@@ -406,24 +620,90 @@ export default function TCSiONMockTestPlayerPage() {
   const counts = getCounts();
 
   return (
-    <div className="h-screen w-screen bg-[#F4F6F9] text-slate-900 font-sans flex flex-col select-none overflow-hidden">
-      {/* 1. TOP BRANDING HEADER */}
+    <div className="h-screen w-screen bg-[#F4F6F9] text-slate-900 font-sans flex flex-col select-none overflow-hidden relative">
+      
+      {/* PAUSE MODAL OVERLAY */}
+      {isPaused && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-white max-w-md w-full rounded-2xl p-6 shadow-2xl border border-slate-200 text-center space-y-5 animate-fadeIn">
+            <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center text-3xl mx-auto shadow-inner">
+              ⏸️
+            </div>
+
+            <div className="space-y-1">
+              <h3 className="text-xl font-black text-slate-800">Test Paused</h3>
+              <p className="text-xs text-slate-500">Your test progress and answers have been safely saved.</p>
+            </div>
+
+            <div className="bg-slate-50 border p-3 rounded-xl text-xs space-y-2 text-left font-medium text-slate-700">
+              <div className="flex justify-between">
+                <span>Current Section:</span>
+                <b className="text-[#1D63B8]">{activeSection}</b>
+              </div>
+              <div className="flex justify-between">
+                <span>Time Remaining:</span>
+                <b className="font-mono text-amber-700">{formatTime(sectionalTimeLeft)}</b>
+              </div>
+              <div className="flex justify-between">
+                <span>Questions Answered:</span>
+                <b className="text-emerald-700">{Object.keys(selectedAnswers).length} Qs</b>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleResumeFromModal}
+                className="flex-1 py-3 bg-[#1D63B8] hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-lg transition flex items-center justify-center gap-2"
+              >
+                <span>▶️ Resume Test</span>
+              </button>
+              <Link
+                href="/tests"
+                className="px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition"
+              >
+                Exit Portal
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TOP BRANDING HEADER */}
       <header className="bg-[#1D63B8] text-white px-4 md:px-6 py-2.5 flex justify-between items-center shadow-md shrink-0 z-40">
         <div className="flex items-center gap-2 md:gap-3">
           <div className="w-8 h-8 bg-white text-[#1D63B8] rounded font-black text-sm flex items-center justify-center shadow-inner">
             BS
           </div>
           <div>
-            <h1 className="text-xs md:text-sm font-bold tracking-tight leading-tight truncate max-w-[140px] sm:max-w-none">{test.title}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xs md:text-sm font-bold tracking-tight leading-tight truncate max-w-[140px] sm:max-w-none">{test.title}</h1>
+              {isResumedSession && !isSubmitted && (
+                <span className="text-[9px] bg-amber-400 text-slate-950 font-black px-1.5 py-0.5 rounded uppercase">
+                  ▶️ Resumed Session
+                </span>
+              )}
+            </div>
             <p className="text-[10px] text-blue-100 uppercase font-semibold">{test.exam_type} {isSubmitted ? '— Solution Mode' : ''}</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 md:gap-4">
           {!isSubmitted && (
-            <div className="bg-white/10 border border-white/20 px-3 md:px-4 py-1 rounded text-white font-mono font-bold text-xs md:text-sm flex items-center gap-1.5 md:gap-2">
-              <span className="text-[10px] md:text-xs">⏱️ Time:</span>
-              <span className="text-sm md:text-base text-yellow-300 font-black">{formatTime(sectionalTimeLeft)}</span>
+            <div className="flex items-center gap-2">
+              <div className="bg-white/10 border border-white/20 px-3 md:px-4 py-1 rounded text-white font-mono font-bold text-xs md:text-sm flex items-center gap-1.5 md:gap-2">
+                <span className="text-[10px] md:text-xs">⏱️ Time:</span>
+                <span className="text-sm md:text-base text-yellow-300 font-black">{formatTime(sectionalTimeLeft)}</span>
+              </div>
+
+              {/* PAUSE BUTTON */}
+              <button
+                onClick={handlePauseTest}
+                className="px-3 py-1 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs rounded shadow transition flex items-center gap-1"
+                title="Pause Test"
+              >
+                <span>⏸️</span>
+                <span className="hidden sm:inline">Pause</span>
+              </button>
             </div>
           )}
 
@@ -440,7 +720,6 @@ export default function TCSiONMockTestPlayerPage() {
             </Link>
           )}
 
-          {/* MOBILE PALETTE TOGGLE BUTTON */}
           <button
             onClick={() => setIsMobilePaletteOpen(!isMobilePaletteOpen)}
             className="lg:hidden bg-blue-900/60 border border-blue-400/30 text-white font-bold px-2 py-1 rounded text-xs flex items-center gap-1"
@@ -451,7 +730,7 @@ export default function TCSiONMockTestPlayerPage() {
         </div>
       </header>
 
-      {/* 2. SECTIONAL TABS */}
+      {/* SECTIONAL TABS */}
       <div className="bg-white border-b border-slate-300 px-4 md:px-6 py-2 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shrink-0 shadow-sm">
         <div className="flex items-center gap-1.5 overflow-x-auto max-w-full">
           <span className="text-xs font-bold text-slate-500 uppercase mr-2">Sections:</span>
@@ -489,12 +768,10 @@ export default function TCSiONMockTestPlayerPage() {
         </div>
       </div>
 
-      {/* 4. MAIN EXAM DISPLAY WORKSPACE (LOCKED HEIGHT FOR NO OVERFLOW) */}
+      {/* MAIN EXAM DISPLAY WORKSPACE */}
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
-        {/* QUESTION DISPLAY AREA */}
         <main className="flex-1 p-4 md:p-6 overflow-y-auto flex flex-col justify-between">
           {hasPassage ? (
-            /* 50/50 SPLIT SCREEN FOR PASSAGE / DI / RC */
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 h-full min-h-[60vh]">
               <div className="bg-white border border-slate-300 rounded-lg p-4 md:p-5 overflow-y-auto max-h-[70vh] shadow-sm">
                 <div className="bg-blue-50 border-l-4 border-[#1D63B8] px-3 py-1.5 text-[11px] font-bold text-[#1D63B8] uppercase mb-3">
@@ -518,7 +795,7 @@ export default function TCSiONMockTestPlayerPage() {
 
                   <div className="space-y-2 pt-2">
                     {activeQuestion.options.map((opt, optIdx) => {
-                      const isSelected = selectedAnswers[activeIndex] === optIdx;
+                      const isSelected = selectedAnswers[activeQKey] === optIdx;
                       const isCorrect = activeQuestion.correctOptionIndex === optIdx;
 
                       let btnStyle = 'bg-white border-slate-300 text-slate-800 hover:bg-slate-50';
@@ -538,7 +815,7 @@ export default function TCSiONMockTestPlayerPage() {
                       return (
                         <button
                           key={optIdx}
-                          disabled={isSubmitted || (lockedSections[activeSection] && !isSubmitted)}
+                          disabled={isSubmitted || isPaused || (lockedSections[activeSection] && !isSubmitted)}
                           onClick={() => handleSelectOption(optIdx)}
                           className={`w-full p-3 rounded-lg border text-left text-xs transition flex items-center justify-between ${btnStyle}`}
                         >
@@ -567,7 +844,6 @@ export default function TCSiONMockTestPlayerPage() {
               </div>
             </div>
           ) : (
-            /* FULL SCREEN FOR STANDALONE QUESTIONS */
             <div className="max-w-4xl mx-auto w-full bg-white border border-slate-300 rounded-lg p-5 md:p-6 space-y-5 shadow-sm my-auto">
               <div className="flex justify-between items-center border-b pb-2 text-xs font-bold text-slate-600">
                 <span>Question {activeIndex + 1} ({activeQuestion.section})</span>
@@ -580,7 +856,7 @@ export default function TCSiONMockTestPlayerPage() {
 
               <div className="flex flex-col gap-3 pt-2">
                 {activeQuestion.options.map((opt, optIdx) => {
-                  const isSelected = selectedAnswers[activeIndex] === optIdx;
+                  const isSelected = selectedAnswers[activeQKey] === optIdx;
                   const isCorrect = activeQuestion.correctOptionIndex === optIdx;
 
                   let btnStyle = 'bg-white border-slate-300 text-slate-800 hover:bg-slate-50';
@@ -600,7 +876,7 @@ export default function TCSiONMockTestPlayerPage() {
                   return (
                     <button
                       key={optIdx}
-                      disabled={isSubmitted || (lockedSections[activeSection] && !isSubmitted)}
+                      disabled={isSubmitted || isPaused || (lockedSections[activeSection] && !isSubmitted)}
                       onClick={() => handleSelectOption(optIdx)}
                       className={`p-3.5 rounded-lg border text-left text-xs transition flex items-center justify-between ${btnStyle}`}
                     >
@@ -632,10 +908,10 @@ export default function TCSiONMockTestPlayerPage() {
           <div className="bg-white border border-slate-300 rounded-lg p-3 max-w-4xl mx-auto w-full flex flex-wrap justify-between items-center gap-2 mt-4 shadow-sm shrink-0">
             <div className="flex gap-2">
               <button
-                disabled={isSubmitted}
+                disabled={isSubmitted || isPaused}
                 onClick={handleToggleMarkReview}
                 className={`px-3 py-2 rounded text-xs font-bold border transition ${
-                  isSubmitted
+                  isSubmitted || isPaused
                     ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400 border-slate-200'
                     : markedForReview[activeIndex]
                     ? 'bg-purple-700 text-white border-purple-800'
@@ -645,10 +921,10 @@ export default function TCSiONMockTestPlayerPage() {
                 Mark for Review & Next
               </button>
               <button
-                disabled={isSubmitted}
+                disabled={isSubmitted || isPaused}
                 onClick={handleClearResponse}
                 className={`px-3 py-2 border text-slate-700 font-bold text-xs rounded transition ${
-                  isSubmitted ? 'opacity-40 cursor-not-allowed bg-slate-100 border-slate-200' : 'bg-slate-100 hover:bg-slate-200 border-slate-300'
+                  isSubmitted || isPaused ? 'opacity-40 cursor-not-allowed bg-slate-100 border-slate-200' : 'bg-slate-100 hover:bg-slate-200 border-slate-300'
                 }`}
               >
                 Clear Response
@@ -674,7 +950,7 @@ export default function TCSiONMockTestPlayerPage() {
           </div>
         </main>
 
-        {/* ⚡ MOBILE BACKDROP OVERLAY */}
+        {/* MOBILE BACKDROP OVERLAY */}
         {isMobilePaletteOpen && (
           <div
             onClick={() => setIsMobilePaletteOpen(false)}
@@ -682,7 +958,7 @@ export default function TCSiONMockTestPlayerPage() {
           />
         )}
 
-        {/* ⚡ FIXED RIGHT PALETTE (STAYS LOCKED, NO OVERLAPPING HEADER) */}
+        {/* RIGHT PALETTE PANEL */}
         <aside
           className={`fixed lg:static inset-y-0 right-0 z-50 w-72 lg:w-80 bg-white border-l border-slate-300 p-4 flex flex-col justify-between space-y-4 shadow-2xl lg:shadow-none transition-transform duration-300 shrink-0 ${
             isMobilePaletteOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
@@ -750,7 +1026,10 @@ export default function TCSiONMockTestPlayerPage() {
             {/* PALETTE GRID BUTTONS */}
             <div className="grid grid-cols-5 gap-1.5 max-h-56 overflow-y-auto p-1">
               {activeSectionQuestionIndices.map((globalIdx, localIdx) => {
-                const isAns = selectedAnswers[globalIdx] !== undefined;
+                const q = questions[globalIdx];
+                const qKey = q?.id || globalIdx.toString();
+
+                const isAns = selectedAnswers[qKey] !== undefined;
                 const isVisited = visitedQuestions[globalIdx];
                 const isMarked = markedForReview[globalIdx];
                 const isActive = activeIndex === globalIdx;
@@ -758,8 +1037,8 @@ export default function TCSiONMockTestPlayerPage() {
                 let paletteStyle = 'bg-slate-100 border-slate-300 text-slate-700';
 
                 if (isSubmitted) {
-                  const userAns = selectedAnswers[globalIdx];
-                  const qCorrect = questions[globalIdx].correctOptionIndex;
+                  const userAns = selectedAnswers[qKey];
+                  const qCorrect = q.correctOptionIndex;
                   if (userAns === undefined) paletteStyle = 'bg-white border-slate-300 text-slate-600';
                   else if (userAns === qCorrect) paletteStyle = 'bg-emerald-600 text-white border-emerald-700 font-bold';
                   else paletteStyle = 'bg-rose-600 text-white border-rose-700 font-bold';
