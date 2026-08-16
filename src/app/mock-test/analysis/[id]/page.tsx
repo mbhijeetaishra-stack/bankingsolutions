@@ -35,8 +35,8 @@ export default function MockAnalysisPage() {
   const [loading, setLoading] = useState(true);
   const [test, setTest] = useState<MockTest | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
-  const [userAnswers, setUserAnswers] = useState<Record<number, number>>({});
-  const [timeSpent, setTimeSpent] = useState<Record<number, number>>({});
+  const [userAnswers, setUserAnswers] = useState<Record<string, any>>({});
+  const [timeSpent, setTimeSpent] = useState<Record<string, number>>({});
   const [allDbAttempts, setAllDbAttempts] = useState<any[]>([]);
 
   // Solution Navigation & Filtering
@@ -75,28 +75,31 @@ export default function MockAnalysisPage() {
     setTest(mock);
     setQuestions(parsedQ);
 
-    let savedAnswers: Record<number, number> = {};
-    let savedTime: Record<number, number> = {};
+    let savedAnswers: Record<string, any> = {};
+    let savedTime: Record<string, number> = {};
 
     try {
       const localSaved = JSON.parse(localStorage.getItem('bsca_mock_attempts') || '{}');
       if (localSaved[testId]) {
-        savedAnswers = localSaved[testId].answers || {};
+        savedAnswers = localSaved[testId].answers || localSaved[testId].user_answers || {};
       }
     } catch (e) {}
 
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.user) {
-      const { data: dbAttempt } = await supabase
+      const { data: dbAttempts } = await supabase
         .from('mock_attempts')
         .select('*')
         .eq('test_id', testId)
         .eq('user_id', session.user.id)
-        .single();
+        .order('created_at', { ascending: false })
+        .limit(1);
 
-      if (dbAttempt) {
-        if (dbAttempt.answers) savedAnswers = dbAttempt.answers;
-        if (dbAttempt.time_spent) savedTime = dbAttempt.time_spent;
+      if (dbAttempts && dbAttempts.length > 0) {
+        const latestAttempt = dbAttempts[0];
+        const dbAns = latestAttempt.user_answers || latestAttempt.answers;
+        if (dbAns) savedAnswers = dbAns;
+        if (latestAttempt.time_spent) savedTime = latestAttempt.time_spent;
       }
     }
 
@@ -114,6 +117,11 @@ export default function MockAnalysisPage() {
 
     setLoading(false);
   }
+
+  const getAnswerForQuestion = (q: Question, idx: number) => {
+    const qKey = q.id || idx.toString();
+    return userAnswers[q.id] ?? userAnswers[idx] ?? userAnswers[qKey];
+  };
 
   const calculateMetrics = () => {
     let totalScore = 0;
@@ -133,8 +141,9 @@ export default function MockAnalysisPage() {
 
     questions.forEach((q, idx) => {
       const sec = q.section || 'QUANT';
-      const userAns = userAnswers[idx];
-      const spent = timeSpent[idx] || 0;
+      const userAns = getAnswerForQuestion(q, idx);
+      const qKey = q.id || idx.toString();
+      const spent = timeSpent[q.id] || timeSpent[idx] || timeSpent[qKey] || 0;
 
       if (!sectionStats[sec]) {
         sectionStats[sec] = { total: 0, attempted: 0, correct: 0, wrong: 0, score: 0 };
@@ -142,10 +151,10 @@ export default function MockAnalysisPage() {
 
       sectionStats[sec].total += 1;
 
-      if (userAns === undefined) {
+      if (userAns === undefined || userAns === null || userAns === '') {
         unattemptedCount += 1;
         timeSkipped += spent;
-      } else if (userAns === q.correctOptionIndex) {
+      } else if (Number(userAns) === Number(q.correctOptionIndex)) {
         correctCount += 1;
         totalScore += q.marks || 1.0;
         timeCorrect += spent;
@@ -220,15 +229,16 @@ export default function MockAnalysisPage() {
   const passed = metrics.totalScore >= cutoff;
 
   const filteredSolutionQuestions = questions.filter((q, idx) => {
-    const ans = userAnswers[idx];
-    if (solutionFilter === 'CORRECT') return ans === q.correctOptionIndex;
-    if (solutionFilter === 'INCORRECT') return ans !== undefined && ans !== q.correctOptionIndex;
-    if (solutionFilter === 'UNATTEMPTED') return ans === undefined;
+    const ans = getAnswerForQuestion(q, idx);
+    if (solutionFilter === 'CORRECT') return ans !== undefined && Number(ans) === Number(q.correctOptionIndex);
+    if (solutionFilter === 'INCORRECT') return ans !== undefined && Number(ans) !== Number(q.correctOptionIndex);
+    if (solutionFilter === 'UNATTEMPTED') return ans === undefined || ans === null || ans === '';
     return true;
   });
 
   const currentSolQ = filteredSolutionQuestions[solutionIndex] || filteredSolutionQuestions[0];
   const originalIndex = currentSolQ ? questions.findIndex((q) => q.id === currentSolQ.id) : 0;
+  const currentUserAns = currentSolQ ? getAnswerForQuestion(currentSolQ, originalIndex) : undefined;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col">
@@ -307,7 +317,7 @@ export default function MockAnalysisPage() {
               </div>
             </div>
 
-            {/* 🟢 CORRECT, INCORRECT & SKIPPED SUMMARY CARDS */}
+            {/* DETAILED BREAKDOWN CARDS */}
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4 shadow-xl">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">📌 Detailed Attempt Breakdown</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
@@ -387,11 +397,11 @@ export default function MockAnalysisPage() {
                       Question {originalIndex + 1} ({currentSolQ.section})
                     </span>
 
-                    {userAnswers[originalIndex] === undefined ? (
+                    {currentUserAns === undefined || currentUserAns === null || currentUserAns === '' ? (
                       <span className="bg-slate-800 text-slate-400 border border-slate-700 text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase">
                         Unattempted (Skipped)
                       </span>
-                    ) : userAnswers[originalIndex] === currentSolQ.correctOptionIndex ? (
+                    ) : Number(currentUserAns) === Number(currentSolQ.correctOptionIndex) ? (
                       <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase">
                         ✓ Correct (+{currentSolQ.marks || 1.0})
                       </span>
@@ -415,8 +425,8 @@ export default function MockAnalysisPage() {
 
                   <div className="space-y-2.5 pt-1">
                     {currentSolQ.options.map((opt, optIdx) => {
-                      const userSelected = userAnswers[originalIndex] === optIdx;
-                      const isCorrect = currentSolQ.correctOptionIndex === optIdx;
+                      const userSelected = currentUserAns !== undefined && Number(currentUserAns) === optIdx;
+                      const isCorrect = Number(currentSolQ.correctOptionIndex) === optIdx;
 
                       let optStyle = 'bg-slate-950 border-slate-800 text-slate-300';
                       if (isCorrect) {
@@ -508,10 +518,10 @@ export default function MockAnalysisPage() {
                 <div className="grid grid-cols-5 gap-1.5 max-h-56 overflow-y-auto p-1">
                   {filteredSolutionQuestions.map((q, idx) => {
                     const origIdx = questions.findIndex((orig) => orig.id === q.id);
-                    const userAns = userAnswers[origIdx];
+                    const userAns = getAnswerForQuestion(q, origIdx);
                     let btnColor = 'bg-slate-800 text-slate-300';
-                    if (userAns !== undefined) {
-                      btnColor = userAns === q.correctOptionIndex ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white';
+                    if (userAns !== undefined && userAns !== null && userAns !== '') {
+                      btnColor = Number(userAns) === Number(q.correctOptionIndex) ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white';
                     }
 
                     const isCurrent = currentSolQ && currentSolQ.id === q.id;

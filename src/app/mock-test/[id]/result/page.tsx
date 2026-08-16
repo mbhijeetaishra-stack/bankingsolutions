@@ -35,8 +35,8 @@ export default function MockResultAnalysisPage() {
   const [loading, setLoading] = useState(true);
   const [test, setTest] = useState<MockTest | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
-  const [userAnswers, setUserAnswers] = useState<Record<number, number>>({});
-  const [timeSpent, setTimeSpent] = useState<Record<number, number>>({});
+  const [userAnswers, setUserAnswers] = useState<Record<string, any>>({});
+  const [timeSpent, setTimeSpent] = useState<Record<string, number>>({});
   const [allDbAttempts, setAllDbAttempts] = useState<any[]>([]);
 
   useEffect(() => {
@@ -72,28 +72,45 @@ export default function MockResultAnalysisPage() {
     setQuestions(parsedQ);
 
     // 2. Fetch User's Attempt from LocalStorage or Supabase
-    let savedAnswers: Record<number, number> = {};
-    let savedTime: Record<number, number> = {};
+    let savedAnswers: Record<string, any> = {};
+    let savedTime: Record<string, number> = {};
 
     try {
       const localSaved = JSON.parse(localStorage.getItem('bsca_mock_attempts') || '{}');
       if (localSaved[testId]) {
-        savedAnswers = localSaved[testId].answers || {};
+        savedAnswers = localSaved[testId].answers || localSaved[testId].user_answers || {};
+      }
+    } catch (e) {}
+
+    // Check localStorage test session cache fallback
+    try {
+      const cachedSession = localStorage.getItem(`mock_session_${testId}`);
+      if (cachedSession) {
+        const parsed = JSON.parse(cachedSession);
+        if (parsed && parsed.user_answers) {
+          savedAnswers = { ...savedAnswers, ...parsed.user_answers };
+        }
+        if (parsed && parsed.time_spent) {
+          savedTime = { ...savedTime, ...parsed.time_spent };
+        }
       }
     } catch (e) {}
 
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.user) {
-      const { data: dbAttempt } = await supabase
+      const { data: dbAttempts } = await supabase
         .from('mock_attempts')
         .select('*')
         .eq('test_id', testId)
         .eq('user_id', session.user.id)
-        .single();
+        .order('created_at', { ascending: false })
+        .limit(1);
 
-      if (dbAttempt) {
-        if (dbAttempt.answers) savedAnswers = dbAttempt.answers;
-        if (dbAttempt.time_spent) savedTime = dbAttempt.time_spent;
+      if (dbAttempts && dbAttempts.length > 0) {
+        const latestAttempt = dbAttempts[0];
+        const dbAns = latestAttempt.user_answers || latestAttempt.answers;
+        if (dbAns) savedAnswers = { ...savedAnswers, ...dbAns };
+        if (latestAttempt.time_spent) savedTime = { ...savedTime, ...latestAttempt.time_spent };
       }
     }
 
@@ -113,6 +130,12 @@ export default function MockResultAnalysisPage() {
     setLoading(false);
   }
 
+  // Robust helper to check answer regardless of whether it's keyed by q.id or array index
+  const getAnswerForQuestion = (q: Question, idx: number) => {
+    const qKey = q.id || idx.toString();
+    return userAnswers[q.id] ?? userAnswers[idx] ?? userAnswers[qKey];
+  };
+
   const calculateMetrics = () => {
     let totalScore = 0;
     let correctCount = 0;
@@ -127,7 +150,7 @@ export default function MockResultAnalysisPage() {
 
     questions.forEach((q, idx) => {
       const sec = q.section || 'QUANT';
-      const userAns = userAnswers[idx];
+      const userAns = getAnswerForQuestion(q, idx);
 
       if (!sectionStats[sec]) {
         sectionStats[sec] = { total: 0, attempted: 0, correct: 0, wrong: 0, score: 0 };
@@ -135,9 +158,9 @@ export default function MockResultAnalysisPage() {
 
       sectionStats[sec].total += 1;
 
-      if (userAns === undefined) {
+      if (userAns === undefined || userAns === null || userAns === '') {
         unattemptedCount += 1;
-      } else if (userAns === q.correctOptionIndex) {
+      } else if (Number(userAns) === Number(q.correctOptionIndex)) {
         correctCount += 1;
         totalScore += q.marks || 1.0;
 
