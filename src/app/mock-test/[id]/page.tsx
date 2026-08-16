@@ -40,6 +40,8 @@ export default function TCSiONMockTestPlayerPage() {
   const [candidateName, setCandidateName] = useState('Aspirant');
   const [rollCode, setRollCode] = useState('BS2026-GUEST');
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [attemptId, setAttemptId] = useState<string | null>(null);
+  const [isResumedSession, setIsResumedSession] = useState(false);
 
   // Section Management States
   const [sections, setSections] = useState<string[]>([]);
@@ -53,6 +55,9 @@ export default function TCSiONMockTestPlayerPage() {
   const [markedForReview, setMarkedForReview] = useState<Record<number, boolean>>({});
   const [questionTimeSpent, setQuestionTimeSpent] = useState<Record<number, number>>({});
 
+  // ⏸️ PAUSE MODAL STATE
+  const [isPaused, setIsPaused] = useState(false);
+
   // ⚡ MOBILE PALETTE DRAWER STATE
   const [isMobilePaletteOpen, setIsMobilePaletteOpen] = useState(false);
 
@@ -61,14 +66,27 @@ export default function TCSiONMockTestPlayerPage() {
   const [sectionalTimeLeft, setSectionalTimeLeft] = useState<number>(0);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Synchronized Refs for Unload & Background Saving
+  const attemptIdRef = useRef<string | null>(null);
+  const selectedAnswersRef = useRef(selectedAnswers);
+  const sectionalTimeLeftRef = useRef(sectionalTimeLeft);
+  const questionTimeSpentRef = useRef(questionTimeSpent);
+  const activeIndexRef = useRef(activeIndex);
+
+  useEffect(() => { attemptIdRef.current = attemptId; }, [attemptId]);
+  useEffect(() => { selectedAnswersRef.current = selectedAnswers; }, [selectedAnswers]);
+  useEffect(() => { sectionalTimeLeftRef.current = sectionalTimeLeft; }, [sectionalTimeLeft]);
+  useEffect(() => { questionTimeSpentRef.current = questionTimeSpent; }, [questionTimeSpent]);
+  useEffect(() => { activeIndexRef.current = activeIndex; }, [activeIndex]);
+
   useEffect(() => {
     fetchUserData();
     if (testId) fetchMockTestAndAttempts();
   }, [testId]);
 
-  // Sectional Timer & Time Spent Tracker
+  // Sectional Timer & Time Spent Tracker (Pauses when isPaused is true)
   useEffect(() => {
-    if (test && !isSubmitted && sectionalTimeLeft > 0) {
+    if (test && !isSubmitted && !isPaused && sectionalTimeLeft > 0) {
       timerRef.current = setInterval(() => {
         setSectionalTimeLeft((prev) => {
           if (prev <= 1) {
@@ -81,7 +99,7 @@ export default function TCSiONMockTestPlayerPage() {
 
         setQuestionTimeSpent((prev) => ({
           ...prev,
-          [activeIndex]: (prev[activeIndex] || 0) + 1,
+          [activeIndexRef.current]: (prev[activeIndexRef.current] || 0) + 1,
         }));
       }, 1000);
     }
@@ -89,7 +107,48 @@ export default function TCSiONMockTestPlayerPage() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [test, isSubmitted, sectionalTimeLeft, activeSection, activeIndex]);
+  }, [test, isSubmitted, isPaused, sectionalTimeLeft, activeSection]);
+
+  // Auto-Save Loop & Unload Listeners for Pause/Resume persistence
+  useEffect(() => {
+    if (isSubmitted || !attemptId || loading) return;
+
+    const interval = setInterval(() => {
+      if (!isPaused) {
+        saveInProgressToSupabase();
+      }
+    }, 4000);
+
+    const handleWindowUnload = () => {
+      saveToLocalStorageFallback();
+      saveInProgressToSupabase();
+    };
+
+    window.addEventListener('beforeunload', handleWindowUnload);
+    window.addEventListener('visibilitychange', handleWindowUnload);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('beforeunload', handleWindowUnload);
+      window.removeEventListener('visibilitychange', handleWindowUnload);
+    };
+  }, [attemptId, isSubmitted, isPaused, loading]);
+
+  const saveToLocalStorageFallback = () => {
+    if (!testId) return;
+    const cacheKey = `mock_session_${testId}`;
+    const sessionData = {
+      test_id: testId,
+      status: 'in_progress',
+      user_answers: selectedAnswersRef.current,
+      time_remaining_seconds: sectionalTimeLeftRef.current,
+      time_spent: questionTimeSpentRef.current,
+      updated_at: Date.now(),
+    };
+    try {
+      localStorage.setItem(cacheKey, JSON.stringify(sessionData));
+    } catch (e) {}
+  };
 
   async function fetchUserData() {
     const { data: { session } } = await supabase.auth.getSession();
@@ -127,27 +186,140 @@ export default function TCSiONMockTestPlayerPage() {
     const uniqueSections = Array.from(new Set(parsedQuestions.map((q) => q.section || 'QUANT')));
     setSections(uniqueSections);
 
-    if (uniqueSections.length > 0) {
-      setActiveSection(uniqueSections[0]);
-      const secTime = Math.floor(((mockData.duration_minutes || 60) * 60) / uniqueSections.length);
-      setSectionalTimeLeft(secTime);
-    }
+    const defaultSecTime = Math.floor(((mockData.duration_minutes || 60) * 60) / (uniqueSections.length || 1));
 
     setTest(mockData);
     setQuestions(parsedQuestions);
 
     if (mode === 'solution') {
       setIsSubmitted(true);
+      setActiveSection(uniqueSections[0] || 'QUANT');
       try {
         const localSaved = JSON.parse(localStorage.getItem('bsca_mock_attempts') || '{}');
         if (localSaved[testId]?.answers) {
           setSelectedAnswers(localSaved[testId].answers);
         }
       } catch (e) {}
+      setLoading(false);
+      return;
+    }
+
+    // Check Supabase DB for active in-progress attempt
+    let restoredAttempt: any = null;
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (session?.user) {
+      const { data: inProgressRecord } = await supabase
+        .from('mock_attempts')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .eq('test_id', testId)
+        .eq('status', 'in_progress')
+        .order('created_at', { ascending: false })
+        .maybeSingle();
+
+      if (inProgressRecord) {
+        restoredAttempt = inProgressRecord;
+      }
+    }
+
+    // Check LocalStorage Session Cache Fallback
+    let localCache: any = null;
+    try {
+      const cachedStr = localStorage.getItem(`mock_session_${testId}`);
+      if (cachedStr) {
+        localCache = JSON.parse(cachedStr);
+      }
+    } catch (e) {}
+
+    if (restoredAttempt || localCache) {
+      const activeRecord = restoredAttempt || {};
+      if (activeRecord.id) {
+        setAttemptId(activeRecord.id);
+        attemptIdRef.current = activeRecord.id;
+      }
+
+      const restoredAnswers = localCache?.user_answers || activeRecord.answers || {};
+      setSelectedAnswers(restoredAnswers);
+      selectedAnswersRef.current = restoredAnswers;
+
+      if (localCache?.time_spent || activeRecord.time_spent) {
+        const spentObj = localCache?.time_spent || activeRecord.time_spent;
+        setQuestionTimeSpent(spentObj);
+        questionTimeSpentRef.current = spentObj;
+      }
+
+      const dbSecTime = Number(activeRecord.time_remaining_seconds);
+      const cacheSecTime = Number(localCache?.time_remaining_seconds);
+      let finalSecTime = defaultSecTime;
+
+      if (!isNaN(cacheSecTime) && cacheSecTime > 0) {
+        finalSecTime = cacheSecTime;
+      } else if (!isNaN(dbSecTime) && dbSecTime > 0) {
+        finalSecTime = dbSecTime;
+      }
+
+      setSectionalTimeLeft(finalSecTime);
+      sectionalTimeLeftRef.current = finalSecTime;
+      setActiveSection(uniqueSections[0] || 'QUANT');
+      setIsResumedSession(true);
+    } else {
+      setActiveSection(uniqueSections[0] || 'QUANT');
+      setSectionalTimeLeft(defaultSecTime);
+      sectionalTimeLeftRef.current = defaultSecTime;
+
+      if (session?.user) {
+        const { data: newAttempt } = await supabase
+          .from('mock_attempts')
+          .insert([
+            {
+              user_id: session.user.id,
+              test_id: testId,
+              status: 'in_progress',
+              score: 0,
+              total_marks: mockData.total_marks || 100,
+              answers: {},
+              time_remaining_seconds: defaultSecTime,
+            },
+          ])
+          .select()
+          .single();
+
+        if (newAttempt) {
+          setAttemptId(newAttempt.id);
+          attemptIdRef.current = newAttempt.id;
+        }
+      }
     }
 
     setLoading(false);
   }
+
+  const saveInProgressToSupabase = async () => {
+    saveToLocalStorageFallback();
+    const curAttemptId = attemptIdRef.current;
+    if (!curAttemptId || isSubmitted) return;
+
+    await supabase
+      .from('mock_attempts')
+      .update({
+        answers: selectedAnswersRef.current,
+        time_remaining_seconds: sectionalTimeLeftRef.current,
+        time_spent: questionTimeSpentRef.current,
+        status: 'in_progress',
+      })
+      .eq('id', curAttemptId);
+  };
+
+  const handlePauseTest = async () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    await saveInProgressToSupabase();
+    setIsPaused(true);
+  };
+
+  const handleResumeFromModal = () => {
+    setIsPaused(false);
+  };
 
   const handleSectionTimeout = () => {
     setLockedSections((prev) => ({ ...prev, [activeSection]: true }));
@@ -165,8 +337,9 @@ export default function TCSiONMockTestPlayerPage() {
         setActiveIndex(firstNextIdx);
         setVisitedQuestions((prev) => ({ ...prev, [firstNextIdx]: true }));
       }
+      saveInProgressToSupabase();
     } else {
-      finalizeAndSaveMock(selectedAnswers);
+      finalizeAndSaveMock(selectedAnswersRef.current);
     }
   };
 
@@ -180,7 +353,7 @@ export default function TCSiONMockTestPlayerPage() {
   const handleSubmitFullTest = () => {
     if (confirm('Are you sure you want to submit the entire test?')) {
       if (timerRef.current) clearInterval(timerRef.current);
-      finalizeAndSaveMock(selectedAnswers);
+      finalizeAndSaveMock(selectedAnswersRef.current);
     }
   };
 
@@ -197,11 +370,16 @@ export default function TCSiONMockTestPlayerPage() {
       }
     });
 
+    try {
+      localStorage.removeItem(`mock_session_${test.id}`);
+    } catch (e) {}
+
     const attemptPayload = {
       test_id: test.id,
       score: score,
       total_marks: test.total_marks,
       answers: answers,
+      status: 'submitted',
     };
 
     try {
@@ -210,22 +388,34 @@ export default function TCSiONMockTestPlayerPage() {
       localStorage.setItem('bsca_mock_attempts', JSON.stringify(localSaved));
     } catch (e) {}
 
-    if (currentUser?.id) {
+    if (attemptIdRef.current) {
+      await supabase
+        .from('mock_attempts')
+        .update({
+          score: score,
+          status: 'submitted',
+          answers: answers,
+          time_spent: questionTimeSpentRef.current,
+          time_remaining_seconds: sectionalTimeLeftRef.current,
+          completed_at: new Date().toISOString(),
+        })
+        .eq('id', attemptIdRef.current);
+    } else if (currentUser?.id) {
       await supabase.from('mock_attempts').upsert([
         {
           user_id: currentUser.id,
           test_id: test.id,
           score: score,
           total_marks: test.total_marks,
+          status: 'submitted',
           answers: answers,
-          time_spent: questionTimeSpent,
+          time_spent: questionTimeSpentRef.current,
           completed_at: new Date().toISOString(),
         },
       ], { onConflict: 'user_id,test_id' });
     }
 
     setIsSubmitted(true);
-    // 🟢 Routed to the exact /result folder path
     router.push(`/mock-test/${test.id}/result`);
   };
 
@@ -285,21 +475,24 @@ export default function TCSiONMockTestPlayerPage() {
   };
 
   const handleSelectOption = (optionIdx: number) => {
-    if (isSubmitted || lockedSections[activeSection]) return;
-    setSelectedAnswers((prev) => ({ ...prev, [activeIndex]: optionIdx }));
+    if (isSubmitted || isPaused || lockedSections[activeSection]) return;
+    const updated = { ...selectedAnswers, [activeIndex]: optionIdx };
+    setSelectedAnswers(updated);
+    selectedAnswersRef.current = updated;
+    saveInProgressToSupabase();
   };
 
   const handleClearResponse = () => {
-    if (isSubmitted || lockedSections[activeSection]) return;
-    setSelectedAnswers((prev) => {
-      const updated = { ...prev };
-      delete updated[activeIndex];
-      return updated;
-    });
+    if (isSubmitted || isPaused || lockedSections[activeSection]) return;
+    const updated = { ...selectedAnswers };
+    delete updated[activeIndex];
+    setSelectedAnswers(updated);
+    selectedAnswersRef.current = updated;
+    saveInProgressToSupabase();
   };
 
   const handleToggleMarkReview = () => {
-    if (isSubmitted || lockedSections[activeSection]) return;
+    if (isSubmitted || isPaused || lockedSections[activeSection]) return;
     setMarkedForReview((prev) => ({ ...prev, [activeIndex]: !prev[activeIndex] }));
     handleNext();
   };
@@ -366,7 +559,54 @@ export default function TCSiONMockTestPlayerPage() {
   const counts = getCounts();
 
   return (
-    <div className="h-screen w-screen bg-[#F4F6F9] text-slate-900 font-sans flex flex-col select-none overflow-hidden">
+    <div className="h-screen w-screen bg-[#F4F6F9] text-slate-900 font-sans flex flex-col select-none overflow-hidden relative">
+      
+      {/* ⏸️ PAUSE MODAL OVERLAY */}
+      {isPaused && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-white max-w-md w-full rounded-2xl p-6 shadow-2xl border border-slate-200 text-center space-y-5 animate-fadeIn">
+            <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center text-3xl mx-auto shadow-inner">
+              ⏸️
+            </div>
+
+            <div className="space-y-1">
+              <h3 className="text-xl font-black text-slate-800">Test Paused</h3>
+              <p className="text-xs text-slate-500">Your test progress and answers have been safely saved.</p>
+            </div>
+
+            <div className="bg-slate-50 border p-3 rounded-xl text-xs space-y-2 text-left font-medium text-slate-700">
+              <div className="flex justify-between">
+                <span>Current Section:</span>
+                <b className="text-[#1D63B8]">{activeSection}</b>
+              </div>
+              <div className="flex justify-between">
+                <span>Time Remaining:</span>
+                <b className="font-mono text-amber-700">{formatTime(sectionalTimeLeft)}</b>
+              </div>
+              <div className="flex justify-between">
+                <span>Questions Answered:</span>
+                <b className="text-emerald-700">{Object.keys(selectedAnswers).length} Qs</b>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleResumeFromModal}
+                className="flex-1 py-3 bg-[#1D63B8] hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-lg transition flex items-center justify-center gap-2"
+              >
+                <span>▶️ Resume Test</span>
+              </button>
+              <Link
+                href="/tests"
+                className="px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition"
+              >
+                Exit Portal
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 1. TOP BRANDING HEADER */}
       <header className="bg-[#1D63B8] text-white px-4 md:px-6 py-2.5 flex justify-between items-center shadow-md shrink-0 z-40">
         <div className="flex items-center gap-2 md:gap-3">
@@ -374,16 +614,35 @@ export default function TCSiONMockTestPlayerPage() {
             BS
           </div>
           <div>
-            <h1 className="text-xs md:text-sm font-bold tracking-tight leading-tight truncate max-w-[140px] sm:max-w-none">{test.title}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xs md:text-sm font-bold tracking-tight leading-tight truncate max-w-[140px] sm:max-w-none">{test.title}</h1>
+              {isResumedSession && !isSubmitted && (
+                <span className="text-[9px] bg-amber-400 text-slate-950 font-black px-1.5 py-0.5 rounded uppercase">
+                  ▶️ Resumed Session
+                </span>
+              )}
+            </div>
             <p className="text-[10px] text-blue-100 uppercase font-semibold">{test.exam_type} {isSubmitted ? '— Solution Mode' : ''}</p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 md:gap-4">
           {!isSubmitted && (
-            <div className="bg-white/10 border border-white/20 px-3 md:px-4 py-1 rounded text-white font-mono font-bold text-xs md:text-sm flex items-center gap-1.5 md:gap-2">
-              <span className="text-[10px] md:text-xs">⏱️ Time:</span>
-              <span className="text-sm md:text-base text-yellow-300 font-black">{formatTime(sectionalTimeLeft)}</span>
+            <div className="flex items-center gap-2">
+              <div className="bg-white/10 border border-white/20 px-3 md:px-4 py-1 rounded text-white font-mono font-bold text-xs md:text-sm flex items-center gap-1.5 md:gap-2">
+                <span className="text-[10px] md:text-xs">⏱️ Time:</span>
+                <span className="text-sm md:text-base text-yellow-300 font-black">{formatTime(sectionalTimeLeft)}</span>
+              </div>
+
+              {/* PAUSE BUTTON */}
+              <button
+                onClick={handlePauseTest}
+                className="px-3 py-1 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs rounded shadow transition flex items-center gap-1"
+                title="Pause Test"
+              >
+                <span>⏸️</span>
+                <span className="hidden sm:inline">Pause</span>
+              </button>
             </div>
           )}
 
@@ -498,7 +757,7 @@ export default function TCSiONMockTestPlayerPage() {
                       return (
                         <button
                           key={optIdx}
-                          disabled={isSubmitted || (lockedSections[activeSection] && !isSubmitted)}
+                          disabled={isSubmitted || isPaused || (lockedSections[activeSection] && !isSubmitted)}
                           onClick={() => handleSelectOption(optIdx)}
                           className={`w-full p-3 rounded-lg border text-left text-xs transition flex items-center justify-between ${btnStyle}`}
                         >
@@ -560,7 +819,7 @@ export default function TCSiONMockTestPlayerPage() {
                   return (
                     <button
                       key={optIdx}
-                      disabled={isSubmitted || (lockedSections[activeSection] && !isSubmitted)}
+                      disabled={isSubmitted || isPaused || (lockedSections[activeSection] && !isSubmitted)}
                       onClick={() => handleSelectOption(optIdx)}
                       className={`p-3.5 rounded-lg border text-left text-xs transition flex items-center justify-between ${btnStyle}`}
                     >
@@ -592,10 +851,10 @@ export default function TCSiONMockTestPlayerPage() {
           <div className="bg-white border border-slate-300 rounded-lg p-3 max-w-4xl mx-auto w-full flex flex-wrap justify-between items-center gap-2 mt-4 shadow-sm shrink-0">
             <div className="flex gap-2">
               <button
-                disabled={isSubmitted}
+                disabled={isSubmitted || isPaused}
                 onClick={handleToggleMarkReview}
                 className={`px-3 py-2 rounded text-xs font-bold border transition ${
-                  isSubmitted
+                  isSubmitted || isPaused
                     ? 'opacity-40 cursor-not-allowed bg-slate-100 text-slate-400 border-slate-200'
                     : markedForReview[activeIndex]
                     ? 'bg-purple-700 text-white border-purple-800'
@@ -605,10 +864,10 @@ export default function TCSiONMockTestPlayerPage() {
                 Mark for Review & Next
               </button>
               <button
-                disabled={isSubmitted}
+                disabled={isSubmitted || isPaused}
                 onClick={handleClearResponse}
                 className={`px-3 py-2 border text-slate-700 font-bold text-xs rounded transition ${
-                  isSubmitted ? 'opacity-40 cursor-not-allowed bg-slate-100 border-slate-200' : 'bg-slate-100 hover:bg-slate-200 border-slate-300'
+                  isSubmitted || isPaused ? 'opacity-40 cursor-not-allowed bg-slate-100 border-slate-200' : 'bg-slate-100 hover:bg-slate-200 border-slate-300'
                 }`}
               >
                 Clear Response

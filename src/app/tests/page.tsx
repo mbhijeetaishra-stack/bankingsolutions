@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, Suspense } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
 interface MockItem {
@@ -38,6 +38,8 @@ interface MockAttempt {
 
 function TestListContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
+
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [userRole, setUserRole] = useState<'student' | 'admin'>('student');
@@ -160,7 +162,6 @@ function TestListContent() {
           });
         }
 
-        // Only set if not already marked as in_progress locally
         if (!attemptsMap[tid] || attemptsMap[tid].status !== 'in_progress') {
           attemptsMap[tid] = {
             test_id: tid,
@@ -206,7 +207,6 @@ function TestListContent() {
           }
 
           const existing = attemptsMap[att.test_id];
-          // Always prioritize 'in_progress' status
           if (!existing || att.status === 'in_progress' || existing.status !== 'in_progress') {
             attemptsMap[att.test_id] = {
               id: att.id,
@@ -224,6 +224,29 @@ function TestListContent() {
     }
 
     setCompletedAttempts(attemptsMap);
+  }
+
+  async function handleReattempt(testId: string) {
+    if (!confirm('Are you sure you want to reattempt this test? Your previous progress will be reset.')) return;
+    
+    // Clear local storage cache
+    localStorage.removeItem(`mock_session_${testId}`);
+    try {
+      const localSaved = JSON.parse(localStorage.getItem('bsca_mock_attempts') || '{}');
+      delete localSaved[testId];
+      localStorage.setItem('bsca_mock_attempts', JSON.stringify(localSaved));
+    } catch (e) {}
+
+    // Delete DB attempt if logged in
+    if (user?.id) {
+      await supabase
+        .from('mock_attempts')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('test_id', testId);
+    }
+
+    router.push(`/mock-test/${testId}`);
   }
 
   async function handleAuthSubmit(e: React.FormEvent) {
@@ -655,20 +678,28 @@ function TestListContent() {
 
                   {/* Card Action Buttons */}
                   {isSubmitted ? (
-                    <div className="grid grid-cols-2 gap-2 pt-2">
-                      <Link
-                        href={`/mock-test/${mock.id}/result`}
-                        className="py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow transition text-center"
-                      >
-                        📊 View Analysis
-                      </Link>
+                    <div className="space-y-2 pt-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <Link
+                          href={`/mock-test/${mock.id}/result`}
+                          className="py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl shadow transition text-center flex items-center justify-center gap-1"
+                        >
+                          <span>📊 Analysis</span>
+                        </Link>
 
-                      <Link
-                        href={`/mock-test/${mock.id}?mode=solution`}
-                        className="py-2.5 bg-slate-800 hover:bg-slate-700 text-amber-400 font-extrabold text-xs border border-amber-400/30 rounded-xl transition text-center"
+                        <Link
+                          href={`/mock-test/${mock.id}?mode=solution`}
+                          className="py-2.5 bg-slate-800 hover:bg-slate-700 text-amber-400 font-extrabold text-xs border border-amber-400/30 rounded-xl transition text-center flex items-center justify-center gap-1"
+                        >
+                          <span>👁️ Solutions</span>
+                        </Link>
+                      </div>
+                      <button
+                        onClick={() => handleReattempt(mock.id)}
+                        className="w-full py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs rounded-xl shadow transition flex items-center justify-center gap-1.5"
                       >
-                        👁️ Solutions
-                      </Link>
+                        <span>🔄 Reattempt Test</span>
+                      </button>
                     </div>
                   ) : isInProgress ? (
                     <Link
