@@ -204,7 +204,6 @@ export default function TCSiONMockTestPlayerPage() {
       return;
     }
 
-    // Check Supabase DB for active in-progress attempt
     let restoredAttempt: any = null;
     const { data: { session } } = await supabase.auth.getSession();
     
@@ -223,7 +222,6 @@ export default function TCSiONMockTestPlayerPage() {
       }
     }
 
-    // Check LocalStorage Session Cache Fallback
     let localCache: any = null;
     try {
       const cachedStr = localStorage.getItem(`mock_session_${testId}`);
@@ -523,6 +521,45 @@ export default function TCSiONMockTestPlayerPage() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // 🖼️ Helper function to render text or markdown/raw image links cleanly
+  const renderContentWithImages = (text: string) => {
+    if (!text) return null;
+
+    const markdownImgRegex = /!\[([^\]]*)]\(([^)]+)\)/g;
+    if (markdownImgRegex.test(text)) {
+      const parts = [];
+      let lastIndex = 0;
+      let match;
+
+      markdownImgRegex.lastIndex = 0;
+      while ((match = markdownImgRegex.exec(text)) !== null) {
+        if (match.index > lastIndex) {
+          parts.push(text.substring(lastIndex, match.index));
+        }
+        parts.push(
+          <div key={match.index} className="my-3 text-center">
+            <img src={match[2]} alt={match[1] || 'Graph/Image'} className="max-w-full h-auto mx-auto rounded-lg border border-slate-300 shadow-sm bg-white p-1" />
+          </div>
+        );
+        lastIndex = markdownImgRegex.lastIndex;
+      }
+      if (lastIndex < text.length) {
+        parts.push(text.substring(lastIndex));
+      }
+      return <div className="space-y-2">{parts}</div>;
+    }
+
+    if (text.trim().startsWith('http') && (text.includes('.png') || text.includes('.jpg') || text.includes('.jpeg') || text.includes('.webp') || text.includes('supabase.co'))) {
+      return (
+        <div className="my-3 text-center">
+          <img src={text.trim()} alt="Graph/Image" className="max-w-full h-auto mx-auto rounded-lg border border-slate-300 shadow-sm bg-white p-1" />
+        </div>
+      );
+    }
+
+    return <div className="whitespace-pre-line">{text}</div>;
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#F4F6F9] text-slate-800 flex items-center justify-center font-bold">
@@ -719,8 +756,8 @@ export default function TCSiONMockTestPlayerPage() {
                 <div className="bg-blue-50 border-l-4 border-[#1D63B8] px-3 py-1.5 text-[11px] font-bold text-[#1D63B8] uppercase mb-3">
                   Directions / Passage Context
                 </div>
-                <div className="text-xs text-slate-800 leading-relaxed font-medium whitespace-pre-line font-serif">
-                  {activeQuestion.passageText}
+                <div className="text-xs text-slate-800 leading-relaxed font-medium font-serif">
+                  {renderContentWithImages(activeQuestion.passageText || '')}
                 </div>
               </div>
 
@@ -731,9 +768,9 @@ export default function TCSiONMockTestPlayerPage() {
                     <span className="text-emerald-700">Marks: +{activeQuestion.marks || 1.0} / -{activeQuestion.negativeMarks || 0.25}</span>
                   </div>
 
-                  <h3 className="text-xs md:text-sm font-bold text-slate-900 leading-relaxed">
-                    {activeQuestion.questionText}
-                  </h3>
+                  <div className="text-xs md:text-sm font-bold text-slate-900 leading-relaxed">
+                    {renderContentWithImages(activeQuestion.questionText)}
+                  </div>
 
                   <div className="space-y-2 pt-2">
                     {activeQuestion.options.map((opt, optIdx) => {
@@ -767,7 +804,7 @@ export default function TCSiONMockTestPlayerPage() {
                             }`}>
                               {String.fromCharCode(65 + optIdx)}
                             </span>
-                            <span>{opt}</span>
+                            <span>{renderContentWithImages(opt)}</span>
                           </div>
                           {isSubmitted && isCorrect && <span className="text-emerald-700 font-bold text-xs">✓ Correct</span>}
                           {isSubmitted && isSelected && !isCorrect && <span className="text-rose-700 font-bold text-xs">✗ Yours</span>}
@@ -780,7 +817,7 @@ export default function TCSiONMockTestPlayerPage() {
                 {isSubmitted && activeQuestion.explanation && (
                   <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded text-xs space-y-1">
                     <span className="font-bold text-amber-900 block">💡 Solution & Explanation:</span>
-                    <p className="text-slate-800 leading-relaxed">{activeQuestion.explanation}</p>
+                    <div className="text-slate-800 leading-relaxed">{renderContentWithImages(activeQuestion.explanation)}</div>
                   </div>
                 )}
               </div>
@@ -793,9 +830,9 @@ export default function TCSiONMockTestPlayerPage() {
                 <span className="text-emerald-700">Marks: +{activeQuestion.marks || 1.0} / -{activeQuestion.negativeMarks || 0.25}</span>
               </div>
 
-              <h3 className="text-xs md:text-base font-bold text-slate-900 leading-relaxed">
-                {activeQuestion.questionText}
-              </h3>
+              <div className="text-xs md:text-base font-bold text-slate-900 leading-relaxed">
+                {renderContentWithImages(activeQuestion.questionText)}
+              </div>
 
               <div className="flex flex-col gap-3 pt-2">
                 {activeQuestion.options.map((opt, optIdx) => {
@@ -829,7 +866,7 @@ export default function TCSiONMockTestPlayerPage() {
                         }`}>
                           {String.fromCharCode(65 + optIdx)}
                         </span>
-                        <span>{opt}</span>
+                        <span>{renderContentWithImages(opt)}</span>
                       </div>
                       {isSubmitted && isCorrect && <span className="text-emerald-700 font-bold text-xs">✓ Correct</span>}
                       {isSubmitted && isSelected && !isCorrect && <span className="text-rose-700 font-bold text-xs">✗ Yours</span>}
@@ -841,7 +878,7 @@ export default function TCSiONMockTestPlayerPage() {
               {isSubmitted && activeQuestion.explanation && (
                 <div className="mt-4 p-3.5 bg-amber-50 border border-amber-200 rounded-lg text-xs space-y-1">
                   <span className="font-bold text-amber-900 block">💡 Solution & Explanation:</span>
-                  <p className="text-slate-800 leading-relaxed">{activeQuestion.explanation}</p>
+                  <div className="text-slate-800 leading-relaxed">{renderContentWithImages(activeQuestion.explanation)}</div>
                 </div>
               )}
             </div>
