@@ -612,15 +612,23 @@ export default function AdminPage() {
     setLoadingAnalytics(true);
 
     try {
+      // 1. Fetch test questions and check-off parsing if it's a string
       const { data: testData, error: testErr } = await supabase
         .from('mock_tests')
-        .select('questions')
+        .select('questions, total_marks')
         .eq('id', mockId)
         .single();
 
       if (testErr || !testData) throw new Error("Could not fetch test questions.");
-      const questions = testData.questions || [];
+      
+      let questions: any[] = [];
+      if (typeof testData.questions === 'string') {
+        try { questions = JSON.parse(testData.questions); } catch (e) {}
+      } else if (Array.isArray(testData.questions)) {
+        questions = testData.questions;
+      }
 
+      // 2. Fetch all attempts for this test
       const { data: attempts, error: attErr } = await supabase
         .from('mock_attempts')
         .select('*')
@@ -633,18 +641,21 @@ export default function AdminPage() {
         return;
       }
 
+      // 3. Loop through each student attempt and evaluate against questions
       for (const attempt of attempts) {
         let newScore = 0;
-        const userResponses = attempt.user_answers || attempt.answers || attempt.responses || {};
+        
+        // Grab from 'answers' first (since your DB sample had data there), fallback to 'user_answers'
+        let userResponses = attempt.answers || attempt.user_answers || {};
+        if (typeof userResponses === 'string') {
+          try { userResponses = JSON.parse(userResponses); } catch (e) { userResponses = {}; }
+        }
 
         questions.forEach((q: any, idx: number) => {
-          let selectedOption = undefined;
-
-          if (typeof userResponses === 'object' && !Array.isArray(userResponses)) {
-            selectedOption = userResponses[q.id] !== undefined ? userResponses[q.id] : userResponses[idx];
-          } else if (Array.isArray(userResponses)) {
-            selectedOption = userResponses[idx];
-          }
+          // Robust lookup supporting q.id, numeric index (idx), and string index ('0', '1', etc.)
+          const selectedOption = userResponses[q.id] !== undefined 
+            ? userResponses[q.id] 
+            : (userResponses[idx] !== undefined ? userResponses[idx] : userResponses[String(idx)]);
 
           if (selectedOption !== undefined && selectedOption !== null && selectedOption !== '') {
             if (Number(selectedOption) === Number(q.correctOptionIndex)) {
@@ -655,8 +666,10 @@ export default function AdminPage() {
           }
         });
 
-        const finalScore = Number(newScore.toFixed(2));
+        // Ensure score doesn't drop below 0
+        const finalScore = Number(Math.max(0, newScore).toFixed(2));
 
+        // Update the score back into Supabase
         await supabase
           .from('mock_attempts')
           .update({ score: finalScore })
