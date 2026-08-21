@@ -104,9 +104,11 @@ export default function AdminPage() {
     | 'targets_manager'
     | 'mock_analytics'
     | 'computer_quiz'
+    | 'critical_reasoning_manager'
     | 'ebook_manager'
+    | 'student_purchases'
   >('updates_publisher');
-
+  const [allPurchases, setAllPurchases] = useState<any[]>([]);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [authEmail, setAuthEmail] = useState('');
@@ -243,6 +245,15 @@ export default function AdminPage() {
   const [eBookFile, setEBookFile] = useState<File | null>(null);
   const [eBookCover, setEBookCover] = useState<File | null>(null);
   const [allEBooks, setAllEBooks] = useState<EBook[]>([]);
+  
+  // Critical Reasoning States
+  const [crChapters, setCrChapters] = useState<any[]>([]);
+  const [crTitle, setCrTitle] = useState('');
+  const [crMarkdown, setCrMarkdown] = useState('');
+  const [crChapterNo, setCrChapterNo] = useState(1);
+  const [crLanguage, setCrLanguage] = useState<'english' | 'hinglish'>('english');
+  const [crIsLocked, setCrIsLocked] = useState(true);
+  const [crPdfUrl, setCrPdfUrl] = useState('');
 
   useEffect(() => {
     checkAdminAuth();
@@ -322,7 +333,7 @@ export default function AdminPage() {
       setSubjects(subData);
       setSelectedSubject(subData[0].id);
     }
-
+    
     const { data: subCatData } = await supabase
       .from('exam_sub_categories')
       .select('*')
@@ -333,6 +344,12 @@ export default function AdminPage() {
         setDirectMockSubCategoryId(subCatData[0].id);
         setMockSubCategoryId(subCatData[0].id);
       }
+      const { data: purchaseData } = await supabase
+    .from('student_purchases')
+    .select('*, profiles(full_name, email, student_name)')
+    .order('created_at', { ascending: false });
+    
+  if (purchaseData) setAllPurchases(purchaseData);
     }
 
     const { data: examCatData } = await supabase.from('exam_categories').select('*').order('created_at', { ascending: false });
@@ -437,6 +454,20 @@ export default function AdminPage() {
     const { data } = await supabase.from('admin_computer_chapters').select('*').order('chapter_number');
     if (data) setCompChapters(data);
   }
+  async function fetchPurchases() {
+    setStatusMsg("Refreshing purchases data...");
+    const { data: purchaseData, error } = await supabase
+      .from('student_course_purchases') // Make sure this matches your exact purchases table name
+      .select('*, profiles(full_name, email, student_name)')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      setStatusMsg(`❌ Error refreshing purchases: ${error.message}`);
+    } else if (purchaseData) {
+      setAllPurchases(purchaseData);
+      setStatusMsg("✅ Purchases list refreshed successfully!");
+    }
+  }
 
   async function fetchAdminSettings() {
     const { data, error } = await supabase
@@ -447,6 +478,49 @@ export default function AdminPage() {
     if (!error && data?.launch_offer_ends_at) {
       const formattedDate = new Date(data.launch_offer_ends_at).toISOString().slice(0, 16);
       setLaunchOfferEnd(formattedDate);
+    }
+  }
+  async function fetchCriticalReasoningChapters() {
+    const { data } = await supabase
+      .from('admin_critical_reasoning_chapters')
+      .select('*')
+      .order('chapter_number', { ascending: true });
+    if (data) setCrChapters(data);
+  }
+
+  async function handleSaveCriticalReasoningChapter(e: React.FormEvent) {
+    e.preventDefault();
+    if (!crTitle.trim() || !crMarkdown.trim()) return setStatusMsg('⚠️ Please enter Title and Markdown!');
+
+    setStatusMsg('Saving Critical Reasoning Chapter...');
+    const { error } = await supabase.from('admin_critical_reasoning_chapters').upsert([{
+      chapter_number: crChapterNo,
+      language: crLanguage,
+      title: crTitle,
+      subtitle: `Critical Reasoning (${crLanguage.toUpperCase()})`,
+      markdown_content: crMarkdown,
+      is_locked: crIsLocked,
+      pdf_mcq_url: crPdfUrl.trim() || null
+    }], { onConflict: 'chapter_number,language' });
+
+    if (error) setStatusMsg(`Error: ${error.message}`);
+    else {
+      setStatusMsg(`✅ Critical Reasoning (${crLanguage.toUpperCase()}) Chapter Saved Successfully!`);
+      setCrTitle('');
+      setCrMarkdown('');
+      setCrPdfUrl('');
+      fetchCriticalReasoningChapters();
+    }
+  }
+
+  async function handleDeleteCriticalReasoningChapter(id: string) {
+    if (!confirm('Are you sure you want to delete this chapter?')) return;
+    const { error } = await supabase.from('admin_critical_reasoning_chapters').delete().eq('id', id);
+    if (!error) {
+      setStatusMsg('🗑️ Chapter deleted.');
+      fetchCriticalReasoningChapters();
+    } else {
+      setStatusMsg(`Error deleting: ${error.message}`);
     }
   }
 
@@ -1799,7 +1873,24 @@ export default function AdminPage() {
             >
               <span>💻</span> Quiz
             </Link>
+            <button
+              onClick={() => setActiveTab('critical_reasoning_manager')}
+              className={`px-3 py-1.5 font-bold rounded-md transition ${
+                activeTab === 'critical_reasoning_manager' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              🧠 Critical Reasoning
+            </button>
+             <button
+                onClick={() => setActiveTab('student_purchases')}
+                className={`px-3 py-1.5 font-bold rounded-md transition ${
+                  activeTab === 'student_purchases' ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                💰 Purchases & Revenue
+              </button>
           </div>
+
 
           <button
             onClick={handleLogout}
@@ -1815,7 +1906,77 @@ export default function AdminPage() {
           {statusMsg}
         </div>
       )}
+       {/* STUDENT PURCHASES & REVENUE TAB */}
+      {activeTab === 'student_purchases' && (
+        <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-6">
+          
+          {/* HEADER WITH REFRESH BUTTON */}
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-3 gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-slate-800">💰 Student Course & E-Book Purchases</h2>
+              <p className="text-xs text-slate-500">Track all successful transactions and enrolled students.</p>
+            </div>
 
+            <div className="flex items-center gap-3">
+              <div className="bg-emerald-50 border border-emerald-200 px-4 py-2 rounded-xl text-emerald-900 text-xs font-bold">
+                Total Revenue: ₹{allPurchases.reduce((acc, item) => acc + Number(item.amount_paid || 0), 0).toLocaleString('en-IN')}
+              </div>
+
+              <button
+                onClick={fetchPurchases}
+                className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl border border-slate-300 transition flex items-center gap-1.5 shadow-sm"
+              >
+                <span>🔄</span> Refresh
+              </button>
+            </div>
+          </div>
+
+          {/* TABLE DISPLAY */}
+          <div className="overflow-x-auto border border-slate-200 rounded-xl">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-100 text-slate-600 uppercase font-bold border-b border-slate-200">
+                <tr>
+                  <th className="p-3">Student Name / Email</th>
+                  <th className="p-3">Item Purchased</th>
+                  <th className="p-3 text-center">Type</th>
+                  <th className="p-3 text-center">Amount Paid</th>
+                  <th className="p-3 text-right">Purchase Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                {allPurchases.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="text-center py-12 text-slate-400">
+                      No purchases recorded yet.
+                    </td>
+                  </tr>
+                ) : (
+                  allPurchases.map((p) => (
+                    <tr key={p.id} className="hover:bg-slate-50 transition">
+                      <td className="p-3">
+                        <span className="font-bold text-slate-900 block">
+                          {p.profiles?.student_name || p.profiles?.full_name || 'Aspirant'}
+                        </span>
+                        <span className="text-[11px] text-slate-400">{p.profiles?.email || 'N/A'}</span>
+                      </td>
+                      <td className="p-3 font-bold text-slate-800">{p.item_title || p.course_name}</td>
+                      <td className="p-3 text-center">
+                        <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded uppercase">
+                          {p.item_type || 'course'}
+                        </span>
+                      </td>
+                      <td className="p-3 text-center font-black text-emerald-600">₹{p.amount_paid}</td>
+                      <td className="p-3 text-right text-slate-400">
+                        {p.created_at ? new Date(p.created_at).toLocaleString() : 'N/A'}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       {/* EXAM SUB-CARDS MANAGER TAB */}
       {activeTab === 'sub_cards_manager' && (
         <div className="space-y-6">
@@ -2325,7 +2486,139 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+      {/* CRITICAL REASONING CHAPTER BUILDER TAB */}
+      {activeTab === 'critical_reasoning_manager' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <form onSubmit={handleSaveCriticalReasoningChapter} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+              <h2 className="text-base font-bold text-slate-800 border-b pb-2">Add / Edit Critical Reasoning Chapter</h2>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Chapter Number</label>
+                  <input
+                    type="number"
+                    value={crChapterNo}
+                    onChange={(e) => setCrChapterNo(Number(e.target.value))}
+                    className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Language Mode</label>
+                  <select
+                    value={crLanguage}
+                    onChange={(e: any) => setCrLanguage(e.target.value)}
+                    className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold text-blue-600"
+                  >
+                    <option value="english">🇬🇧 English</option>
+                    <option value="hinglish">🇮🇳 Hinglish</option>
+                  </select>
+                </div>
+              </div>
 
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Chapter Title</label>
+                <input
+                  type="text"
+                  value={crTitle}
+                  onChange={(e) => setCrTitle(e.target.value)}
+                  placeholder="e.g. Assumptions & Inferences"
+                  className="w-full border p-2.5 rounded-lg text-sm bg-white"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Practice MCQ PDF URL (Optional)</label>
+                <input
+                  type="url"
+                  value={crPdfUrl}
+                  onChange={(e) => setCrPdfUrl(e.target.value)}
+                  placeholder="https://your-supabase-url/storage/v1/object/public/...pdf"
+                  className="w-full border p-2.5 rounded-lg text-sm bg-white"
+                />
+              </div>
+
+              <div className="flex items-center gap-3 py-2">
+                <input
+                  type="checkbox"
+                  id="crIsLockedCheck"
+                  checked={crIsLocked}
+                  onChange={(e) => setCrIsLocked(e.target.checked)}
+                  className="w-4 h-4 rounded accent-blue-600"
+                />
+                <label htmlFor="crIsLockedCheck" className="text-xs font-bold text-slate-700 cursor-pointer">
+                  🔒 Lock this chapter (Requires purchase; uncheck for free demo)
+                </label>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Content (Markdown Supported)</label>
+                <textarea
+                  rows={10}
+                  value={crMarkdown}
+                  onChange={(e) => setCrMarkdown(e.target.value)}
+                  placeholder="Write chapter content using Markdown (headings, tables, lists)..."
+                  className="w-full border p-2.5 rounded-lg text-xs font-mono bg-white"
+                  required
+                />
+              </div>
+
+              <button type="submit" className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow">
+                Save CR Chapter to Supabase 🚀
+              </button>
+            </form>
+
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+              <h2 className="text-base font-bold text-slate-800 border-b pb-2">Live Markdown Preview</h2>
+              <div className="prose prose-sm max-w-none max-h-[450px] overflow-y-auto p-4 bg-slate-50 rounded-lg border">
+                <h2 className="font-bold text-slate-900">{crTitle || 'Chapter Title Preview'}</h2>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{crMarkdown || '_Start typing markdown to preview..._'}</ReactMarkdown>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+            <h3 className="text-sm font-bold text-slate-800 border-b pb-2">Existing Critical Reasoning Chapters ({crChapters.length})</h3>
+            <div className="space-y-2">
+              {crChapters.map((ch) => (
+                <div key={ch.id} className="flex justify-between items-center p-3 border rounded-lg bg-slate-50">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded">Ch {ch.chapter_number}</span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${ch.language === 'hinglish' ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-800'}`}>
+                      {ch.language}
+                    </span>
+                    <span className="text-xs font-bold text-slate-800">{ch.title}</span>
+                    {ch.is_locked ? <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">🔒 Locked</span> : <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded">🔓 Free</span>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => {
+                        setCrChapterNo(ch.chapter_number);
+                        setCrLanguage(ch.language);
+                        setCrTitle(ch.title);
+                        setCrMarkdown(ch.markdown_content);
+                        setCrIsLocked(ch.is_locked);
+                        setCrPdfUrl(ch.pdf_mcq_url || '');
+                      }}
+                      className="px-3 py-1 bg-blue-100 text-blue-700 font-bold text-xs rounded-lg transition"
+                    >
+                      Edit ✏️
+                    </button>
+                    <button
+                      onClick={() => handleDeleteCriticalReasoningChapter(ch.id)}
+                      className="px-3 py-1 bg-rose-100 text-rose-700 font-bold text-xs rounded-lg transition"
+                    >
+                      Delete 🗑️
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       {/* COMPUTER AWARENESS CHAPTER BUILDER TAB */}
       {activeTab === 'computer_quiz' && (
         <div className="space-y-6">
@@ -3198,7 +3491,7 @@ export default function AdminPage() {
           </button>
         </form>
       )}
-
+      
       {/* BULK UPLOAD TAB */}
       {activeTab === 'bulk_upload' && (
         <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-4">
