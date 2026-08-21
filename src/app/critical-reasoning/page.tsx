@@ -23,16 +23,74 @@ export default function CriticalReasoningReaderPage() {
   const [selectedChapterNo, setSelectedChapterNo] = useState<number>(1);
   const [languageMode, setLanguageMode] = useState<'english' | 'hinglish'>('english');
   const [user, setUser] = useState<any>(null);
+  const [hasPurchased, setHasPurchased] = useState(false);
+  const [expiresAtDate, setExpiresAtDate] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [couponInput, setCouponInput] = useState('');
+  const [isCouponApplied, setIsCouponApplied] = useState(false);
+  const [couponError, setCouponError] = useState('');
+
+  // Dynamic Pricing States (Fetched from admin settings)
+  const [originalPrice, setOriginalPrice] = useState(1999);
+  const [launchPrice, setLaunchPrice] = useState(499);
+  const [couponDiscountedPrice, setCouponDiscountedPrice] = useState(249);
+
+  const currentPrice = isCouponApplied ? couponDiscountedPrice : launchPrice;
 
   useEffect(() => {
-    checkUserAndFetchChapters();
+    checkUserAndPurchases();
+    fetchPricingSettings();
+    
+    // Load Razorpay Script dynamically
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.async = true;
+    document.body.appendChild(script);
   }, []);
 
-  async function checkUserAndFetchChapters() {
+  async function fetchPricingSettings() {
+    try {
+      const { data } = await supabase
+        .from('admin_settings')
+        .select('setting_key, setting_value')
+        .in('setting_key', ['cr_original_price', 'cr_launch_price', 'cr_coupon_price']);
+
+      if (data) {
+        data.forEach((item) => {
+          if (item.setting_key === 'cr_original_price') setOriginalPrice(Number(item.setting_value));
+          if (item.setting_key === 'cr_launch_price') setLaunchPrice(Number(item.setting_value));
+          if (item.setting_key === 'cr_coupon_price') setCouponDiscountedPrice(Number(item.setting_value));
+        });
+      }
+    } catch (e) {
+      console.error("Error fetching pricing settings:", e);
+    }
+  }
+
+  async function checkUserAndPurchases() {
     setLoading(true);
     const { data: { session } } = await supabase.auth.getSession();
+    
     if (session?.user) {
+      setCurrentUserId(session.user.id);
       setUser(session.user);
+
+      // Check if student has purchased Critical Reasoning
+      const { data: purchaseData } = await supabase
+        .from('student_course_purchases')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .ilike('course_name', '%Critical Reasoning%')
+        .single();
+
+      if (purchaseData && purchaseData.expires_at) {
+        const expiresAt = new Date(purchaseData.expires_at);
+        if (expiresAt > new Date()) {
+          setHasPurchased(true);
+          setExpiresAtDate(expiresAt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }));
+        }
+      }
     }
 
     const { data, error } = await supabase
@@ -47,13 +105,80 @@ export default function CriticalReasoningReaderPage() {
     setLoading(false);
   }
 
-  // Get unique chapter numbers available in the system
-  const uniqueChapterNumbers = Array.from(new Set(chapters.map((c) => c.chapter_number)));
+  const handleApplyCoupon = (e: React.FormEvent) => {
+    e.preventDefault();
+    setCouponError('');
+    if (couponInput.trim().toUpperCase() === 'BSOL') {
+      setIsCouponApplied(true);
+      setCouponError('');
+    } else {
+      setCouponError('❌ Invalid Coupon Code. Try "BSOL"');
+      setIsCouponApplied(false);
+    }
+  };
 
-  // Find the active chapter matching the selected number and current language mode
+  const handleBuyCourse = async () => {
+    if (!currentUserId) {
+      alert('Please log in to your account first to purchase the course!');
+      window.location.href = '/login';
+      return;
+    }
+
+    setIsProcessingPayment(true);
+    const amountInPaise = currentPrice * 100;
+
+    const options = {
+      key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_YOUR_KEY_HERE',
+      amount: amountInPaise,
+      currency: 'INR',
+      name: 'BankingSolutions',
+      description: `Critical Reasoning Mastery (${isCouponApplied ? `BSOL Offer - ₹${couponDiscountedPrice}` : `Launch Offer - ₹${launchPrice}`})`,
+      handler: async function (response: any) {
+        const expiryDate = new Date();
+        expiryDate.setMonth(expiryDate.getMonth() + 6); // 6 Months Access
+
+        const { error } = await supabase.from('student_course_purchases').upsert([
+          {
+            user_id: currentUserId,
+            course_name: 'Critical Reasoning Mastery Course',
+            amount_paid: currentPrice,
+            payment_id: response.razorpay_payment_id,
+            expires_at: expiryDate.toISOString(),
+          },
+        ], { onConflict: 'user_id,course_name' });
+
+        if (error) {
+          console.error("Purchase DB Error:", error);
+          alert(`Payment received, but DB update failed: ${error.message}`);
+        } else {
+          setHasPurchased(true);
+          setExpiresAtDate(expiryDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }));
+          alert('🎉 Payment Successful! You have 6 months of full access.');
+        }
+        setIsProcessingPayment(false);
+      },
+      prefill: {
+        name: user?.user_metadata?.full_name || 'Banking Aspirant',
+        email: user?.email || '',
+      },
+      theme: { color: '#1D63B8' },
+    };
+
+    if (typeof window !== 'undefined' && (window as any).Razorpay) {
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    } else {
+      alert('Razorpay SDK failed to load. Please check your internet connection.');
+      setIsProcessingPayment(false);
+    }
+  };
+
+  const uniqueChapterNumbers = Array.from(new Set(chapters.map((c) => c.chapter_number)));
   const activeChapter = chapters.find(
     (c) => c.chapter_number === selectedChapterNo && c.language === languageMode
-  ) || chapters.find((c) => c.chapter_number === selectedChapterNo); // fallback if exact language missing
+  ) || chapters.find((c) => c.chapter_number === selectedChapterNo);
+
+  const isChapterLocked = activeChapter?.is_locked && !hasPurchased;
 
   if (loading) {
     return (
@@ -79,7 +204,21 @@ export default function CriticalReasoningReaderPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* LANGUAGE SWITCHER DROPDOWN / TOGGLE */}
+          {!hasPurchased ? (
+            <button
+              onClick={handleBuyCourse}
+              className="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs rounded-xl shadow-lg transition animate-pulse flex items-center gap-2"
+            >
+              <span>🔥 Launch Offer: <span className="line-through opacity-75 font-normal">₹{originalPrice}</span> <strong className="text-sm">₹{currentPrice}</strong></span>
+              {isCouponApplied && <span className="bg-slate-950 text-amber-400 text-[10px] px-1.5 py-0.5 rounded">BSOL Applied</span>}
+            </button>
+          ) : (
+            <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[11px] font-bold rounded-lg">
+              ✨ Valid Till: {expiresAtDate}
+            </span>
+          )}
+
+          {/* LANGUAGE SWITCHER */}
           <div className="flex bg-slate-950 border border-slate-700 p-1 rounded-xl">
             <button
               onClick={() => setLanguageMode('english')}
@@ -129,7 +268,7 @@ export default function CriticalReasoningReaderPage() {
                   }`}
                 >
                   <span className="truncate">Chapter {chNo}: {chObj?.title || 'Module'}</span>
-                  {chObj?.is_locked && <span className="text-[10px]">🔒</span>}
+                  {chObj?.is_locked && !hasPurchased && <span className="text-[10px]">🔒</span>}
                 </button>
               );
             })}
@@ -144,7 +283,71 @@ export default function CriticalReasoningReaderPage() {
               <h3 className="text-base font-bold text-white">No Chapter Selected</h3>
               <p className="text-xs">Select a chapter from the sidebar or check back later for updates.</p>
             </div>
+          ) : isChapterLocked ? (
+            /* 🔒 PAYWALL & COUPON LOCK SCREEN */
+            <div className="text-center py-12 px-6 space-y-6 bg-slate-950/50 border border-amber-500/20 rounded-2xl">
+              <div className="w-16 h-16 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-2xl flex items-center justify-center text-3xl mx-auto shadow-inner">
+                🔒
+              </div>
+              <div className="space-y-2 max-w-md mx-auto">
+                <span className="text-[10px] font-extrabold uppercase bg-amber-500/20 text-amber-400 px-3 py-1 rounded-full">
+                  Locked Premium Chapter
+                </span>
+                <h3 className="text-xl font-black text-white">Chapter {activeChapter.chapter_number}: {activeChapter.title}</h3>
+                
+                <div className="py-2 flex items-center justify-center gap-3">
+                  <span className="text-lg text-slate-500 line-through font-bold">₹{originalPrice}</span>
+                  <span className="text-2xl font-black text-amber-400">₹{launchPrice}</span>
+                  <span className="text-[10px] bg-emerald-500/20 text-emerald-400 font-bold px-2 py-0.5 rounded">Launch Offer</span>
+                </div>
+
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Unlock the complete Critical Reasoning Masterclass for 6 months. Use coupon code <strong className="text-amber-400 font-mono bg-amber-400/10 px-1.5 py-0.5 rounded">BSOL</strong> to get it for just <span className="text-white font-bold">₹{couponDiscountedPrice}</span>!
+                </p>
+              </div>
+
+              {/* Coupon Input Box */}
+              <div className="max-w-xs mx-auto space-y-2">
+                <form onSubmit={handleApplyCoupon} className="flex gap-2">
+                  <input
+                    type="text"
+                    value={couponInput}
+                    onChange={(e) => setCouponInput(e.target.value)}
+                    placeholder="Enter code (e.g. BSOL)"
+                    className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs uppercase font-mono text-white placeholder-slate-500 focus:border-amber-500 outline-none"
+                  />
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl border border-slate-700 transition"
+                  >
+                    Apply
+                  </button>
+                </form>
+                {isCouponApplied && (
+                  <p className="text-xs text-emerald-400 font-bold">🎉 Coupon BSOL Applied! Price is now ₹{couponDiscountedPrice}</p>
+                )}
+                {couponError && (
+                  <p className="text-xs text-rose-400 font-bold">{couponError}</p>
+                )}
+              </div>
+
+              <div className="pt-2">
+                <button
+                  onClick={handleBuyCourse}
+                  disabled={isProcessingPayment}
+                  className="px-8 py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs rounded-xl shadow-lg transition tracking-wide disabled:opacity-50"
+                >
+                  {isProcessingPayment ? 'Processing...' : `🚀 Pay ₹${currentPrice} & Unlock Critical Reasoning`}
+                </button>
+                {!user && (
+                  <p className="text-[11px] text-slate-500 mt-3">
+                    Already purchased? <Link href="/login" className="text-blue-400 underline">Sign in</Link> to your account.
+                  </p>
+                )}
+              </div>
+            </div>
           ) : (
+            /* 🔓 UNLOCKED CONTENT */
             <div className="space-y-6">
               <div className="flex justify-between items-start border-b border-slate-800 pb-4 flex-wrap gap-3">
                 <div>

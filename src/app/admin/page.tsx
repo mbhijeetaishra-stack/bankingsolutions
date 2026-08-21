@@ -115,6 +115,13 @@ export default function AdminPage() {
   const [authPassword, setAuthPassword] = useState('');
   const [authError, setAuthError] = useState('');
 
+  // Critical Reasoning Pricing States
+  const [crOriginalPrice, setCrOriginalPrice] = useState('1999');
+  const [crLaunchPrice, setCrLaunchPrice] = useState('499');
+  const [crCouponPrice, setCrCouponPrice] = useState('249');
+  const [pricingStatusMsg, setPricingStatusMsg] = useState('');
+
+
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [selectedSubject, setSelectedSubject] = useState<string>('');
   const [statusMsg, setStatusMsg] = useState('');
@@ -326,7 +333,22 @@ export default function AdminPage() {
     await supabase.auth.signOut();
     setIsAdmin(false);
   }
+  // Inside your existing load/fetch function:
+    async function fetchAdminPricing() {
+      const { data } = await supabase
+        .from('admin_settings')
+        .select('*')
+        .in('setting_key', ['cr_original_price', 'cr_launch_price', 'cr_coupon_price']);
 
+      if (data) {
+        data.forEach((item) => {
+          if (item.setting_key === 'cr_original_price') setCrOriginalPrice(item.setting_value);
+          if (item.setting_key === 'cr_launch_price') setCrLaunchPrice(item.setting_value);
+          if (item.setting_key === 'cr_coupon_price') setCrCouponPrice(item.setting_value);
+        });
+      }
+    }
+  
   async function fetchInitialData() {
     const { data: subData } = await supabase.from('subjects').select('*');
     if (subData && subData.length > 0) {
@@ -544,6 +566,24 @@ export default function AdminPage() {
     }
     setSavingTimer(false);
   };
+
+  async function handleSavePricing(e: React.FormEvent) {
+    e.preventDefault();
+    setPricingStatusMsg('Saving pricing...');
+
+    const { error } = await supabase.from('admin_settings').upsert([
+      { setting_key: 'cr_original_price', setting_value: crOriginalPrice },
+      { setting_key: 'cr_launch_price', setting_value: crLaunchPrice },
+      { setting_key: 'cr_coupon_price', setting_value: crCouponPrice },
+    ], { onConflict: 'setting_key' });
+
+    if (error) {
+      setPricingStatusMsg(`❌ Error: ${error.message}`);
+    } else {
+      setPricingStatusMsg('✅ Course pricing updated successfully!');
+      setTimeout(() => setPricingStatusMsg(''), 4000);
+    }
+  }
 
   async function handleSaveComputerChapter(e: React.FormEvent) {
     e.preventDefault();
@@ -2486,139 +2526,195 @@ export default function AdminPage() {
           </div>
         </div>
       )}
-      {/* CRITICAL REASONING CHAPTER BUILDER TAB */}
-      {activeTab === 'critical_reasoning_manager' && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <form onSubmit={handleSaveCriticalReasoningChapter} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
-              <h2 className="text-base font-bold text-slate-800 border-b pb-2">Add / Edit Critical Reasoning Chapter</h2>
-              
-              <div className="grid grid-cols-2 gap-4">
+      {/* CRITICAL REASONING CHAPTER BUILDER & PRICING TAB */}
+        {activeTab === 'critical_reasoning_manager' && (
+          <div className="space-y-6">
+            
+            {/* 🏷️ NEW: PRICING CONTROL CARD */}
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4 max-w-full">
+              <div className="border-b pb-3 flex justify-between items-center">
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Chapter Number</label>
+                  <h2 className="text-base font-bold text-slate-800">🏷️ Critical Reasoning Course Pricing Control</h2>
+                  <p className="text-xs text-slate-500">Live prices and discount offers shown on the Critical Reasoning reader page.</p>
+                </div>
+                {pricingStatusMsg && <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200">{pricingStatusMsg}</span>}
+              </div>
+
+              <form onSubmit={handleSavePricing} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                <div>
+                  <label className="text-xs font-bold uppercase text-slate-500 block mb-1">Original Price (Crossed)</label>
                   <input
                     type="number"
-                    value={crChapterNo}
-                    onChange={(e) => setCrChapterNo(Number(e.target.value))}
-                    className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold"
+                    value={crOriginalPrice}
+                    onChange={(e) => setCrOriginalPrice(e.target.value)}
+                    className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold text-slate-800"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Language Mode</label>
-                  <select
-                    value={crLanguage}
-                    onChange={(e: any) => setCrLanguage(e.target.value)}
-                    className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold text-blue-600"
+                  <label className="text-xs font-bold uppercase text-slate-500 block mb-1">Launch Offer Price</label>
+                  <input
+                    type="number"
+                    value={crLaunchPrice}
+                    onChange={(e) => setCrLaunchPrice(e.target.value)}
+                    className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold text-amber-600"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold uppercase text-slate-500 block mb-1">Price with Code 'BSOL'</label>
+                  <input
+                    type="number"
+                    value={crCouponPrice}
+                    onChange={(e) => setCrCouponPrice(e.target.value)}
+                    className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold text-emerald-600"
+                    required
+                  />
+                </div>
+                <div>
+                  <button
+                    type="submit"
+                    className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow transition"
                   >
-                    <option value="english">🇬🇧 English</option>
-                    <option value="hinglish">🇮🇳 Hinglish</option>
-                  </select>
+                    Save Pricing 💾
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* EXISTING CHAPTER BUILDER FORM */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <form onSubmit={handleSaveCriticalReasoningChapter} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                <h2 className="text-base font-bold text-slate-800 border-b pb-2">Add / Edit Critical Reasoning Chapter</h2>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Chapter Number</label>
+                    <input
+                      type="number"
+                      value={crChapterNo}
+                      onChange={(e) => setCrChapterNo(Number(e.target.value))}
+                      className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Language Mode</label>
+                    <select
+                      value={crLanguage}
+                      onChange={(e: any) => setCrLanguage(e.target.value)}
+                      className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold text-blue-600"
+                    >
+                      <option value="english">🇬🇧 English</option>
+                      <option value="hinglish">🇮🇳 Hinglish</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Chapter Title</label>
+                  <input
+                    type="text"
+                    value={crTitle}
+                    onChange={(e) => setCrTitle(e.target.value)}
+                    placeholder="e.g. Assumptions & Inferences"
+                    className="w-full border p-2.5 rounded-lg text-sm bg-white"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Practice MCQ PDF URL (Optional)</label>
+                  <input
+                    type="url"
+                    value={crPdfUrl}
+                    onChange={(e) => setCrPdfUrl(e.target.value)}
+                    placeholder="https://your-supabase-url/storage/v1/object/public/...pdf"
+                    className="w-full border p-2.5 rounded-lg text-sm bg-white"
+                  />
+                </div>
+
+                <div className="flex items-center gap-3 py-2">
+                  <input
+                    type="checkbox"
+                    id="crIsLockedCheck"
+                    checked={crIsLocked}
+                    onChange={(e) => setCrIsLocked(e.target.checked)}
+                    className="w-4 h-4 rounded accent-blue-600"
+                  />
+                  <label htmlFor="crIsLockedCheck" className="text-xs font-bold text-slate-700 cursor-pointer">
+                    🔒 Lock this chapter (Requires purchase; uncheck for free demo)
+                  </label>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Content (Markdown Supported)</label>
+                  <textarea
+                    rows={10}
+                    value={crMarkdown}
+                    onChange={(e) => setCrMarkdown(e.target.value)}
+                    placeholder="Write chapter content using Markdown..."
+                    className="w-full border p-2.5 rounded-lg text-xs font-mono bg-white"
+                    required
+                  />
+                </div>
+
+                <button type="submit" className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow">
+                  Save CR Chapter to Supabase 🚀
+                </button>
+              </form>
+
+              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                <h2 className="text-base font-bold text-slate-800 border-b pb-2">Live Markdown Preview</h2>
+                <div className="prose prose-sm max-w-none max-h-[450px] overflow-y-auto p-4 bg-slate-50 rounded-lg border">
+                  <h2 className="font-bold text-slate-900">{crTitle || 'Chapter Title Preview'}</h2>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{crMarkdown || '_Start typing markdown to preview..._'}</ReactMarkdown>
                 </div>
               </div>
+            </div>
 
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Chapter Title</label>
-                <input
-                  type="text"
-                  value={crTitle}
-                  onChange={(e) => setCrTitle(e.target.value)}
-                  placeholder="e.g. Assumptions & Inferences"
-                  className="w-full border p-2.5 rounded-lg text-sm bg-white"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Practice MCQ PDF URL (Optional)</label>
-                <input
-                  type="url"
-                  value={crPdfUrl}
-                  onChange={(e) => setCrPdfUrl(e.target.value)}
-                  placeholder="https://your-supabase-url/storage/v1/object/public/...pdf"
-                  className="w-full border p-2.5 rounded-lg text-sm bg-white"
-                />
-              </div>
-
-              <div className="flex items-center gap-3 py-2">
-                <input
-                  type="checkbox"
-                  id="crIsLockedCheck"
-                  checked={crIsLocked}
-                  onChange={(e) => setCrIsLocked(e.target.checked)}
-                  className="w-4 h-4 rounded accent-blue-600"
-                />
-                <label htmlFor="crIsLockedCheck" className="text-xs font-bold text-slate-700 cursor-pointer">
-                  🔒 Lock this chapter (Requires purchase; uncheck for free demo)
-                </label>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Content (Markdown Supported)</label>
-                <textarea
-                  rows={10}
-                  value={crMarkdown}
-                  onChange={(e) => setCrMarkdown(e.target.value)}
-                  placeholder="Write chapter content using Markdown (headings, tables, lists)..."
-                  className="w-full border p-2.5 rounded-lg text-xs font-mono bg-white"
-                  required
-                />
-              </div>
-
-              <button type="submit" className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow">
-                Save CR Chapter to Supabase 🚀
-              </button>
-            </form>
-
+            {/* EXISTING CHAPTERS LIST */}
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
-              <h2 className="text-base font-bold text-slate-800 border-b pb-2">Live Markdown Preview</h2>
-              <div className="prose prose-sm max-w-none max-h-[450px] overflow-y-auto p-4 bg-slate-50 rounded-lg border">
-                <h2 className="font-bold text-slate-900">{crTitle || 'Chapter Title Preview'}</h2>
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{crMarkdown || '_Start typing markdown to preview..._'}</ReactMarkdown>
+              <h3 className="text-sm font-bold text-slate-800 border-b pb-2">Existing Critical Reasoning Chapters ({crChapters.length})</h3>
+              <div className="space-y-2">
+                {crChapters.map((ch) => (
+                  <div key={ch.id} className="flex justify-between items-center p-3 border rounded-lg bg-slate-50">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded">Ch {ch.chapter_number}</span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${ch.language === 'hinglish' ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-800'}`}>
+                        {ch.language}
+                      </span>
+                      <span className="text-xs font-bold text-slate-800">{ch.title}</span>
+                      {ch.is_locked ? <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">🔒 Locked</span> : <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded">🔓 Free</span>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => {
+                          setCrChapterNo(ch.chapter_number);
+                          setCrLanguage(ch.language);
+                          setCrTitle(ch.title);
+                          setCrMarkdown(ch.markdown_content);
+                          setCrIsLocked(ch.is_locked);
+                          setCrPdfUrl(ch.pdf_mcq_url || '');
+                        }}
+                        className="px-3 py-1 bg-blue-100 text-blue-700 font-bold text-xs rounded-lg transition"
+                      >
+                        Edit ✏️
+                      </button>
+                      <button
+                        onClick={() => handleDeleteCriticalReasoningChapter(ch.id)}
+                        className="px-3 py-1 bg-rose-100 text-rose-700 font-bold text-xs rounded-lg transition"
+                      >
+                        Delete 🗑️
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
-          </div>
 
-          <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
-            <h3 className="text-sm font-bold text-slate-800 border-b pb-2">Existing Critical Reasoning Chapters ({crChapters.length})</h3>
-            <div className="space-y-2">
-              {crChapters.map((ch) => (
-                <div key={ch.id} className="flex justify-between items-center p-3 border rounded-lg bg-slate-50">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded">Ch {ch.chapter_number}</span>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${ch.language === 'hinglish' ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-800'}`}>
-                      {ch.language}
-                    </span>
-                    <span className="text-xs font-bold text-slate-800">{ch.title}</span>
-                    {ch.is_locked ? <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">🔒 Locked</span> : <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded">🔓 Free</span>}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button 
-                      onClick={() => {
-                        setCrChapterNo(ch.chapter_number);
-                        setCrLanguage(ch.language);
-                        setCrTitle(ch.title);
-                        setCrMarkdown(ch.markdown_content);
-                        setCrIsLocked(ch.is_locked);
-                        setCrPdfUrl(ch.pdf_mcq_url || '');
-                      }}
-                      className="px-3 py-1 bg-blue-100 text-blue-700 font-bold text-xs rounded-lg transition"
-                    >
-                      Edit ✏️
-                    </button>
-                    <button
-                      onClick={() => handleDeleteCriticalReasoningChapter(ch.id)}
-                      className="px-3 py-1 bg-rose-100 text-rose-700 font-bold text-xs rounded-lg transition"
-                    >
-                      Delete 🗑️
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
           </div>
-        </div>
-      )}
+        )}
       {/* COMPUTER AWARENESS CHAPTER BUILDER TAB */}
       {activeTab === 'computer_quiz' && (
         <div className="space-y-6">
