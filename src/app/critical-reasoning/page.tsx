@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { evaluatePromoCoupon, checkAndClaimEmailGrants } from '@/lib/monetization';
+import AuthModal from '@/components/AuthModal';
 
 interface Chapter {
   id: string;
@@ -30,6 +32,7 @@ export default function CriticalReasoningReaderPage() {
   const [couponInput, setCouponInput] = useState('');
   const [isCouponApplied, setIsCouponApplied] = useState(false);
   const [couponError, setCouponError] = useState('');
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
 
   // Dynamic Pricing States (Fetched from admin settings)
   const [originalPrice, setOriginalPrice] = useState(1999);
@@ -75,6 +78,24 @@ export default function CriticalReasoningReaderPage() {
     if (session?.user) {
       setCurrentUserId(session.user.id);
       setUser(session.user);
+      const emailGrants = await checkAndClaimEmailGrants(session.user);
+      const matchedGrant = emailGrants.find(
+        (g) =>
+          g.courseName.toLowerCase().includes('critical reasoning') ||
+          g.courseName.toLowerCase().includes('pro pass')
+      );
+      if (matchedGrant) {
+        setHasPurchased(true);
+        setExpiresAtDate(
+          matchedGrant.expiresAt
+            ? new Date(matchedGrant.expiresAt).toLocaleDateString('en-IN', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+              })
+            : 'Lifetime Access'
+        );
+      }
 
       // Check if student has purchased Critical Reasoning
       const { data: purchaseData } = await supabase
@@ -108,7 +129,9 @@ export default function CriticalReasoningReaderPage() {
   const handleApplyCoupon = (e: React.FormEvent) => {
     e.preventDefault();
     setCouponError('');
-    if (couponInput.trim().toUpperCase() === 'BSOL') {
+    const evalRes = evaluatePromoCoupon(couponInput, launchPrice, 'CRITICAL_REASONING', couponDiscountedPrice);
+    if (evalRes.valid) {
+      setCouponDiscountedPrice(evalRes.finalPrice);
       setIsCouponApplied(true);
       setCouponError('');
     } else {
@@ -119,12 +142,34 @@ export default function CriticalReasoningReaderPage() {
 
   const handleBuyCourse = async () => {
     if (!currentUserId) {
-      alert('Please log in to your account first to purchase the course!');
-      window.location.href = '/login';
+      setIsAuthOpen(true);
       return;
     }
 
     setIsProcessingPayment(true);
+    if (currentPrice <= 0) {
+      const expiryDate = new Date();
+      expiryDate.setMonth(expiryDate.getMonth() + 6);
+      const { error } = await supabase.from('student_course_purchases').upsert([
+        {
+          user_id: currentUserId,
+          course_name: 'Critical Reasoning Mastery Course',
+          amount_paid: 0,
+          payment_id: `FREE_COUPON_${couponInput.toUpperCase() || '100OFF'}`,
+          expires_at: expiryDate.toISOString(),
+        },
+      ], { onConflict: 'user_id,course_name' });
+      if (error) {
+        alert(`Activation failed: ${error.message}`);
+      } else {
+        setHasPurchased(true);
+        setExpiresAtDate(expiryDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }));
+        alert('🎉 100% Discount Applied! You now have 6 months of full access to Critical Reasoning Mastery.');
+      }
+      setIsProcessingPayment(false);
+      return;
+    }
+
     const amountInPaise = currentPrice * 100;
 
     const options = {
@@ -283,6 +328,7 @@ export default function CriticalReasoningReaderPage() {
               <h3 className="text-base font-bold text-white">No Chapter Selected</h3>
               <p className="text-xs">Select a chapter from the sidebar or check back later for updates.</p>
             </div>
+            
           ) : isChapterLocked ? (
             /* 🔒 PAYWALL & COUPON LOCK SCREEN */
             <div className="text-center py-12 px-6 space-y-6 bg-slate-950/50 border border-amber-500/20 rounded-2xl">
@@ -367,6 +413,12 @@ export default function CriticalReasoningReaderPage() {
                     <span>📄 Download Practice MCQs (PDF)</span>
                   </a>
                 )}
+                <Link
+                  href={`/critical-reasoning/tests`}
+                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs rounded-xl shadow transition flex items-center gap-2"
+                >
+                  <span>💻 Critical Reasoning Practice Test</span>
+                </Link>
               </div>
 
               {/* MARKDOWN RENDERER */}
@@ -380,6 +432,16 @@ export default function CriticalReasoningReaderPage() {
         </main>
 
       </div>
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        onSuccess={(u) => {
+          setIsAuthOpen(false);
+          setUser(u);
+          setCurrentUserId(u?.id || null);
+          checkUserAndPurchases();
+        }}
+      />
     </div>
   );
 }

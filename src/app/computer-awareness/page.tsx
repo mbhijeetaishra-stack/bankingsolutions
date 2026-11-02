@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { checkAndClaimEmailGrants } from '@/lib/monetization';
 
 interface Chapter {
   id: string;
@@ -97,6 +98,24 @@ export default function ComputerAwarenessPage() {
     
     if (session?.user) {
       setCurrentUserId(session.user.id);
+      const emailGrants = await checkAndClaimEmailGrants(session.user);
+      const matchedGrant = emailGrants.find(
+        (g) =>
+          g.courseName.toLowerCase().includes('computer') ||
+          g.courseName.toLowerCase().includes('pro pass')
+      );
+      if (matchedGrant) {
+        setHasPurchased(true);
+        setExpiresAtDate(
+          matchedGrant.expiresAt
+            ? new Date(matchedGrant.expiresAt).toLocaleDateString('en-IN', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+              })
+            : 'Lifetime Access'
+        );
+      }
       
       const { data: purchaseData } = await supabase
         .from('student_course_purchases')

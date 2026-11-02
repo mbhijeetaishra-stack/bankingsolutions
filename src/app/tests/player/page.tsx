@@ -10,6 +10,8 @@ interface Question {
   section: string;
   passageText?: string;
   questionText: string;
+  imageUrl?: string;
+  solutionImageUrl?: string;
   options: string[];
   correctOptionIndex: number;
   marks?: number;
@@ -91,17 +93,27 @@ function MockTestPlayerContent() {
     }
 
     const mockData = data as MockTest;
-    let parsedQuestions: Question[] = [];
+    let rawQuestions: any[] = [];
 
     if (typeof mockData.questions === 'string') {
       try {
-        parsedQuestions = JSON.parse(mockData.questions);
+        rawQuestions = JSON.parse(mockData.questions);
       } catch (e) {
-        parsedQuestions = [];
+        rawQuestions = [];
       }
     } else if (Array.isArray(mockData.questions)) {
-      parsedQuestions = mockData.questions;
+      rawQuestions = mockData.questions;
     }
+
+    const parsedQuestions: Question[] = rawQuestions.map((q: any) => ({
+      ...q,
+      imageUrl: q.imageUrl || q.image_url || q.question_image_url || q.questionImageUrl || undefined,
+      solutionImageUrl: q.solutionImageUrl || q.solution_image_url || q.solutionImage || q.sol_image_url || q.sol_image || undefined,
+      passageText: q.passageText || q.passage_text || q.passage || undefined,
+      questionText: q.questionText || q.question_text || q.question || '',
+      options: Array.isArray(q.options) ? q.options : [],
+      explanation: q.explanation || q.solution || q.solution_text || undefined,
+    }));
 
     setTest(mockData);
     setQuestions(parsedQuestions);
@@ -326,10 +338,32 @@ function MockTestPlayerContent() {
                   </div>
                 </div>
 
-                {isSubmitted && activeQuestion.explanation && (
-                  <div className="mt-4 p-4 bg-slate-900 border border-slate-800 rounded-xl space-y-1">
-                    <span className="text-[11px] font-black uppercase text-amber-400 block">💡 Solution & Explanation:</span>
-                    <p className="text-xs text-slate-300 leading-relaxed">{activeQuestion.explanation}</p>
+                {/* Question Image (if any) */}
+                {activeQuestion.imageUrl && (
+                  <div className="my-2 text-center">
+                    <img
+                      src={activeQuestion.imageUrl}
+                      alt="Question Graph / Diagram"
+                      className="max-w-full max-h-72 h-auto mx-auto rounded-lg border border-slate-700 shadow-sm bg-white p-1"
+                    />
+                  </div>
+                )}
+
+                {isSubmitted && (activeQuestion.explanation || activeQuestion.solutionImageUrl) && (
+                  <div className="mt-4 p-4 bg-slate-900 border border-slate-800 rounded-xl space-y-2">
+                    <span className="text-[11px] font-black uppercase text-amber-400 block">💡 Solution &amp; Explanation:</span>
+                    {activeQuestion.explanation && (
+                      <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-line">{activeQuestion.explanation}</p>
+                    )}
+                    {activeQuestion.solutionImageUrl && (
+                      <div className="my-2 text-center">
+                        <img
+                          src={activeQuestion.solutionImageUrl}
+                          alt="Solution Diagram"
+                          className="max-w-full max-h-80 h-auto mx-auto rounded-lg border border-slate-700 shadow-md bg-white p-1"
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -347,6 +381,17 @@ function MockTestPlayerContent() {
               <h3 className="text-xs md:text-base font-bold text-white leading-relaxed">
                 {activeQuestion.questionText}
               </h3>
+
+              {/* Question Image (if any) */}
+              {activeQuestion.imageUrl && (
+                <div className="my-2 text-center">
+                  <img
+                    src={activeQuestion.imageUrl}
+                    alt="Question Graph / Diagram"
+                    className="max-w-full max-h-80 h-auto mx-auto rounded-xl border border-slate-700 shadow-md bg-white p-1"
+                  />
+                </div>
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 pt-2">
                 {activeQuestion.options.map((opt: string, optIdx: number) => {
@@ -378,10 +423,21 @@ function MockTestPlayerContent() {
                 })}
               </div>
 
-              {isSubmitted && activeQuestion.explanation && (
-                <div className="mt-4 p-4 bg-slate-900 border border-slate-800 rounded-xl space-y-1">
-                  <span className="text-[11px] font-black uppercase text-amber-400 block">💡 Solution & Explanation:</span>
-                  <p className="text-xs text-slate-300 leading-relaxed">{activeQuestion.explanation}</p>
+              {isSubmitted && (activeQuestion.explanation || activeQuestion.solutionImageUrl) && (
+                <div className="mt-4 p-4 bg-slate-900 border border-slate-800 rounded-xl space-y-2">
+                  <span className="text-[11px] font-black uppercase text-amber-400 block">💡 Solution &amp; Explanation:</span>
+                  {activeQuestion.explanation && (
+                    <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-line">{activeQuestion.explanation}</p>
+                  )}
+                  {activeQuestion.solutionImageUrl && (
+                    <div className="my-2 text-center">
+                      <img
+                        src={activeQuestion.solutionImageUrl}
+                        alt="Solution Diagram"
+                        className="max-w-full max-h-80 h-auto mx-auto rounded-lg border border-slate-700 shadow-md bg-white p-1"
+                      />
+                    </div>
+                  )}
                 </div>
               )}
             </div>

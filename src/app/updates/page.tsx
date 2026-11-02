@@ -4,6 +4,7 @@ import React, { useEffect, useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { generateArticleSlug } from '@/lib/articles';
 
 interface UpdatePost {
   id: string;
@@ -99,12 +100,20 @@ function UpdatesContent() {
           </div>
         </div>
 
-        <Link
-          href="/"
-          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition"
-        >
-          ← Return Home
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/articles"
+            className="px-4 py-2 bg-amber-400/15 hover:bg-amber-400/25 border border-amber-400/35 text-amber-300 font-black text-xs rounded-xl transition"
+          >
+            📰 Exam Guides & Cut-Offs
+          </Link>
+          <Link
+            href="/"
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl transition"
+          >
+            ← Return Home
+          </Link>
+        </div>
       </header>
 
       {/* Search & Filter Bar */}
@@ -144,7 +153,30 @@ function UpdatesContent() {
       </section>
 
       {/* Date-Grouped Feed List */}
-      <main className="max-w-4xl mx-auto px-6 py-10 flex-1 w-full space-y-10">
+      <main className="max-w-4xl mx-auto px-6 py-10 flex-1 w-full space-y-8">
+        {/* BSCA Promotion Banner */}
+        {(selectedCategory === 'ALL' || selectedCategory === 'ONE_LINER') && (
+          <div className="bg-gradient-to-r from-amber-950/40 via-slate-900 to-emerald-950/30 border border-amber-400/30 p-5 rounded-3xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg">
+            <div className="space-y-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                <span>🎯</span> UPGRADED CURRENT AFFAIRS SUITE
+              </span>
+              <h3 className="text-sm sm:text-base font-black text-white">
+                All Current Affairs One-Liners are now available in BSCA 360°
+              </h3>
+              <p className="text-xs text-slate-300">
+                Read in rapid 2-min revision mode, explore static GK boosters, and attempt daily timed quizzes.
+              </p>
+            </div>
+            <Link
+              href="/bsca"
+              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-xs shrink-0 shadow-md transition text-center"
+            >
+              Open BSCA 360° Hub →
+            </Link>
+          </div>
+        )}
+
         {loading ? (
           <div className="flex justify-center py-16">
             <div className="w-8 h-8 border-4 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
@@ -233,9 +265,16 @@ function UpdatesContent() {
                         })}
                       </div>
 
-                      {/* ACTION LINK BUTTON */}
-                      {post.external_link && (
-                        <div className="pt-2">
+                      {/* ACTION LINK BUTTONS */}
+                      <div className="pt-2 flex flex-wrap items-center gap-3">
+                        <Link
+                          href={`/articles/${generateArticleSlug(post.title)}`}
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 border border-amber-400/30 text-amber-300 font-black text-xs rounded-xl transition"
+                        >
+                          <span>📄 Read Dedicated Exam Article</span>
+                          <span>→</span>
+                        </Link>
+                        {post.external_link && (
                           <a
                             href={post.external_link}
                             target="_blank"
@@ -245,8 +284,8 @@ function UpdatesContent() {
                             <span>🔗 Open Official Link / Document</span>
                             <span>→</span>
                           </a>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   );
                 })}

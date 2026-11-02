@@ -1,0 +1,71 @@
+{
+  "name": "BankingSolutions – SBI, IBPS & RRB Exam Prep",
+  "short_name": "BankingSolutions",
+  "description": "Real CBT Mock Tests, Smart Mistake Notebook, Daily GA Quizzes, 30-Day Targets, Calc Lab & Bilingual Banking Courses.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "categories": ["education", "productivity"],
+  "icons": [
+    {
+      "src": "/channel-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/channel-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Mock Test Portal",
+      "short_name": "Mock Tests",
+      "description": "Attempt Real CBT Full & Sectional Mock Tests",
+      "url": "/tests",
+      "icons": [{ "src": "/channel-logo.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Smart Mistake Notebook",
+      "short_name": "Mistake Vault",
+      "description": "Revise wrong answers & launch Fix Your Mistakes drills",
+      "url": "/notebook",
+      "icons": [{ "src": "/channel-logo.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Calculation Speed Lab",
+      "short_name": "Calc Lab",
+      "description": "60-Second Mental Math Blitz Drills",
+      "url": "/calc-lab",
+      "icons": [{ "src": "/channel-logo.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Word Matrix – Vocab & Jargon",
+      "short_name": "Word Matrix",
+      "description": "4x4 Banking Jargon & Editorial Vocabulary Pairing Game",
+      "url": "/word-matrix",
+      "icons": [{ "src": "/channel-logo.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Daily CA Raid – Boss Fight",
+      "short_name": "CA Boss Raid",
+      "description": "10-Question Daily Current Affairs Raid & 1-Page Revision PDF",
+      "url": "/ca-raid",
+      "icons": [{ "src": "/channel-logo.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Student Learning Hub",
+      "short_name": "Dashboard",
+      "description": "Track percentiles, streaks & unlocked courses",
+      "url": "/profile",
+      "icons": [{ "src": "/channel-logo.png", "sizes": "192x192" }]
+    }
+  ]
+}
+

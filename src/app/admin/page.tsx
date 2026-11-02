@@ -6,6 +6,18 @@ import Link from 'next/link';
 import * as XLSX from 'xlsx';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import Papa from 'papaparse';
+import AdminReportsInbox from '@/components/AdminReportsInbox';
+import AdminCouponManager from '@/components/AdminCouponManager';
+import AdminCourseCreator from '@/components/AdminCourseCreator';
+import AdminSeoArticleManager from '@/components/AdminSeoArticleManager';
+import AdminDailyMissionManager from '@/components/AdminDailyMissionManager';
+import AdminFreeCourseGranter from '@/components/AdminFreeCourseGranter';
+import AdminPracticeQuestionManager from '@/components/AdminPracticeQuestionManager';
+import AdminBscaManager from '@/components/AdminBscaManager';
+import AdminWordMatrixManager from '@/components/AdminWordMatrixManager';
+import AdminCaRaidManager from '@/components/AdminCaRaidManager';
+import { parseMockTestDocText, SAMPLE_MOCK_FORMAT_TEXT } from '@/lib/mockTestParser';
 
 interface Subject {
   id: string;
@@ -19,6 +31,14 @@ interface Question {
   options?: string[];
   correct_option_index?: number;
   solution_text?: string;
+  passage_text?: string;
+  passageText?: string;
+  image_url?: string;
+  imageUrl?: string;
+  question_image_url?: string;
+  solution_image_url?: string;
+  solutionImageUrl?: string;
+  explanation?: string;
   subjects?: { name: string };
 }
 
@@ -107,6 +127,10 @@ export default function AdminPage() {
     | 'critical_reasoning_manager'
     | 'ebook_manager'
     | 'student_purchases'
+    | 'test_manager'
+    | 'rrb_course_manager'
+    | 'word_matrix_manager'
+    | 'ca_boss_fight_manager'
   >('updates_publisher');
   const [allPurchases, setAllPurchases] = useState<any[]>([]);
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -114,6 +138,38 @@ export default function AdminPage() {
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authError, setAuthError] = useState('');
+
+ // States for RRB / PDF Course Manager Tab (Updated with File Upload Objects)
+  const [rrbTotalDays, setRrbTotalDays] = useState(50);
+  const [rrbSelectedDay, setRrbSelectedDay] = useState(1);
+  const [rrbReasoningTopics, setRrbReasoningTopics] = useState('');
+  const [rrbQuantTopics, setRrbQuantTopics] = useState('');
+  const [rrbEngFile, setRrbEngFile] = useState<File | null>(null);
+  const [rrbHindiFile, setRrbHindiFile] = useState<File | null>(null);
+  const [rrbVideoUrl, setRrbVideoUrl] = useState('');
+  const [rrbStatusMsg, setRrbStatusMsg] = useState('');
+  const [rrbCourseTitle, setRrbCourseTitle] = useState('');
+  const [rrbCourseDesc, setRrbCourseDesc] = useState('');
+  const [rrbExistingCourses, setRrbExistingCourses] = useState<any[]>([]);
+  const [rrbQuantEngFile, setRrbQuantEngFile] = useState<File | null>(null);
+  const [rrbQuantHindiFile, setRrbQuantHindiFile] = useState<File | null>(null);
+  const [rrbEnglishSecFile, setRrbEnglishSecFile] = useState<File | null>(null);
+  const [rrbGaSecFile, setRrbGaSecFile] = useState<File | null>(null);
+  const [rrbComputerSecFile, setRrbComputerSecFile] = useState<File | null>(null);
+  const [rrbDays, setRrbDays] = useState<any[]>([]);
+  const [selectedRrbCourseId, setSelectedRrbCourseId] = useState('');
+  const [newRrbTitle, setNewRrbTitle] = useState('');
+  const [newRrbDesc, setNewRrbDesc] = useState('');
+
+  // Test Manager States
+  const [testChapterNo, setTestChapterNo] = useState(1);
+  const [testTitle, setTestTitle] = useState('');
+  const [testDuration, setTestDuration] = useState(20);
+  const [testTotalMarks, setTestTotalMarks] = useState(25);
+  const [testIsLocked, setTestIsLocked] = useState(true);
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [testUploadStatus, setTestUploadStatus] = useState('');
+  const [allTests, setAllTests] = useState<any[]>([]);
 
   // Critical Reasoning Pricing States
   const [crOriginalPrice, setCrOriginalPrice] = useState('1999');
@@ -168,6 +224,15 @@ export default function AdminPage() {
   const [directMockMarks, setDirectMockMarks] = useState(100);
   const [directMockCutoff, setDirectMockCutoff] = useState(55);
   const [pendingDirectMock, setPendingDirectMock] = useState<any>(null);
+  const [isUploadingMockImage, setIsUploadingMockImage] = useState(false);
+  const [selectedMockImageQNum, setSelectedMockImageQNum] = useState<number>(1);
+  const [selectedMockImageType, setSelectedMockImageType] = useState<'question' | 'solution'>('question');
+  const [mockImageStatus, setMockImageStatus] = useState<string>('');
+  const [mockSearchFilter, setMockSearchFilter] = useState('');
+  const [mockSectionFilter, setMockSectionFilter] = useState('ALL');
+  const [mockImageFilter, setMockImageFilter] = useState<'ALL' | 'WITH_IMAGE' | 'NO_IMAGE'>('ALL');
+  const [copiedMockFormat, setCopiedMockFormat] = useState(false);
+  const [showMockSplitScreenGuide, setShowMockSplitScreenGuide] = useState(false);
 
   // Inline Cut-off Editor States for Old Mocks
   const [editingCutoffId, setEditingCutoffId] = useState<string | null>(null);
@@ -177,7 +242,11 @@ export default function AdminPage() {
   const [selectedAnalyticsMockId, setSelectedAnalyticsMockId] = useState<string>('');
   const [mockAttemptsList, setMockAttemptsList] = useState<any[]>([]);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
-
+  //Add States for Course Package Editing
+  const [rrbPackagesList, setRrbPackagesList] = useState<any[]>([]);
+  const [editingPackageId, setEditingPackageId] = useState<string | null>(null);
+  const [editPackageTitle, setEditPackageTitle] = useState('');
+  const [editPackageDesc, setEditPackageDesc] = useState('');
   // PDF Course & File Upload States (BSPS / BSCA)
   const [courseTitle, setCourseTitle] = useState('');
   const [courseCategory, setCourseCategory] = useState<'BSPS' | 'BSCA'>('BSPS');
@@ -272,6 +341,7 @@ export default function AdminPage() {
       fetchComputerChapters();
       fetchAdminSettings();
       fetchEBooks();
+      fetchRrbPackagesList();
     }
   }, [targetDayNo, targetTrackMode, isAdmin]);
 
@@ -283,6 +353,28 @@ export default function AdminPage() {
     }
   }, [selectedQuizId]);
 
+ async function handleCreateRrbCourse(e: React.FormEvent) {
+    e.preventDefault();
+    if (!rrbCourseTitle.trim()) return setRrbStatusMsg('⚠️ Enter Course Title!');
+
+    setRrbStatusMsg('Creating RRB Course Container...');
+    const { error } = await supabase.from('pdf_courses').insert([
+      {
+        title: rrbCourseTitle.trim(),
+        category: 'All Exams',
+        description: rrbCourseDesc.trim() || 'RRB PO/Clerk 50-Day PDF Practice Course',
+      },
+    ]);
+
+    if (error) {
+      setRrbStatusMsg(`❌ Error: ${error.message}`);
+    } else {
+      setRrbStatusMsg('🎉 RRB Course Container Created Successfully!');
+      setRrbCourseTitle('');
+      setRrbCourseDesc('');
+    }
+  }
+  
   async function checkAdminAuth() {
     setCheckingAuth(true);
     const { data: { session } } = await supabase.auth.getSession();
@@ -313,7 +405,99 @@ export default function AdminPage() {
     }
     setCheckingAuth(false);
   }
+   
+  async function handleUploadTestExcel(e: React.FormEvent) {
+    e.preventDefault();
+    if (!csvFile) {
+      alert('Please select an Excel (.xlsx) file first!');
+      return;
+    }
 
+    setTestUploadStatus('Processing Excel file and uploading...');
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const data = new Uint8Array(event.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+
+        // Grab the first sheet of the workbook
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+
+        // Convert sheet data to a JSON array of objects
+        const rows = XLSX.utils.sheet_to_json(worksheet) as any[];
+
+        if (!rows || rows.length === 0) {
+          setTestUploadStatus('❌ Error: Excel sheet is empty.');
+          return;
+        }
+
+        // 1. Create Test Metadata Record in Supabase
+        const { data: testRecord, error: testError } = await supabase
+          .from('admin_tests')
+          .insert([
+            {
+              chapter_number: testChapterNo,
+              title: testTitle,
+              duration_minutes: testDuration,
+              total_marks: testTotalMarks,
+              is_locked: testIsLocked,
+            },
+          ])
+          .select()
+          .single();
+
+        if (testError || !testRecord) {
+          setTestUploadStatus(`❌ Failed to create test: ${testError?.message}`);
+          return;
+        }
+
+        const testId = testRecord.id;
+
+        // 2. Map Excel rows to question payload
+        const questionPayloads = rows.map((row) => {
+          let correctVal = row.correct_option ?? row.answer ?? row.correct ?? 'A';
+          
+          return {
+            test_id: testId,
+            question_text: row.question_text || row.question || '',
+            option_a: row.option_a || row.opt_a || '',
+            option_b: row.option_b || row.opt_b || '',
+            option_c: row.option_c || row.opt_c || '',
+            option_d: row.option_d || row.opt_d || '',
+            correct_option: String(correctVal).trim(),
+            explanation: row.explanation || '',
+          };
+        });
+
+        // 3. Bulk insert questions into Supabase
+        const { error: qError } = await supabase
+          .from('admin_test_questions')
+          .insert(questionPayloads);
+
+        if (qError) {
+          setTestUploadStatus(`❌ Test created, but questions failed: ${qError.message}`);
+        } else {
+          setTestUploadStatus(`✅ Success! Test uploaded with ${questionPayloads.length} questions from Excel.`);
+          setTestTitle('');
+          setCsvFile(null);
+          fetchAdminTests();
+        }
+      } catch (err: any) {
+        setTestUploadStatus(`❌ Excel Read Error: ${err.message}`);
+      }
+    };
+
+    reader.readAsArrayBuffer(csvFile);
+  }
+
+  async function handleDeleteTest(testId: string) {
+    if (!confirm('Are you sure you want to delete this test and all its questions?')) return;
+    await supabase.from('admin_tests').delete().eq('id', testId);
+    fetchAdminTests();
+  }
+  
   async function handleAdminLogin(e: React.FormEvent) {
     e.preventDefault();
     setAuthError('');
@@ -333,6 +517,62 @@ export default function AdminPage() {
     await supabase.auth.signOut();
     setIsAdmin(false);
   }
+  async function fetchRrbPackagesList() {
+  const { data } = await supabase
+    .from('pdf_courses')
+    .select('*')
+    .ilike('title', '%RRB%')
+    .order('created_at', { ascending: false });
+  if (data) setRrbPackagesList(data);
+}
+async function handleUpdateRrbPackage(id: string) {
+  if (!editPackageTitle.trim()) return setRrbStatusMsg('⚠️ Enter title!');
+  setRrbStatusMsg('Updating package...');
+
+  const { error } = await supabase
+    .from('pdf_courses')
+    .update({ title: editPackageTitle.trim(), description: editPackageDesc.trim() })
+    .eq('id', id);
+
+  if (error) {
+    setRrbStatusMsg(`❌ Error: ${error.message}`);
+  } else {
+    setRrbStatusMsg('✅ Successfully updated RRB package!');
+    setEditingPackageId(null);
+    fetchRrbPackagesList();
+  }
+}
+async function handleCreateRrbPackage(e: React.FormEvent) {
+  e.preventDefault();
+  if (!newRrbTitle.trim()) return setStatusMsg('⚠️️ Enter course title!');
+
+  setStatusMsg('Creating Course Package...');
+  
+  const { error } = await supabase.from('pdf_courses').insert([
+    {
+      title: newRrbTitle.trim(),
+      category: 'RRB',
+      description: newRrbDesc.trim() || 'RRB PO/Clerk Practice Package',
+    },
+  ]);
+
+  if (error) {
+    setStatusMsg(`❌ Error: ${error.message}`);
+  } else {
+    setStatusMsg('🎉 Successfully created Course Package Container!');
+    setNewRrbTitle('');
+    setNewRrbDesc('');
+    fetchRrbPackagesList(); // 👈 Refreshes the list so you can create another one immediately
+  }
+}
+async function handleDeleteRrbPackage(id: string, title: string) {
+  if (!confirm(`Are you sure you want to delete package "${title}"?`)) return;
+  const { error } = await supabase.from('pdf_courses').delete().eq('id', id);
+  if (!error) {
+    setRrbStatusMsg(`🗑️ Deleted package "${title}".`);
+    fetchRrbPackagesList();
+  }
+}
   // Inside your existing load/fetch function:
     async function fetchAdminPricing() {
       const { data } = await supabase
@@ -348,7 +588,17 @@ export default function AdminPage() {
         });
       }
     }
-  
+  async function fetchAdminTests() {
+    const { data, error } = await supabase
+      .from('admin_tests')
+      .select('*')
+      .order('chapter_number', { ascending: true });
+
+    if (!error && data) {
+      setAllTests(data);
+    }
+  }
+  // Call fetchAdminTests() inside your initial useEffect load block along with your other fetch functions.
   async function fetchInitialData() {
     const { data: subData } = await supabase.from('subjects').select('*');
     if (subData && subData.length > 0) {
@@ -433,6 +683,8 @@ export default function AdminPage() {
     fetchComputerChapters();
     fetchAdminSettings();
     fetchEBooks();
+    fetchRrbDays();
+    fetchRrbPackagesList();
   }
 
   // --- SUB-CARDS / EXAM SUB-CATEGORIES FUNCTIONS ---
@@ -480,7 +732,7 @@ export default function AdminPage() {
     setStatusMsg("Refreshing purchases data...");
     const { data: purchaseData, error } = await supabase
       .from('student_course_purchases') // Make sure this matches your exact purchases table name
-      .select('*, profiles(full_name, email, student_name)')
+      .select('*, profiles(email, student_name)')
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -509,6 +761,91 @@ export default function AdminPage() {
       .order('chapter_number', { ascending: true });
     if (data) setCrChapters(data);
   }
+  async function fetchRrbDays() {
+  const { data } = await supabase
+    .from('rrb_course_days')
+    .select('*')
+    .order('day_number', { ascending: true });
+  if (data) setRrbDays(data);
+}
+
+function handleEditRrbDay(day: any) {
+  setRrbSelectedDay(day.day_number);
+  setRrbTotalDays(day.total_days_config || 50);
+  setRrbReasoningTopics(day.reasoning_topics || '');
+  setRrbQuantTopics(day.quant_topics || '');
+  setRrbVideoUrl(day.youtube_video_url || '');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function handleDeleteRrbDay(dayNum: number) {
+  if (!confirm(`Are you sure you want to delete Day ${dayNum} completely?`)) return;
+  const { error } = await supabase.from('rrb_course_days').delete().eq('day_number', dayNum);
+  if (!error) {
+    setRrbStatusMsg(`🗑️ Deleted Day ${dayNum}.`);
+    fetchRrbDays();
+  }
+}
+  // --- UPDATED: HANDLER TO UPLOAD ACTUAL PDF FILES TO SUPABASE STORAGE ---
+  
+ async function handleSaveRrbDayContent(e: React.FormEvent) {
+  e.preventDefault();
+  if (!selectedRrbCourseId) return setRrbStatusMsg('⚠️ Please select a Course Container first!');
+
+  setRrbStatusMsg('Uploading files to Supabase Storage...');
+
+  try {
+    let engPdfUrl = null, hindiPdfUrl = null;
+    let quantEngPdfUrl = null, quantHindiPdfUrl = null;
+    let engSecUrl = null, gaSecUrl = null, compSecUrl = null;
+
+    const uploadFile = async (file: File, prefix: string) => {
+      const path = `rrb_courses/course_${selectedRrbCourseId}_day_${rrbSelectedDay}_${prefix}_${Date.now()}.pdf`;
+      const { error } = await supabase.storage.from('course_pdfs').upload(path, file);
+      if (error) throw error;
+      return supabase.storage.from('course_pdfs').getPublicUrl(path).data.publicUrl;
+    };
+
+    if (rrbEngFile) engPdfUrl = await uploadFile(rrbEngFile, 'reasoning_eng');
+    if (rrbHindiFile) hindiPdfUrl = await uploadFile(rrbHindiFile, 'reasoning_hin');
+    if (rrbQuantEngFile) quantEngPdfUrl = await uploadFile(rrbQuantEngFile, 'quant_eng');
+    if (rrbQuantHindiFile) quantHindiPdfUrl = await uploadFile(rrbQuantHindiFile, 'quant_hin');
+    if (rrbEnglishSecFile) engSecUrl = await uploadFile(rrbEnglishSecFile, 'english_sec');
+    if (rrbGaSecFile) gaSecUrl = await uploadFile(rrbGaSecFile, 'ga_sec');
+    if (rrbComputerSecFile) compSecUrl = await uploadFile(rrbComputerSecFile, 'comp_sec');
+
+    setRrbStatusMsg('Saving day-wise course configuration...');
+
+    const payload: any = {
+      course_id: selectedRrbCourseId, // 👈 Tied to the selected course container
+      day_number: rrbSelectedDay,
+      total_days_config: rrbTotalDays,
+      reasoning_topics: rrbReasoningTopics,
+      quant_topics: rrbQuantTopics,
+      youtube_video_url: rrbVideoUrl.trim() || null,
+    };
+
+    if (engPdfUrl) payload.eng_pdf_url = engPdfUrl;
+    if (hindiPdfUrl) payload.hindi_pdf_url = hindiPdfUrl;
+    if (quantEngPdfUrl) payload.quant_eng_pdf_url = quantEngPdfUrl;
+    if (quantHindiPdfUrl) payload.quant_hindi_pdf_url = quantHindiPdfUrl;
+    if (engSecUrl) payload.english_pdf_url = engSecUrl;
+    if (gaSecUrl) payload.ga_pdf_url = gaSecUrl;
+    if (compSecUrl) payload.computer_pdf_url = compSecUrl;
+
+    // Upsert matching both course_id and day_number
+    const { error: dbErr } = await supabase
+      .from('rrb_course_days')
+      .upsert([payload], { onConflict: 'course_id,day_number' });
+
+    if (dbErr) throw dbErr;
+
+    setRrbStatusMsg(`✅ Successfully published Day ${rrbSelectedDay} configuration for selected course!`);
+    setTimeout(() => setRrbStatusMsg(''), 4000);
+  } catch (err: any) {
+    setRrbStatusMsg(`❌ Upload Error: ${err.message}`);
+  }
+}
 
   async function handleSaveCriticalReasoningChapter(e: React.FormEvent) {
     e.preventDefault();
@@ -803,21 +1140,50 @@ export default function AdminPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!directMockTitle.trim()) return setStatusMsg('⚠️ Please enter a Mock Test Title first!');
+    setStatusMsg(`Reading "${file.name}"...`);
+    const fileNameLower = file.name.toLowerCase();
 
-    setStatusMsg('Processing Direct Mock Upload...');
-    const reader = new FileReader();
+    try {
+      let questions: any[] = [];
+      let parsedTitle = directMockTitle.trim();
+      let parsedDuration = Number(directMockDuration) || 60;
+      let parsedMarks = Number(directMockMarks) || 100;
+      let parsedCutoff = Number(directMockCutoff) || 55;
+      let parsedExam = directMockExamType;
 
-    reader.onload = async (evt) => {
-      try {
-        const arrayBuffer = evt.target?.result;
+      if (fileNameLower.endsWith('.docx')) {
+        const mammoth = await import('mammoth');
+        const lib = (mammoth.default || mammoth) as { extractRawText: (opts: { arrayBuffer: ArrayBuffer }) => Promise<{ value: string }> };
+        const arrayBuffer = await file.arrayBuffer();
+        const { value } = await lib.extractRawText({ arrayBuffer });
+        const parsed = parseMockTestDocText(value, directMockTitle);
+        questions = parsed.questions;
+        if (parsed.title) parsedTitle = parsed.title;
+        if (parsed.duration) parsedDuration = parsed.duration;
+        if (parsed.totalMarks) parsedMarks = parsed.totalMarks;
+        if (parsed.cutoff) parsedCutoff = parsed.cutoff;
+        if (parsed.examType) parsedExam = parsed.examType;
+      } else if (fileNameLower.endsWith('.txt') || fileNameLower.endsWith('.md')) {
+        const text = await file.text();
+        const parsed = parseMockTestDocText(text, directMockTitle);
+        questions = parsed.questions;
+        if (parsed.title) parsedTitle = parsed.title;
+        if (parsed.duration) parsedDuration = parsed.duration;
+        if (parsed.totalMarks) parsedMarks = parsed.totalMarks;
+        if (parsed.cutoff) parsedCutoff = parsed.cutoff;
+        if (parsed.examType) parsedExam = parsed.examType;
+      } else if (fileNameLower.endsWith('.xlsx') || fileNameLower.endsWith('.xls')) {
+        const arrayBuffer = await file.arrayBuffer();
         const wb = XLSX.read(arrayBuffer, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const data: any[] = XLSX.utils.sheet_to_json(ws);
 
-        if (!data || data.length === 0) return setStatusMsg('⚠️ Excel file is empty!');
+        if (!data || data.length === 0) {
+          setStatusMsg('⚠️ Excel file is empty!');
+          return;
+        }
 
-        const formattedJSONQuestions = data.map((row, idx) => {
+        questions = data.map((row, idx) => {
           let rawSec = String(row.section || row.Subject || row.SECTION || row.SUBJECT || '').trim().toUpperCase();
           let normSec = 'QUANT';
 
@@ -826,6 +1192,7 @@ export default function AdminPage() {
           else if (rawSec.includes('QUANT') || rawSec.includes('MATH')) normSec = 'QUANT';
           else if (rawSec.includes('GA') || rawSec.includes('CURRENT') || rawSec.includes('AWARE') || rawSec.includes('GS')) normSec = 'GA';
           else if (rawSec.includes('HIN')) normSec = 'HINDI';
+          else if (rawSec.includes('COMP')) normSec = 'COMPUTER';
 
           const answerLetter = String(row.correctOptionIndex ?? row['Correct Answer'] ?? row.correctOption ?? '0').toUpperCase().trim();
           const optionMap: { [key: string]: number } = { A: 0, B: 1, C: 2, D: 3, E: 4, '0': 0, '1': 1, '2': 2, '3': 3, '4': 4 };
@@ -843,6 +1210,9 @@ export default function AdminPage() {
             row.explanation || row.Explanation || row.Solution || row.solution || row.solution_text || ''
           ).trim();
 
+          const imageUrl = String(row.imageUrl || row.image || row.image_url || row['Image URL'] || row.Image || '').trim();
+          const solutionImageUrl = String(row.solutionImageUrl || row.solution_image_url || row.sol_image || row['Solution Image'] || '').trim();
+
           const options = [
             String(row.optionA || row['Option A'] || row.option_1 || row.option1 || row.A || row.choice1 || row.ChoiceA || '').trim(),
             String(row.optionB || row['Option B'] || row.option_2 || row.option2 || row.B || row.choice2 || row.ChoiceB || '').trim(),
@@ -856,6 +1226,8 @@ export default function AdminPage() {
             section: normSec,
             passageText: pText,
             questionText: qText,
+            imageUrl: imageUrl || undefined,
+            solutionImageUrl: solutionImageUrl || undefined,
             options: options.length > 0 ? options : ['Option A', 'Option B', 'Option C', 'Option D', 'Option E'],
             correctOptionIndex: correctIdx,
             marks: Number(row.marks ?? 1.0),
@@ -863,27 +1235,208 @@ export default function AdminPage() {
             explanation: explanationText,
           };
         });
-
-        const payload = {
-          title: directMockTitle.trim(),
-          exam_type: directMockExamType,
-          sub_category_id: directMockSubCategoryId || null,
-          duration_minutes: Number(directMockDuration),
-          total_marks: Number(directMockMarks),
-          cutoff_marks: Number(directMockCutoff),
-          questions: formattedJSONQuestions,
-          is_published: true,
-          created_at: new Date().toISOString(),
-        };
-
-        setPendingDirectMock(payload);
-        setStatusMsg(`✅ Excel parsed successfully! Review and click Publish Mock Test below.`);
-      } catch (err: any) {
-        setStatusMsg(`Direct Upload Error: ${err.message}`);
+      } else {
+        setStatusMsg('❌ Unsupported file format. Please upload Word (.docx), Excel (.xlsx, .xls), or Text (.txt, .md).');
+        return;
       }
-    };
 
-    reader.readAsArrayBuffer(file);
+      if (!questions || questions.length === 0) {
+        setStatusMsg(`⚠️ No questions detected in "${file.name}". Please check the formatting or download the sample template.`);
+        return;
+      }
+
+      if (!parsedTitle) {
+        parsedTitle = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]+/g, ' ');
+      }
+      setDirectMockTitle(parsedTitle);
+      setDirectMockDuration(parsedDuration);
+      setDirectMockMarks(parsedMarks);
+      setDirectMockCutoff(parsedCutoff);
+      if (parsedExam) setDirectMockExamType(parsedExam);
+
+      const payload = {
+        title: parsedTitle,
+        exam_type: parsedExam || directMockExamType,
+        sub_category_id: directMockSubCategoryId || null,
+        duration_minutes: parsedDuration,
+        total_marks: parsedMarks,
+        cutoff_marks: parsedCutoff,
+        questions,
+        is_published: true,
+        created_at: new Date().toISOString(),
+      };
+
+      setPendingDirectMock(payload);
+      setSelectedMockImageQNum(1);
+      setStatusMsg(`✅ Successfully loaded ${questions.length} questions from "${file.name}"! You can now attach images or publish directly.`);
+    } catch (err: any) {
+      console.error('Direct Mock Upload Error:', err);
+      setStatusMsg(`Direct Upload Error: ${err.message || 'Failed to process file'}`);
+    }
+  };
+
+  const handleUploadMockImageForQuestion = async (
+    qNum: number,
+    type: 'question' | 'solution',
+    file: File
+  ) => {
+    if (!pendingDirectMock || !pendingDirectMock.questions) return;
+    if (qNum < 1 || qNum > pendingDirectMock.questions.length) {
+      alert(`Invalid Question number: Q${qNum}. Mock has ${pendingDirectMock.questions.length} questions.`);
+      return;
+    }
+
+    setIsUploadingMockImage(true);
+    setMockImageStatus(`Uploading ${type === 'question' ? 'graph/question' : 'solution'} image for Q${qNum}...`);
+
+    try {
+      const ext = file.name.split('.').pop() || 'png';
+      const safeName = file.name.replace(/[^a-zA-Z0-9]/g, '_');
+      const filePath = `mock_images/q${qNum}_${type}_${Date.now()}_${safeName}.${ext}`;
+
+      const { error: uploadErr } = await supabase.storage
+        .from('course_pdfs')
+        .upload(filePath, file, { cacheControl: '3600', upsert: true });
+
+      if (uploadErr) throw uploadErr;
+
+      const { data: publicUrlData } = supabase.storage
+        .from('course_pdfs')
+        .getPublicUrl(filePath);
+
+      const publicUrl = publicUrlData.publicUrl;
+      const qIndex = qNum - 1;
+      const updatedQuestions = [...pendingDirectMock.questions];
+      const targetQuestion = { ...updatedQuestions[qIndex] };
+
+      if (type === 'question') {
+        targetQuestion.imageUrl = publicUrl;
+      } else {
+        targetQuestion.solutionImageUrl = publicUrl;
+      }
+
+      updatedQuestions[qIndex] = targetQuestion;
+      setPendingDirectMock({
+        ...pendingDirectMock,
+        questions: updatedQuestions,
+      });
+
+      const successMsg = `✅ Successfully attached ${type === 'question' ? 'Graph Image' : 'Solution Image'} to Q${qNum}!`;
+      setMockImageStatus(successMsg);
+      setStatusMsg(successMsg);
+    } catch (err: any) {
+      console.error('Image upload failed:', err);
+      const errMsg = `❌ Image Upload Failed: ${err.message || 'Unknown error'}`;
+      setMockImageStatus(errMsg);
+      setStatusMsg(errMsg);
+    } finally {
+      setIsUploadingMockImage(false);
+    }
+  };
+
+  const handleBatchUploadMockImages = async (files: FileList | File[]) => {
+    if (!pendingDirectMock || !pendingDirectMock.questions) return;
+    const fileArr = Array.from(files);
+    if (fileArr.length === 0) return;
+
+    setIsUploadingMockImage(true);
+    setMockImageStatus(`Batch uploading ${fileArr.length} image(s)...`);
+
+    try {
+      const updatedQuestions = [...pendingDirectMock.questions];
+      let matchedCount = 0;
+      const matchReport: string[] = [];
+
+      for (const file of fileArr) {
+        const name = file.name;
+        const numMatch = name.match(/(?:q(?:uestion)?[\s_-]*)?(\d+)/i);
+        if (!numMatch || !numMatch[1]) {
+          console.warn(`Could not detect question number from file name: ${name}`);
+          continue;
+        }
+
+        const qNum = parseInt(numMatch[1], 10);
+        if (qNum < 1 || qNum > updatedQuestions.length) {
+          console.warn(`Question number Q${qNum} out of bounds (1..${updatedQuestions.length}) in file: ${name}`);
+          continue;
+        }
+
+        const isSolution = /sol|ans|exp|solution|explanation/i.test(name);
+        const type = isSolution ? 'solution' : 'question';
+
+        const ext = name.split('.').pop() || 'png';
+        const safeName = name.replace(/[^a-zA-Z0-9]/g, '_');
+        const filePath = `mock_images/q${qNum}_${type}_${Date.now()}_${safeName}.${ext}`;
+
+        const { error: uploadErr } = await supabase.storage
+          .from('course_pdfs')
+          .upload(filePath, file, { cacheControl: '3600', upsert: true });
+
+        if (uploadErr) {
+          console.error(`Upload error for ${name}:`, uploadErr);
+          continue;
+        }
+
+        const { data: publicUrlData } = supabase.storage
+          .from('course_pdfs')
+          .getPublicUrl(filePath);
+
+        const qIndex = qNum - 1;
+        const targetQ = { ...updatedQuestions[qIndex] };
+        if (type === 'question') {
+          targetQ.imageUrl = publicUrlData.publicUrl;
+        } else {
+          targetQ.solutionImageUrl = publicUrlData.publicUrl;
+        }
+        updatedQuestions[qIndex] = targetQ;
+        matchedCount++;
+        matchReport.push(`Q${qNum} (${type === 'question' ? 'Graph' : 'Solution'})`);
+      }
+
+      setPendingDirectMock({
+        ...pendingDirectMock,
+        questions: updatedQuestions,
+      });
+
+      const reportStr = matchedCount > 0
+        ? `🎉 Successfully mapped & uploaded ${matchedCount} images! [${matchReport.slice(0, 8).join(', ')}${matchReport.length > 8 ? '...' : ''}]`
+        : `⚠️ No images could be automatically matched. Make sure filenames include question numbers (e.g. Q1_graph.png, Q5_sol.jpg).`;
+
+      setMockImageStatus(reportStr);
+      setStatusMsg(reportStr);
+    } catch (err: any) {
+      console.error('Batch upload error:', err);
+      setMockImageStatus(`❌ Batch Upload Error: ${err.message}`);
+    } finally {
+      setIsUploadingMockImage(false);
+    }
+  };
+
+  const handleRemoveMockImage = (qIndex: number, type: 'question' | 'solution') => {
+    if (!pendingDirectMock || !pendingDirectMock.questions) return;
+    const updatedQuestions = [...pendingDirectMock.questions];
+    const targetQ = { ...updatedQuestions[qIndex] };
+    if (type === 'question') {
+      delete targetQ.imageUrl;
+    } else {
+      delete targetQ.solutionImageUrl;
+    }
+    updatedQuestions[qIndex] = targetQ;
+    setPendingDirectMock({
+      ...pendingDirectMock,
+      questions: updatedQuestions,
+    });
+    const msg = `Removed ${type === 'question' ? 'Question graph' : 'Solution'} image from Q${qIndex + 1}.`;
+    setStatusMsg(msg);
+    setMockImageStatus(msg);
+  };
+
+  const handleCopyMockFormat = () => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(SAMPLE_MOCK_FORMAT_TEXT);
+      setCopiedMockFormat(true);
+      setTimeout(() => setCopiedMockFormat(false), 2500);
+    }
   };
 
   async function handlePublishPendingMock() {
@@ -983,6 +1536,9 @@ export default function AdminPage() {
             row.explanation || row.Explanation || row.Solution || row.solution || row.solution_text || ''
           ).trim();
 
+          const imageUrl = String(row.imageUrl || row.image || row.image_url || row['Image URL'] || row.Image || '').trim();
+          const solutionImageUrl = String(row.solutionImageUrl || row.solution_image_url || row.sol_image || row['Solution Image'] || row['Solution Image URL'] || '').trim();
+
           const options = [
             String(row.optionA || row['Option A'] || row.option_1 || row.option1 || row.A || row.choice1 || row.ChoiceA || '').trim(),
             String(row.optionB || row['Option B'] || row.option_2 || row.option2 || row.B || row.choice2 || row.ChoiceB || '').trim(),
@@ -996,6 +1552,8 @@ export default function AdminPage() {
             section: normSec,
             passageText: pText,
             questionText: qText,
+            imageUrl: imageUrl || undefined,
+            solutionImageUrl: solutionImageUrl || undefined,
             options: options.length > 0 ? options : ['Option A', 'Option B', 'Option C', 'Option D', 'Option E'],
             correctOptionIndex: correctIdx,
             marks: Number(row.marks ?? 1.0),
@@ -1305,12 +1863,15 @@ export default function AdminPage() {
       return {
         id: q.id || `q-${idx + 1}-${Date.now()}`,
         section: normSec,
-        passageText: q.solution_text || '',
+        passageText: q.passage_text || q.passageText || '',
         questionText: q.question_text || `Question ${idx + 1}`,
+        imageUrl: q.image_url || q.question_image_url || q.imageUrl || undefined,
+        solutionImageUrl: q.solution_image_url || q.solutionImageUrl || undefined,
         options: q.options && q.options.length > 0 ? q.options : ['Option A', 'Option B', 'Option C', 'Option D', 'Option E'],
         correctOptionIndex: Number(q.correct_option_index ?? 0),
         marks: 1.0,
         negativeMarks: 0.25,
+        explanation: q.solution_text || q.explanation || '',
       };
     });
 
@@ -1718,67 +2279,69 @@ export default function AdminPage() {
 
   if (checkingAuth) {
     return (
-      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center font-bold">
-        Verifying Admin Credentials...
+      <div className="min-h-screen bg-[#020617] text-white flex flex-col items-center justify-center font-bold space-y-4">
+        <div className="w-10 h-10 border-4 border-amber-400 border-t-transparent rounded-full animate-spin" />
+        <p className="text-xs uppercase tracking-widest text-slate-400">Verifying Admin Credentials...</p>
       </div>
     );
   }
 
   if (!isAdmin) {
     return (
-      <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6 font-sans">
-        <div className="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-8 space-y-6 shadow-2xl">
-          <div className="text-center space-y-2">
-            <div className="w-12 h-12 bg-blue-600/20 text-blue-400 border border-blue-500/30 rounded-2xl flex items-center justify-center text-2xl mx-auto">
+      <div className="min-h-screen bg-[#020617] text-white flex flex-col items-center justify-center p-6 font-sans relative overflow-hidden">
+        <div className="pointer-events-none absolute -top-32 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-amber-500/10 blur-[130px] rounded-full" />
+        <div className="max-w-md w-full bg-slate-900/85 backdrop-blur-xl border border-white/[0.1] rounded-3xl p-8 space-y-6 shadow-2xl relative z-10">
+          <div className="text-center space-y-2.5">
+            <div className="w-14 h-14 bg-amber-400/15 text-amber-400 border border-amber-400/30 rounded-2xl flex items-center justify-center text-2xl mx-auto shadow-inner">
               🔒
             </div>
-            <h1 className="text-xl font-bold text-white">Admin Login Required</h1>
+            <h1 className="text-xl font-black text-white tracking-tight">Admin Command Center</h1>
             <p className="text-xs text-slate-400">
-              This portal is restricted to BankingSolutions admins only.
+              Restricted to authorized BankingSolutions administrators.
             </p>
           </div>
 
           <form onSubmit={handleAdminLogin} className="space-y-4 text-left">
             {authError && (
-              <div className="p-3 bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs rounded-xl font-bold">
+              <div className="p-3.5 bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs rounded-xl font-bold">
                 {authError}
               </div>
             )}
 
             <div>
-              <label className="text-xs font-bold text-slate-400 uppercase block mb-1">Admin Email</label>
+              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">Admin Email</label>
               <input
                 type="email"
                 value={authEmail}
                 onChange={(e) => setAuthEmail(e.target.value)}
                 placeholder="admin@bankingsolutions.com"
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full bg-slate-950 border border-white/[0.1] rounded-xl p-3.5 text-sm text-white outline-none focus:border-amber-400 transition"
                 required
               />
             </div>
 
             <div>
-              <label className="text-xs font-bold text-slate-400 uppercase block mb-1">Password</label>
+              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">Password</label>
               <input
                 type="password"
                 value={authPassword}
                 onChange={(e) => setAuthPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full bg-slate-950 border border-white/[0.1] rounded-xl p-3.5 text-sm text-white outline-none focus:border-amber-400 transition"
                 required
               />
             </div>
 
             <button
               type="submit"
-              className="w-full py-3 bg-[#1D63B8] hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-lg transition"
+              className="w-full py-3.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-amber-500/20 transition"
             >
-              Sign In as Admin
+              Sign In as Admin →
             </button>
           </form>
 
-          <div className="text-center pt-2">
-            <Link href="/" className="text-xs text-slate-400 hover:text-white transition">
+          <div className="text-center pt-2 border-t border-white/[0.08]">
+            <Link href="/" className="text-xs text-slate-400 hover:text-white transition font-semibold">
               ← Return to Homepage
             </Link>
           </div>
@@ -1787,165 +2350,211 @@ export default function AdminPage() {
     );
   }
 
-  return (
-    <div className="max-w-5xl mx-auto p-6 font-sans text-slate-900 bg-slate-50 min-h-screen space-y-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-4 gap-4 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">BankingSolutions Admin Portal</h1>
-          <p className="text-xs text-slate-500">Manage Sub-Cards, Quizzes, Excel Mocks, BSPS & BSCA PDFs</p>
-        </div>
+  const navGroups = [
+    {
+      label: "Content & Daily Feed",
+      items: [
+        { id: "seo_articles_manager", label: "🔍 SEO Exam Articles (Google Rank)" },
+        { id: "daily_mission_manager", label: "🔥 Daily Mission & XP" },
+        { id: "updates_publisher", label: "📢 Updates & One-Liners" },
+        { id: "targets_manager", label: "🎯 Daily Targets" },
+        { id: "bsca_quiz_builder", label: "💡 BSCA Daily Quiz" },
+        { id: "word_matrix_manager", label: "🧩 Word Matrix (Vocab)" },
+        { id: "ca_boss_fight_manager", label: "⚔️ CA Boss Fight (Raid)" },
+      ],
+    },
+    {
+      label: "Courses & Study Hub",
+      items: [
+        { id: "universal_course_creator", label: "🎓 Create Course (Free/Paid)" },
+        { id: "free_course_granter", label: "🎁 Grant Course by Email" },
+        { id: "pdf_uploader", label: "📄 BSPS / BSCA PDFs" },
+        { id: "rrb_course_manager", label: "📚 RRB PDF Course" },
+        { id: "critical_reasoning_manager", label: "🧠 Critical Reasoning" },
+        { id: "computer_quiz", label: "💻 Computer Course" },
+        { id: "ebook_manager", label: "📖 E-Book Manager" },
+      ],
+    },
+    {
+      label: "Mock Test Engine",
+      items: [
+        { id: "direct_mock_upload", label: "📝 Word & Excel Mock Upload" },
+        { id: "practice_question_pool", label: "🧮 Topic Practice Pool" },
+        { id: "test_manager", label: "🧪 Chapter Test Manager" },
+        { id: "sub_cards_manager", label: "🗂️ Exam Sub-Cards" },
+        { id: "create_exam_tab", label: "⚙️ Create Exam Cat" },
+        { id: "create_mock", label: "📋 Build from Bank" },
+        { id: "add_question", label: "➕ Add Question" },
+        { id: "bulk_upload", label: "📥 Excel Question Bank" },
+      ],
+    },
+    {
+      label: "Analytics & Community",
+      items: [
+        { id: "mock_analytics", label: "📊 Mock Test Stats" },
+        { id: "student_purchases", label: "💰 Purchases & Revenue" },
+        { id: "coupon_manager", label: "🎟️ Coupons & PRO Pass" },
+        { id: "reports_and_doubts", label: "🚩 Reports & Doubts" },
+      ],
+    },
+  ];
 
-        <div className="flex items-center gap-3">
-          <div className="flex space-x-1 bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs flex-wrap gap-y-1">
-            <button
-              onClick={() => setActiveTab('updates_publisher')}
-              className={`px-3 py-1.5 font-bold rounded-md transition ${
-                activeTab === 'updates_publisher' ? 'bg-[#1D63B8] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              📢 Updates
-            </button>
-            <button
-              onClick={() => setActiveTab('sub_cards_manager')}
-              className={`px-3 py-1.5 font-bold rounded-md transition ${
-                activeTab === 'sub_cards_manager' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              🗂️ Exam Sub-Cards
-            </button>
-            <button
-              onClick={() => setActiveTab('bsca_quiz_builder')}
-              className={`px-3 py-1.5 font-bold rounded-md transition ${
-                activeTab === 'bsca_quiz_builder' ? 'bg-[#1D63B8] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              💡 BSCA Quiz
-            </button>
-            <button
-              onClick={() => setActiveTab('pdf_uploader')}
-              className={`px-3 py-1.5 font-bold rounded-md transition ${
-                activeTab === 'pdf_uploader' ? 'bg-[#1D63B8] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              📄 BSPS / BSCA PDFs
-            </button>
-            <button
-              onClick={() => setActiveTab('direct_mock_upload')}
-              className={`px-3 py-1.5 font-bold rounded-md transition ${
-                activeTab === 'direct_mock_upload' ? 'bg-[#1D63B8] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              🚀 Direct Mock
-            </button>
-            <button
-              onClick={() => setActiveTab('create_exam_tab')}
-              className={`px-3 py-1.5 font-bold rounded-md transition ${
-                activeTab === 'create_exam_tab' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              ⚙️ Create Exam Cat
-            </button>
-            <button
-              onClick={() => setActiveTab('create_mock')}
-              className={`px-3 py-1.5 font-bold rounded-md transition ${
-                activeTab === 'create_mock' ? 'bg-[#1D63B8] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              📋 Build from Bank
-            </button>
-            <button
-              onClick={() => setActiveTab('add_question')}
-              className={`px-3 py-1.5 font-semibold rounded-md transition ${
-                activeTab === 'add_question' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              + Question
-            </button>
-            <button
-              onClick={() => setActiveTab('bulk_upload')}
-              className={`px-3 py-1.5 font-semibold rounded-md transition ${
-                activeTab === 'bulk_upload' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              📥 Excel Bank
-            </button>
-            <button
-              onClick={() => setActiveTab('targets_manager')}
-              className={`px-3 py-1.5 font-bold rounded-md transition ${
-                activeTab === 'targets_manager' ? 'bg-[#1D63B8] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              🎯 Daily Targets
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab('mock_analytics');
-                if (existingMocks.length > 0 && !selectedAnalyticsMockId) {
-                  setSelectedAnalyticsMockId(existingMocks[0].id);
-                  fetchMockAnalytics(existingMocks[0].id);
-                }
-              }}
-              className={`px-3 py-1.5 font-bold rounded-md transition ${
-                activeTab === 'mock_analytics' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              📊 Stats
-            </button>
-            <button
-              onClick={() => setActiveTab('computer_quiz')}
-              className={`px-3 py-1.5 font-bold rounded-md transition ${
-                activeTab === 'computer_quiz' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              💻 Computer Builder
-            </button>
-            <button
-              onClick={() => setActiveTab('ebook_manager')}
-              className={`px-3 py-1.5 font-bold rounded-md transition ${
-                activeTab === 'ebook_manager' ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              📖 E-Book Manager
-            </button>
-            <Link
-              href="/admin/computer-quiz"
-              className="px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1 text-slate-700 hover:text-blue-600 hover:bg-slate-100"
-            >
-              <span>💻</span> Quiz
-            </Link>
-            <button
-              onClick={() => setActiveTab('critical_reasoning_manager')}
-              className={`px-3 py-1.5 font-bold rounded-md transition ${
-                activeTab === 'critical_reasoning_manager' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              🧠 Critical Reasoning
-            </button>
-             <button
-                onClick={() => setActiveTab('student_purchases')}
-                className={`px-3 py-1.5 font-bold rounded-md transition ${
-                  activeTab === 'student_purchases' ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                💰 Purchases & Revenue
-              </button>
+  return (
+    <div className="min-h-screen bg-[#020617] text-slate-100 font-sans admin-dark-surface relative overflow-x-hidden">
+      {/* Ambient Top Glow */}
+      <div className="pointer-events-none fixed -top-40 left-1/2 -translate-x-1/2 w-[900px] h-[350px] bg-gradient-to-r from-amber-500/10 via-blue-600/10 to-purple-600/10 blur-[140px] rounded-full z-0" />
+
+      {/* Sticky Top Command Bar */}
+      <header className="sticky top-0 z-40 bg-slate-950/85 backdrop-blur-xl border-b border-white/[0.08] px-6 py-4">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 bg-gradient-to-br from-amber-400 to-amber-500 rounded-xl flex items-center justify-center font-black text-slate-950 text-base shadow-lg shadow-amber-500/20">
+              BS
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-lg sm:text-xl font-black text-white tracking-tight">BankingSolutions Admin Portal</h1>
+                <span className="text-[10px] font-black uppercase tracking-widest bg-amber-400/15 text-amber-300 border border-amber-400/30 px-2.5 py-0.5 rounded-full">
+                  Command Center
+                </span>
+              </div>
+              <p className="text-xs text-slate-400">Manage Courses, Mock Tests, Quizzes, BSPS/BSCA PDFs &amp; Student Analytics</p>
+            </div>
           </div>
 
-
-          <button
-            onClick={handleLogout}
-            className="px-3 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold text-xs rounded-lg transition"
-          >
-            Logout
-          </button>
+          <div className="flex items-center gap-2.5">
+            <Link
+              href="/admin/computer-quiz"
+              className="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-900 hover:bg-slate-800 text-purple-300 border border-purple-500/30 transition flex items-center gap-1.5"
+            >
+              <span>💻</span>
+              <span>Computer Quiz</span>
+            </Link>
+            <Link
+              href="/"
+              className="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-white/[0.08] transition"
+            >
+              ← Live Website
+            </Link>
+            <button
+              onClick={handleLogout}
+              className="px-3.5 py-2 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 font-bold text-xs rounded-xl transition"
+            >
+              Logout
+            </button>
+          </div>
         </div>
-      </div>
+      </header>
 
-      {statusMsg && (
-        <div className="p-4 bg-blue-50 border border-blue-200 text-blue-900 rounded-xl text-sm font-semibold">
-          {statusMsg}
+      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+        {/* Quick KPI Stats Row */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="bg-slate-900/80 backdrop-blur-md border border-white/[0.08] rounded-2xl p-4 shadow-lg">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Published Mocks</span>
+            <span className="text-2xl font-black text-white mt-1 block">{existingMocks.length}</span>
+          </div>
+          <div className="bg-slate-900/80 backdrop-blur-md border border-white/[0.08] rounded-2xl p-4 shadow-lg">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Question Bank</span>
+            <span className="text-2xl font-black text-blue-400 mt-1 block">{allQuestions.length}</span>
+          </div>
+          <div className="bg-slate-900/80 backdrop-blur-md border border-white/[0.08] rounded-2xl p-4 shadow-lg">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">PDF Courses</span>
+            <span className="text-2xl font-black text-amber-400 mt-1 block">{existingCourses.length}</span>
+          </div>
+          <div className="bg-slate-900/80 backdrop-blur-md border border-white/[0.08] rounded-2xl p-4 shadow-lg">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Published E-Books</span>
+            <span className="text-2xl font-black text-purple-400 mt-1 block">{allEBooks.length}</span>
+          </div>
+          <div className="bg-slate-900/80 backdrop-blur-md border border-emerald-500/25 rounded-2xl p-4 shadow-lg col-span-2 sm:col-span-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400/90 block">Total Revenue</span>
+            <span className="text-2xl font-black text-emerald-400 mt-1 block">
+              ₹{allPurchases.reduce((acc, item) => acc + Number(item.amount_paid || 0), 0).toLocaleString("en-IN")}
+            </span>
+          </div>
         </div>
-      )}
+
+        {/* Categorized Navigation Bar */}
+        <div className="bg-slate-900/80 backdrop-blur-xl border border-white/[0.08] rounded-3xl p-5 shadow-2xl space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {navGroups.map((group) => (
+              <div key={group.label} className="bg-slate-950/60 border border-white/[0.06] rounded-2xl p-3 space-y-2">
+                <span className="text-[10px] font-black uppercase tracking-widest text-amber-400/90 px-2 block">
+                  {group.label}
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {group.items.map((item) => {
+                    const isActive = activeTab === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => {
+                          setActiveTab(item.id as any);
+                          if (item.id === "mock_analytics" && existingMocks.length > 0 && !selectedAnalyticsMockId) {
+                            setSelectedAnalyticsMockId(existingMocks[0].id);
+                            fetchMockAnalytics(existingMocks[0].id);
+                          }
+                        }}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-xl transition flex items-center gap-1.5 ${
+                          isActive
+                            ? "bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-black shadow-md shadow-amber-500/20"
+                            : "bg-slate-900/90 text-slate-300 hover:text-white hover:bg-slate-800 border border-white/[0.06]"
+                        }`}
+                      >
+                        <span>{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {statusMsg && (
+          <div className="p-4 bg-blue-500/15 border border-blue-500/30 text-blue-200 rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-between shadow-lg">
+            <span>{statusMsg}</span>
+            <button onClick={() => setStatusMsg("")} className="text-xs text-blue-300 hover:text-white ml-4">✕</button>
+          </div>
+        )}
+
+        {(activeTab as string) === "seo_articles_manager" && (
+          <AdminSeoArticleManager />
+        )}
+
+        {(activeTab as string) === "daily_mission_manager" && (
+          <AdminDailyMissionManager />
+        )}
+
+        {activeTab === "word_matrix_manager" && (
+          <AdminWordMatrixManager />
+        )}
+
+        {activeTab === "ca_boss_fight_manager" && (
+          <AdminCaRaidManager />
+        )}
+
+        {(activeTab as string) === "practice_question_pool" && (
+          <AdminPracticeQuestionManager />
+        )}
+
+        {(activeTab as string) === "universal_course_creator" && (
+          <AdminCourseCreator />
+        )}
+
+        {(activeTab as string) === "free_course_granter" && (
+          <AdminFreeCourseGranter />
+        )}
+
+        {(activeTab as string) === "reports_and_doubts" && (
+          <AdminReportsInbox />
+        )}
+
+        {(activeTab as string) === "coupon_manager" && (
+          <div className="space-y-8">
+            <AdminFreeCourseGranter />
+            <AdminCouponManager />
+          </div>
+        )}
        {/* STUDENT PURCHASES & REVENUE TAB */}
       {activeTab === 'student_purchases' && (
         <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-6">
@@ -2097,16 +2706,461 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+      {/* ================= TAB: RRB / CUSTOM PDF COURSE MANAGER ================= */}
+    {/* ================= TAB: RRB COURSE MANAGER ================= */}
+{/* ================= TAB: RRB COURSE MANAGER ================= */}
+  {activeTab === 'rrb_course_manager' && (
+      <div className="space-y-6 max-w-4xl mx-auto">
+      <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-6">
+        <div className="flex justify-between items-center border-b pb-3">
+          <div>
+            <h2 className="text-lg font-bold text-slate-800">📚 RRB Course & Multi-Section Manager</h2>
+            <p className="text-xs text-slate-500">Manage packages, upload bilingual PDFs per section, and control optional video links.</p>
+          </div>
+          {rrbStatusMsg && <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-lg border">{rrbStatusMsg}</span>}
+        </div>
+              {/* RRB Package Containers Management Section */}
+        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4 mb-6">
+          <div className="flex justify-between items-center border-b pb-2">
+            <h3 className="text-sm font-bold text-slate-800">📦 Existing RRB Course Packages</h3>
+            <button 
+              type="button" 
+              onClick={fetchRrbPackagesList} 
+              className="text-xs font-bold text-blue-600 hover:underline"
+            >
+              🔄 Refresh List
+            </button>
+          </div>
 
-      {/* DIRECT EXCEL MOCK UPLOAD TAB */}
+          <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
+            {rrbPackagesList.length === 0 ? (
+              <p className="text-xs text-slate-500">No RRB course containers found. (Tip: Click Refresh or check your course title containing "RRB")</p>
+            ) : (
+              rrbPackagesList.map((pkg) => (
+                <div key={pkg.id} className="bg-white p-3 rounded-lg border flex justify-between items-center shadow-sm">
+                  {editingPackageId === pkg.id ? (
+                    <div className="flex-1 space-y-2 pr-2">
+                      <input
+                        type="text"
+                        value={editPackageTitle}
+                        onChange={(e) => setEditPackageTitle(e.target.value)}
+                        className="w-full border p-1.5 rounded text-xs font-bold bg-white text-slate-800"
+                      />
+                      <input
+                        type="text"
+                        value={editPackageDesc}
+                        onChange={(e) => setEditPackageDesc(e.target.value)}
+                        className="w-full border p-1.5 rounded text-xs bg-white text-slate-600"
+                      />
+                      <div className="flex gap-2">
+                        <button 
+                          type="button" 
+                          onClick={() => handleUpdateRrbPackage(pkg.id)} 
+                          className="px-3 py-1 bg-emerald-600 text-white font-bold text-xs rounded shadow"
+                        >
+                          Save 💾
+                        </button>
+                        <button 
+                          type="button" 
+                          onClick={() => setEditingPackageId(null)} 
+                          className="px-3 py-1 bg-slate-200 text-slate-700 font-bold text-xs rounded"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-0.5 flex-1 pr-2">
+                      <h4 className="font-bold text-slate-900 text-xs">{pkg.title}</h4>
+                      <p className="text-[11px] text-slate-500">{pkg.description || 'No description'}</p>
+                    </div>
+                  )}
+
+                  {editingPackageId !== pkg.id && (
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingPackageId(pkg.id);
+                          setEditPackageTitle(pkg.title);
+                          setEditPackageDesc(pkg.description || '');
+                        }}
+                        className="px-2.5 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold text-xs rounded transition"
+                      >
+                        Edit ✏️
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteRrbPackage(pkg.id, pkg.title)}
+                        className="px-2.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold text-xs rounded transition"
+                      >
+                        Delete 🗑️
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+        {/* 1. Create Course Container */}
+        <form onSubmit={handleCreateRrbCourse} className="space-y-3 bg-slate-50 p-4 rounded-xl border">
+          <h3 className="text-sm font-bold text-slate-800">1. Create RRB Course Container Package</h3>
+          <div>
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Course Title</label>
+            <input
+              type="text"
+              value={rrbCourseTitle}
+              onChange={(e) => setRrbCourseTitle(e.target.value)}
+              placeholder="e.g. IBPS RRB PO Prelims PDF Course 2026"
+              className="w-full border p-2.5 rounded-lg text-xs bg-white font-bold"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Description / Metadata</label>
+            <input
+              type="text"
+              value={rrbCourseDesc}
+              onChange={(e) => setRrbCourseDesc(e.target.value)}
+              placeholder="e.g. Course Duration: 50 days | No. of Ques: 4200+"
+              className="w-full border p-2.5 rounded-lg text-xs bg-white"
+            />
+          </div>
+          <button type="submit" className="py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow">
+            Create Package Container 📦
+          </button>
+        </form>
+        <div className="bg-amber-50/50 p-4 rounded-xl border border-amber-200">
+          <label className="block text-xs font-bold uppercase text-amber-900 mb-1">Select Target Course Container</label>
+          <select
+            value={selectedRrbCourseId}
+            onChange={(e) => setSelectedRrbCourseId(e.target.value)}
+            className="w-full border p-2.5 rounded-lg text-xs bg-white font-bold text-slate-800"
+            required
+          >
+            <option value="">-- Choose Course Package Container --</option>
+            {rrbPackagesList.map((pkg) => (
+              <option key={pkg.id} value={pkg.id}>
+                {pkg.title}
+              </option>
+            ))}
+          </select>
+        </div>
+        {/* 2. Configure Day Content & Section Files */}
+        <form onSubmit={handleSaveRrbDayContent} className="space-y-4 border-t pt-4">
+          <h3 className="text-sm font-bold text-slate-800">2. Configure Day-Wise Topics & Section PDFs</h3>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border">
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Total Course Days</label>
+              <input
+                type="number"
+                value={rrbTotalDays}
+                onChange={(e) => setRrbTotalDays(Number(e.target.value))}
+                className="w-full border p-2 rounded-lg text-sm bg-white font-bold"
+                required
+              />
+              {/* 3. Existing Configured Days List */}
+  <div className="border-t pt-6 space-y-4">
+    <h3 className="text-sm font-bold text-slate-800 border-b pb-2">Configured Course Days ({rrbDays.length})</h3>
+    <div className="space-y-3 max-h-80 overflow-y-auto pr-2">
+      {rrbDays.length === 0 ? (
+        <p className="text-xs text-slate-500">No days configured yet.</p>
+      ) : (
+        rrbDays.map((day) => (
+          <div key={day.id} className="bg-slate-50 p-4 rounded-xl border flex justify-between items-center shadow-sm">
+            <div>
+              <span className="font-black text-slate-800 text-sm block">Day {day.day_number}</span>
+              <div className="text-[10px] text-slate-500 mt-1 flex gap-2 flex-wrap">
+                {day.eng_pdf_url && <span className="bg-emerald-100 text-emerald-800 px-1.5 rounded">REAS-EN</span>}
+                {day.quant_eng_pdf_url && <span className="bg-blue-100 text-blue-800 px-1.5 rounded">QUANT-EN</span>}
+                {day.english_pdf_url && <span className="bg-purple-100 text-purple-800 px-1.5 rounded">ENG-SEC</span>}
+                {day.ga_pdf_url && <span className="bg-amber-100 text-amber-800 px-1.5 rounded">GA</span>}
+                {day.youtube_video_url && <span className="bg-rose-100 text-rose-800 px-1.5 rounded">VIDEO</span>}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button 
+                onClick={() => handleEditRrbDay(day)} 
+                className="px-3 py-1.5 bg-blue-100 text-blue-700 font-bold text-xs rounded-lg transition hover:bg-blue-200"
+              >
+                Edit ✏️
+              </button>
+              <button 
+                onClick={() => handleDeleteRrbDay(day.day_number)} 
+                className="px-3 py-1.5 bg-rose-100 text-rose-700 font-bold text-xs rounded-lg transition hover:bg-rose-200"
+              >
+                Delete 🗑️
+              </button>
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Target Day Number</label>
+              <input
+                type="number"
+                min={1}
+                max={rrbTotalDays}
+                value={rrbSelectedDay}
+                onChange={(e) => setRrbSelectedDay(Number(e.target.value))}
+                className="w-full border p-2 rounded-lg text-sm bg-white font-bold text-blue-600"
+                required
+              />
+            </div>
+          </div>
+
+          {/* Dynamic Section Selectors & Textareas */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Reasoning Topics</label>
+              <textarea
+                rows={4}
+                value={rrbReasoningTopics}
+                onChange={(e) => setRrbReasoningTopics(e.target.value)}
+                placeholder="Circular seating arrangement - 5 ques..."
+                className="w-full border p-2 rounded-lg text-xs font-mono bg-white"
+              />
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400">Reasoning English PDF</span>
+                  <input type="file" accept=".pdf" onChange={(e) => setRrbEngFile(e.target.files?.[0] || null)} className="w-full text-[11px] border p-1 rounded bg-white" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400">Reasoning Hindi PDF</span>
+                  <input type="file" accept=".pdf" onChange={(e) => setRrbHindiFile(e.target.files?.[0] || null)} className="w-full text-[11px] border p-1 rounded bg-white" />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Quantitative Aptitude Topics</label>
+              <textarea
+                rows={4}
+                value={rrbQuantTopics}
+                onChange={(e) => setRrbQuantTopics(e.target.value)}
+                placeholder="Line graph based on percentage - 5Q..."
+                className="w-full border p-2 rounded-lg text-xs font-mono bg-white"
+              />
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400">Quant English PDF</span>
+                  <input type="file" accept=".pdf" onChange={(e) => setRrbQuantEngFile(e.target.files?.[0] || null)} className="w-full text-[11px] border p-1 rounded bg-white" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400">Quant Hindi PDF</span>
+                  <input type="file" accept=".pdf" onChange={(e) => setRrbQuantHindiFile(e.target.files?.[0] || null)} className="w-full text-[11px] border p-1 rounded bg-white" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Additional Optional Sections: English, GA, Computer */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t pt-4">
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">English Section PDF (Opt.)</label>
+              <input type="file" accept=".pdf" onChange={(e) => setRrbEnglishSecFile(e.target.files?.[0] || null)} className="w-full text-[11px] border p-1 rounded bg-white" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">GA Section PDF (Opt.)</label>
+              <input type="file" accept=".pdf" onChange={(e) => setRrbGaSecFile(e.target.files?.[0] || null)} className="w-full text-[11px] border p-1 rounded bg-white" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Computer PDF (Opt.)</label>
+              <input type="file" accept=".pdf" onChange={(e) => setRrbComputerSecFile(e.target.files?.[0] || null)} className="w-full text-[11px] border p-1 rounded bg-white" />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">YouTube Video URL (Optional)</label>
+            <input
+              type="text"
+              value={rrbVideoUrl}
+              onChange={(e) => setRrbVideoUrl(e.target.value)}
+              placeholder="https://www.youtube.com/embed/... (Leave blank to hide)"
+              className="w-full border border-purple-300 bg-purple-50/20 p-2.5 rounded-lg text-xs font-mono bg-white"
+            />
+          </div>
+
+          <button type="submit" className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow">
+            Upload &amp; Save Day {rrbSelectedDay} Configuration 🚀
+          </button>
+        </form>
+      </div>
+    </div>
+  )}
+      {/* DIRECT WORD (.docx) & EXCEL (.xlsx) MOCK UPLOAD TAB */}
       {activeTab === 'direct_mock_upload' && (
         <div className="bg-white shadow-sm rounded-xl p-6 border border-slate-200 space-y-6">
-          <div className="flex items-center space-x-2 border-b pb-3">
-            <h2 className="text-lg font-bold text-slate-800">1-Click Direct Mock Upload (Excel .xlsx with Image Support)</h2>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b pb-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-blue-100 text-[#1D63B8] rounded-lg text-lg">📝</span>
+                <h2 className="text-lg font-bold text-slate-800">
+                  1-Click Mock Test Upload (Word .docx, Text .txt, Excel .xlsx)
+                </h2>
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                Upload full CBT mock test papers with sections (Quant, Reasoning, English, GA), directions, questions, and option to attach graph/solution images by question number.
+              </p>
+            </div>
+
+            {/* Template Download & Copy Buttons */}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowMockSplitScreenGuide(!showMockSplitScreenGuide)}
+                className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg border transition ${
+                  showMockSplitScreenGuide
+                    ? 'bg-purple-600 text-white border-purple-700 shadow-sm'
+                    : 'bg-purple-50 hover:bg-purple-100 text-purple-800 border-purple-200'
+                }`}
+              >
+                <span>💡</span>
+                <span>{showMockSplitScreenGuide ? 'Hide Split Screen Guide' : 'Passage / Puzzle / DI Split Guide'}</span>
+              </button>
+              <a
+                href="/samples/mock_test_sample.docx"
+                download="mock_test_sample.docx"
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-blue-50 hover:bg-blue-100 text-[#1D63B8] text-xs font-bold rounded-lg border border-blue-200 transition"
+                title="Download formatted Microsoft Word mock test sample with DI table, reasoning, and passage"
+              >
+                📥 Sample Word (.docx)
+              </a>
+              <a
+                href="/samples/mock_test_sample.txt"
+                download="mock_test_sample.txt"
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-lg border border-slate-200 transition"
+                title="Download plain text template file"
+              >
+                📄 Sample Text (.txt)
+              </a>
+              <button
+                type="button"
+                onClick={handleCopyMockFormat}
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold rounded-lg border border-amber-200 transition"
+              >
+                {copiedMockFormat ? '✓ Copied!' : '📋 Copy Format'}
+              </button>
+            </div>
           </div>
+
+          {/* Interactive Split Screen & Word Formatting Guide */}
+          {showMockSplitScreenGuide && (
+            <div className="bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-200 rounded-2xl p-5 space-y-4 shadow-sm animate-fadeIn">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-purple-200/70 pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">🖥️</span>
+                  <div>
+                    <h3 className="text-sm font-extrabold text-purple-950">
+                      How to add Passage / Puzzle / DI in Word for 50/50 Split Screen
+                    </h3>
+                    <p className="text-xs text-purple-800/80">
+                      When a question contains Passage, Puzzle, or DI instructions, the exam automatically divides into two equal halves.
+                    </p>
+                  </div>
+                </div>
+                <span className="self-start sm:self-center px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-purple-200 text-purple-900">
+                  CBT 50/50 Layout
+                </span>
+              </div>
+
+              {/* Visual Split Screen Diagram */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                <div className="bg-white p-4 rounded-xl border-2 border-blue-300 shadow-sm space-y-2">
+                  <div className="flex items-center justify-between border-b pb-1.5">
+                    <span className="font-extrabold text-blue-800 flex items-center gap-1">
+                      <span>⬅️</span> LEFT SIDE (50% Screen)
+                    </span>
+                    <span className="text-[10px] bg-blue-100 text-blue-900 px-2 py-0.5 rounded font-bold">
+                      Passage / Puzzle / DI Context
+                    </span>
+                  </div>
+                  <ul className="text-slate-600 space-y-1 text-[11px] list-disc list-inside">
+                    <li>Displays your <b>Passage</b>, <b>Reasoning Puzzle clues</b>, or <b>DI data table</b>.</li>
+                    <li>If you attach a graph image via <code>[IMAGE: url]</code> or the uploader below, it displays here on the left side!</li>
+                    <li>Stays visible while candidate answers Q1, Q2, Q3... of that set.</li>
+                  </ul>
+                </div>
+
+                <div className="bg-white p-4 rounded-xl border-2 border-emerald-300 shadow-sm space-y-2">
+                  <div className="flex items-center justify-between border-b pb-1.5">
+                    <span className="font-extrabold text-emerald-800 flex items-center gap-1">
+                      <span>➡️</span> RIGHT SIDE (50% Screen)
+                    </span>
+                    <span className="text-[10px] bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded font-bold">
+                      Questions &amp; Options
+                    </span>
+                  </div>
+                  <ul className="text-slate-600 space-y-1 text-[11px] list-disc list-inside">
+                    <li>Shows current <b>Question Text</b> (e.g. Q1, Q2, etc.).</li>
+                    <li>Shows <b>Options (A, B, C, D, E)</b> for 1-click selection.</li>
+                    <li>Clear Response, Mark for Review, and Save &amp; Next buttons.</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* Word Document Formatting Examples */}
+              <div className="bg-slate-900 text-slate-100 p-4 rounded-xl text-xs font-mono space-y-3 overflow-x-auto">
+                <div className="flex items-center justify-between text-slate-400 border-b border-slate-800 pb-1.5 text-[11px]">
+                  <span>📄 HOW TO WRITE IN YOUR WORD (.docx) FILE</span>
+                  <span className="text-amber-400 font-sans font-bold">Auto-detected by parser!</span>
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-amber-300 font-bold font-sans">1. Data Interpretation (DI) Format:</p>
+                  <pre className="text-slate-300 text-[11px]">
+{`Directions (Q1-Q3): Study the following bar chart/table and answer questions 1 to 3:
+- Branch A: 250 Savings, 150 Current
+- Branch B: 350 Savings, 200 Current
+[IMAGE: https://your-server.com/chart.png] (Optional inline image)
+
+Q1. What is the ratio of accounts in Branch A to Branch B?
+(A) 4 : 5
+(B) 5 : 6
+Ans: (A)
+Marks: +1, -0.25
+Explanation: ...`}
+                  </pre>
+                </div>
+
+                <div className="space-y-1 pt-2 border-t border-slate-800">
+                  <p className="text-amber-300 font-bold font-sans">2. Reasoning Puzzle / Seating Arrangement Format:</p>
+                  <pre className="text-slate-300 text-[11px]">
+{`[PUZZLE: Q4-Q5]
+Directions (Q4-Q5): Eight persons P, Q, R, S, T, U, V, W sit in a row facing north:
+1. P sits 3rd from the left end.
+2. Only two persons sit between P and T.
+
+Q4. Who sits at the extreme left end?
+(A) W
+(B) P
+Ans: (A)
+Marks: +1, -0.25`}
+                  </pre>
+                </div>
+
+                <div className="space-y-1 pt-2 border-t border-slate-800">
+                  <p className="text-amber-300 font-bold font-sans">3. Standalone Questions (Returns to full single-column screen):</p>
+                  <pre className="text-slate-300 text-[11px]">
+{`[STANDALONE]
+Q6. Find the value of x if 4x + 12 = 36:
+(A) 6
+(B) 8
+Ans: (A)`}
+                  </pre>
+                </div>
+              </div>
+            </div>
+          )}
 
           {!pendingDirectMock ? (
             <>
+              {/* Mock Metadata Settings */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Mock Test Title</label>
@@ -2114,9 +3168,8 @@ export default function AdminPage() {
                     type="text"
                     value={directMockTitle}
                     onChange={(e) => setDirectMockTitle(e.target.value)}
-                    placeholder="e.g. IBPS PO Prelims - Mock 01"
+                    placeholder="e.g. IBPS PO Prelims - Mock 01 (Auto-filled from file)"
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-sm bg-white"
-                    required
                   />
                 </div>
 
@@ -2127,7 +3180,7 @@ export default function AdminPage() {
                     onChange={(e) => setDirectMockSubCategoryId(e.target.value)}
                     className="w-full border border-slate-300 rounded-lg p-2.5 text-slate-900 text-xs bg-white font-bold"
                   >
-                    <option value="">-- Select Target Sub-Card --</option>
+                    <option value="">-- Select Target Sub-Card (Optional) --</option>
                     {subCategories.map((sc) => (
                       <option key={sc.id} value={sc.id}>
                         [{sc.parent_exam_name}] {sc.sub_card_title}
@@ -2145,6 +3198,10 @@ export default function AdminPage() {
                   >
                     <option value="SBI PO Prelims">SBI PO Prelims</option>
                     <option value="IBPS PO Prelims">IBPS PO Prelims</option>
+                    <option value="SBI Clerk Prelims">SBI Clerk Prelims</option>
+                    <option value="IBPS Clerk Prelims">IBPS Clerk Prelims</option>
+                    <option value="RRB PO Prelims">RRB PO Prelims</option>
+                    <option value="RRB Clerk Prelims">RRB Clerk Prelims</option>
                     <option value="BSCA">BSCA (Current Affairs Quiz)</option>
                     <option value="BSPS">BSPS (Practice Sheet Quiz)</option>
                     {dynamicExamsList.map((ex) => (
@@ -2183,62 +3240,485 @@ export default function AdminPage() {
                     onChange={(e) => setDirectMockCutoff(Number(e.target.value))}
                     placeholder="e.g. 58"
                     className="w-full border border-amber-300 bg-amber-50 rounded-lg p-2.5 text-slate-900 text-sm font-bold"
-                    required
                   />
                 </div>
               </div>
 
-              <div className="border-2 border-dashed border-blue-300 hover:border-blue-500 rounded-xl p-8 text-center bg-blue-50/40 transition cursor-pointer relative">
+              {/* Upload Dropzone */}
+              <div className="border-2 border-dashed border-blue-300 hover:border-blue-500 rounded-2xl p-8 text-center bg-blue-50/40 hover:bg-blue-50/70 transition cursor-pointer relative group">
                 <input
                   type="file"
-                  accept=".xlsx, .xls"
+                  accept=".docx, .txt, .md, .xlsx, .xls"
                   onChange={handleDirectMockUpload}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 />
-                <div className="text-blue-900 space-y-2">
-                  <span className="text-4xl block">📊</span>
-                  <p className="font-bold text-sm text-[#1D63B8]">Click to upload Excel Mock File (.xlsx)</p>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-center gap-3 text-3xl">
+                    <span>📄</span>
+                    <span>📊</span>
+                    <span>📑</span>
+                  </div>
+                  <div>
+                    <p className="font-bold text-base text-[#1D63B8]">
+                      Click or Drag &amp; Drop Mock Test File (.docx, .txt, .xlsx)
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1 max-w-xl mx-auto">
+                      Supports Word documents (.docx), text files (.txt), and Excel sheets (.xlsx). Sections, directions, question texts, options A-E, answers, and marks are auto-parsed.
+                    </p>
+                  </div>
+                  <div className="inline-flex items-center gap-2 px-3 py-1 bg-white border border-blue-200 rounded-full text-[11px] font-semibold text-blue-700 shadow-sm">
+                    ✨ Auto-detects [SECTION: QUANT], Directions, Q1..QN, Options &amp; Ans
+                  </div>
                 </div>
               </div>
             </>
           ) : (
-            <div className="bg-emerald-50 border border-emerald-200 p-6 rounded-xl space-y-4">
-              <h3 className="text-lg font-bold text-emerald-900 border-b border-emerald-200 pb-2">Preview & Publish</h3>
-              
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-emerald-900">
-                <div>
-                  <span className="block text-[10px] uppercase font-bold text-emerald-600 mb-1">Title</span>
-                  <b className="block truncate">{pendingDirectMock.title}</b>
+            <div className="space-y-6">
+              {/* Summary Banner */}
+              <div className="bg-emerald-50 border border-emerald-200 p-5 rounded-2xl space-y-4 shadow-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-emerald-200 pb-3">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-wider text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-full">
+                      ✓ Mock Test Parsed Ready
+                    </span>
+                    <h3 className="text-lg font-bold text-emerald-950 mt-1">{pendingDirectMock.title}</h3>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handlePublishPendingMock}
+                      className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow transition"
+                    >
+                      🚀 Publish Mock Test Now
+                    </button>
+                    <button
+                      onClick={() => {
+                        setPendingDirectMock(null);
+                        setStatusMsg('Upload cancelled.');
+                      }}
+                      className="px-4 py-2.5 bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold text-xs rounded-xl transition"
+                    >
+                      Discard
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <span className="block text-[10px] uppercase font-bold text-emerald-600 mb-1">Total Marks</span>
-                  <b>{pendingDirectMock.total_marks} Marks</b>
-                </div>
-                <div>
-                  <span className="block text-[10px] uppercase font-bold text-emerald-600 mb-1">Questions Parsed</span>
-                  <b>{pendingDirectMock.questions.length} Qs</b>
-                </div>
-                <div>
-                  <span className="block text-[10px] uppercase font-bold text-emerald-600 mb-1">Target Cut-off</span>
-                  <b>{pendingDirectMock.cutoff_marks} Marks</b>
+
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-xs text-emerald-950">
+                  <div className="bg-white/80 p-3 rounded-xl border border-emerald-200">
+                    <span className="block text-[10px] uppercase font-bold text-emerald-600 mb-0.5">Exam Type</span>
+                    <b className="truncate block">{pendingDirectMock.exam_type || 'General'}</b>
+                  </div>
+                  <div className="bg-white/80 p-3 rounded-xl border border-emerald-200">
+                    <span className="block text-[10px] uppercase font-bold text-emerald-600 mb-0.5">Duration</span>
+                    <b>{pendingDirectMock.duration_minutes} Mins</b>
+                  </div>
+                  <div className="bg-white/80 p-3 rounded-xl border border-emerald-200">
+                    <span className="block text-[10px] uppercase font-bold text-emerald-600 mb-0.5">Total Marks</span>
+                    <b>{pendingDirectMock.total_marks} Marks</b>
+                  </div>
+                  <div className="bg-white/80 p-3 rounded-xl border border-emerald-200">
+                    <span className="block text-[10px] uppercase font-bold text-emerald-600 mb-0.5">Total Questions</span>
+                    <b className="text-emerald-700">{pendingDirectMock.questions?.length || 0} Qs</b>
+                  </div>
+                  <div className="bg-white/80 p-3 rounded-xl border border-emerald-200">
+                    <span className="block text-[10px] uppercase font-bold text-emerald-600 mb-0.5">Images Attached</span>
+                    <b className="text-blue-700">
+                      {pendingDirectMock.questions?.filter((q: any) => q.imageUrl || q.solutionImageUrl).length || 0} Qs with Images
+                    </b>
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 pt-4 border-t border-emerald-200">
+              {/* IMAGE UPLOAD & MAPPING HUB */}
+              <div className="bg-gradient-to-r from-blue-50/80 to-indigo-50/80 border border-blue-200 rounded-2xl p-5 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-blue-200/60 pb-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-blue-950 flex items-center gap-2">
+                      <span>🖼️</span> Question &amp; Solution Image Uploader
+                    </h3>
+                    <p className="text-xs text-blue-800/80">
+                      Upload diagrams, DI bar charts/graphs, reasoning puzzle tables, or solution images mapped to any question number.
+                    </p>
+                  </div>
+                  {isUploadingMockImage && (
+                    <div className="flex items-center gap-2 text-xs font-bold text-blue-700 bg-white px-3 py-1.5 rounded-xl border border-blue-300 shadow-sm animate-pulse">
+                      <span className="w-2 h-2 rounded-full bg-blue-600 animate-ping" />
+                      Uploading &amp; Mapping Image...
+                    </div>
+                  )}
+                </div>
+
+                {mockImageStatus && (
+                  <div className="text-xs font-medium p-2.5 rounded-xl bg-white border border-blue-200 text-blue-900">
+                    {mockImageStatus}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                  {/* Option 1: Upload Image by Specific Question Number */}
+                  <div className="lg:col-span-7 bg-white p-4 rounded-xl border border-blue-200/80 shadow-sm space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-bold">1</span>
+                        Upload Image by Question Number
+                      </span>
+                      <span className="text-[10px] text-slate-500">Attach to specific question</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-600 mb-1">Target Question #</label>
+                        <select
+                          value={selectedMockImageQNum}
+                          onChange={(e) => setSelectedMockImageQNum(Number(e.target.value))}
+                          className="w-full border border-slate-300 rounded-lg p-2 text-xs text-slate-900 bg-white font-semibold"
+                        >
+                          {pendingDirectMock.questions.map((q: any, idx: number) => {
+                            const qNum = idx + 1;
+                            const hasQImg = !!q.imageUrl;
+                            const hasSolImg = !!q.solutionImageUrl;
+                            const badge = hasQImg && hasSolImg ? ' [🖼️+💡]' : hasQImg ? ' [🖼️]' : hasSolImg ? ' [💡]' : '';
+                            const snippet = (q.questionText || '').substring(0, 32);
+                            return (
+                              <option key={idx} value={qNum}>
+                                Q{qNum} ({q.section || 'Q'}): {snippet}...{badge}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-600 mb-1">Image Purpose</label>
+                        <select
+                          value={selectedMockImageType}
+                          onChange={(e) => setSelectedMockImageType(e.target.value as any)}
+                          className="w-full border border-slate-300 rounded-lg p-2 text-xs text-slate-900 bg-white font-semibold"
+                        >
+                          <option value="question">📊 Question / Graph / DI Chart Image</option>
+                          <option value="solution">💡 Solution / Explanation Diagram</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1">Choose Image File</label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={isUploadingMockImage}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            handleUploadMockImageForQuestion(selectedMockImageQNum, selectedMockImageType, file);
+                            e.target.value = '';
+                          }
+                        }}
+                        className="w-full text-xs text-slate-600 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Option 2: Batch Upload Multi-Images with Auto-Matching */}
+                  <div className="lg:col-span-5 bg-white p-4 rounded-xl border border-blue-200/80 shadow-sm space-y-3 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                          <span className="w-5 h-5 rounded-full bg-purple-600 text-white text-[10px] flex items-center justify-center font-bold">2</span>
+                          Batch Multi-Image Uploader
+                        </span>
+                        <span className="text-[10px] text-purple-700 font-bold bg-purple-50 px-2 py-0.5 rounded">Auto-Matches Q#</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        Select multiple images at once. System automatically detects question number from filename (e.g. <code className="bg-slate-100 px-1 py-0.5 rounded text-slate-700 font-bold">Q1_graph.png</code>, <code className="bg-slate-100 px-1 py-0.5 rounded text-slate-700 font-bold">Q5_sol.jpg</code>).
+                      </p>
+                    </div>
+
+                    <div className="border border-dashed border-purple-300 hover:border-purple-500 rounded-xl p-3 text-center bg-purple-50/30 transition relative cursor-pointer">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        disabled={isUploadingMockImage}
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files.length > 0) {
+                            handleBatchUploadMockImages(e.target.files);
+                            e.target.value = '';
+                          }
+                        }}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                      <span className="text-xl block mb-1">🗂️</span>
+                      <p className="text-xs font-bold text-purple-900">Click to Select Multiple Images</p>
+                      <p className="text-[10px] text-slate-500">Supports PNG, JPG, WEBP, SVG</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* QUESTIONS ACCORDION & PREVIEW LIST */}
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-bold text-slate-700 mr-1">Filter Section:</span>
+                    {['ALL', ...Array.from(new Set(pendingDirectMock.questions.map((q: any) => q.section || 'QUANT')))].map((sec: any) => (
+                      <button
+                        key={sec}
+                        type="button"
+                        onClick={() => setMockSectionFilter(sec)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
+                          mockSectionFilter === sec
+                            ? 'bg-[#1D63B8] text-white shadow-sm'
+                            : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {sec}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-bold text-slate-700 mr-1">Image Status:</span>
+                    {(['ALL', 'WITH_IMAGE', 'NO_IMAGE'] as const).map((filterVal) => (
+                      <button
+                        key={filterVal}
+                        type="button"
+                        onClick={() => setMockImageFilter(filterVal)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
+                          mockImageFilter === filterVal
+                            ? 'bg-amber-500 text-white shadow-sm'
+                            : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {filterVal === 'ALL' ? 'All' : filterVal === 'WITH_IMAGE' ? '🖼️ Has Image' : '⚪ No Image'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Filter and render questions */}
+                <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
+                  {pendingDirectMock.questions
+                    .map((q: any, originalIdx: number) => ({ q, originalIdx }))
+                    .filter(({ q }: any) => {
+                      if (mockSectionFilter !== 'ALL' && (q.section || 'QUANT') !== mockSectionFilter) return false;
+                      if (mockImageFilter === 'WITH_IMAGE' && !q.imageUrl && !q.solutionImageUrl) return false;
+                      if (mockImageFilter === 'NO_IMAGE' && (q.imageUrl || q.solutionImageUrl)) return false;
+                      return true;
+                    })
+                    .map(({ q, originalIdx }: any) => {
+                      const qNum = originalIdx + 1;
+                      return (
+                        <div
+                          key={originalIdx}
+                          className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 hover:border-blue-300 transition shadow-sm"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="px-2.5 py-0.5 rounded-lg bg-slate-800 text-white font-black text-xs">
+                                Q{qNum}
+                              </span>
+                              <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-bold text-[10px] border border-blue-200">
+                                {q.section || 'QUANT'}
+                              </span>
+                              <span className="text-[11px] font-semibold text-slate-500">
+                                Marks: +{q.marks ?? 1.0}, -{q.negativeMarks ?? 0.25}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              {q.imageUrl && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
+                                  📊 Graph Attached
+                                </span>
+                              )}
+                              {q.solutionImageUrl && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                                  💡 Sol Image Attached
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Directions / Passage (if any) */}
+                          {q.passageText && (
+                            <div className="p-3 bg-amber-50/70 border-l-4 border-amber-400 rounded-r-lg text-xs text-amber-950 whitespace-pre-line leading-relaxed">
+                              <span className="font-bold block text-[10px] text-amber-700 uppercase mb-0.5">Directions / Passage:</span>
+                              {q.passageText}
+                            </div>
+                          )}
+
+                          {/* Question Text */}
+                          <p className="text-sm font-semibold text-slate-800 leading-relaxed">
+                            {q.questionText}
+                          </p>
+
+                          {/* Options Grid */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                            {q.options?.map((opt: string, optIdx: number) => {
+                              const isCorrect = optIdx === q.correctOptionIndex;
+                              const optLetter = String.fromCharCode(65 + optIdx);
+                              return (
+                                <div
+                                  key={optIdx}
+                                  className={`p-2.5 rounded-lg border flex items-center gap-2 ${
+                                    isCorrect
+                                      ? 'bg-emerald-50 border-emerald-300 font-bold text-emerald-950'
+                                      : 'bg-slate-50/80 border-slate-200 text-slate-700'
+                                  }`}
+                                >
+                                  <span
+                                    className={`w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center shrink-0 ${
+                                      isCorrect ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'
+                                    }`}
+                                  >
+                                    {optLetter}
+                                  </span>
+                                  <span className="truncate">{opt}</span>
+                                  {isCorrect && <span className="ml-auto text-[10px] text-emerald-600 font-black">✓ Correct</span>}
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Explanation (if any) */}
+                          {q.explanation && (
+                            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600 leading-relaxed">
+                              <span className="font-bold text-slate-700 mr-1">Explanation:</span>
+                              {q.explanation}
+                            </div>
+                          )}
+
+                          {/* Image Attachment Panels */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+                            {/* Question / Graph Image Box */}
+                            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                                  <span>📊</span> Question / Graph Image
+                                </span>
+                                {q.imageUrl && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveMockImage(originalIdx, 'question')}
+                                    className="text-[10px] font-bold text-rose-600 hover:text-rose-800"
+                                  >
+                                    🗑️ Remove
+                                  </button>
+                                )}
+                              </div>
+
+                              {q.imageUrl ? (
+                                <div className="space-y-2">
+                                  <div className="relative group rounded-lg overflow-hidden border border-slate-300 bg-white max-h-36 flex items-center justify-center">
+                                    <img
+                                      src={q.imageUrl}
+                                      alt={`Q${qNum} Graph`}
+                                      className="max-h-36 object-contain"
+                                    />
+                                    <a
+                                      href={q.imageUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-bold transition"
+                                    >
+                                      🔍 View Full Size
+                                    </a>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="relative">
+                                  <label className="flex items-center justify-center gap-2 p-2 border border-dashed border-blue-300 hover:border-blue-500 rounded-lg bg-white text-blue-700 text-xs font-bold cursor-pointer transition">
+                                    <span>➕ Attach Graph Image</span>
+                                    <input
+                                      type="file"
+                                      accept="image/*"
+                                      onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) handleUploadMockImageForQuestion(qNum, 'question', file);
+                                      }}
+                                      className="hidden"
+                                    />
+                                  </label>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Solution / Explanation Image Box */}
+                            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                                  <span>💡</span> Solution / Diagram Image
+                                </span>
+                                {q.solutionImageUrl && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveMockImage(originalIdx, 'solution')}
+                                    className="text-[10px] font-bold text-rose-600 hover:text-rose-800"
+                                  >
+                                    🗑️ Remove
+                                  </button>
+                                )}
+                              </div>
+
+                              {q.solutionImageUrl ? (
+                                <div className="space-y-2">
+                                  <div className="relative group rounded-lg overflow-hidden border border-slate-300 bg-white max-h-36 flex items-center justify-center">
+                                    <img
+                                      src={q.solutionImageUrl}
+                                      alt={`Q${qNum} Solution`}
+                                      className="max-h-36 object-contain"
+                                    />
+                                    <a
+                                      href={q.solutionImageUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-bold transition"
+                                    >
+                                      🔍 View Full Size
+                                    </a>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="relative">
+                                  <label className="flex items-center justify-center gap-2 p-2 border border-dashed border-emerald-300 hover:border-emerald-500 rounded-lg bg-white text-emerald-700 text-xs font-bold cursor-pointer transition">
+                                    <span>➕ Attach Solution Image</span>
+                                    <input
+                                      type="file"
+                                      accept="image/*"
+                                      onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) handleUploadMockImageForQuestion(qNum, 'solution', file);
+                                      }}
+                                      className="hidden"
+                                    />
+                                  </label>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+
+              {/* Bottom Action Bar */}
+              <div className="flex items-center gap-3 pt-4 border-t border-slate-200">
                 <button
                   onClick={handlePublishPendingMock}
-                  className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow transition"
+                  className="flex-1 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm rounded-xl shadow-lg transition"
                 >
-                  🚀 Publish Mock Test Now
+                  🚀 Publish Mock Test ({pendingDirectMock.questions?.length} Questions)
                 </button>
                 <button
                   onClick={() => {
                     setPendingDirectMock(null);
                     setStatusMsg('Upload cancelled.');
                   }}
-                  className="px-6 py-3 bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold text-xs rounded-xl transition"
+                  className="px-6 py-3.5 bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold text-sm rounded-xl transition"
                 >
-                  Cancel & Discard
+                  Discard
                 </button>
               </div>
             </div>
@@ -2526,192 +4006,334 @@ export default function AdminPage() {
           </div>
         </div>
       )}
-      {/* CRITICAL REASONING CHAPTER BUILDER & PRICING TAB */}
-        {activeTab === 'critical_reasoning_manager' && (
+      {/* 💻 iON TEST & EXCEL UPLOADER MANAGER */}
+        {activeTab === 'test_manager' && (
           <div className="space-y-6">
-            
-            {/* 🏷️ NEW: PRICING CONTROL CARD */}
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4 max-w-full">
-              <div className="border-b pb-3 flex justify-between items-center">
-                <div>
-                  <h2 className="text-base font-bold text-slate-800">🏷️ Critical Reasoning Course Pricing Control</h2>
-                  <p className="text-xs text-slate-500">Live prices and discount offers shown on the Critical Reasoning reader page.</p>
-                </div>
-                {pricingStatusMsg && <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200">{pricingStatusMsg}</span>}
-              </div>
-
-              <form onSubmit={handleSavePricing} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                <div>
-                  <label className="text-xs font-bold uppercase text-slate-500 block mb-1">Original Price (Crossed)</label>
-                  <input
-                    type="number"
-                    value={crOriginalPrice}
-                    onChange={(e) => setCrOriginalPrice(e.target.value)}
-                    className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold text-slate-800"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold uppercase text-slate-500 block mb-1">Launch Offer Price</label>
-                  <input
-                    type="number"
-                    value={crLaunchPrice}
-                    onChange={(e) => setCrLaunchPrice(e.target.value)}
-                    className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold text-amber-600"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold uppercase text-slate-500 block mb-1">Price with Code 'BSOL'</label>
-                  <input
-                    type="number"
-                    value={crCouponPrice}
-                    onChange={(e) => setCrCouponPrice(e.target.value)}
-                    className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold text-emerald-600"
-                    required
-                  />
-                </div>
-                <div>
-                  <button
-                    type="submit"
-                    className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow transition"
-                  >
-                    Save Pricing 💾
-                  </button>
-                </div>
-              </form>
-            </div>
-
-            {/* EXISTING CHAPTER BUILDER FORM */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <form onSubmit={handleSaveCriticalReasoningChapter} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
-                <h2 className="text-base font-bold text-slate-800 border-b pb-2">Add / Edit Critical Reasoning Chapter</h2>
-                
+              
+              {/* Test Creation & Excel Upload Form */}
+              <form onSubmit={handleUploadTestExcel} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                <h2 className="text-base font-bold text-slate-800 border-b pb-2">Create Test & Upload Excel Questions</h2>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Chapter Number</label>
                     <input
                       type="number"
-                      value={crChapterNo}
-                      onChange={(e) => setCrChapterNo(Number(e.target.value))}
+                      value={testChapterNo}
+                      onChange={(e) => setTestChapterNo(Number(e.target.value))}
                       className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold"
                       required
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Language Mode</label>
-                    <select
-                      value={crLanguage}
-                      onChange={(e: any) => setCrLanguage(e.target.value)}
-                      className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold text-blue-600"
-                    >
-                      <option value="english">🇬🇧 English</option>
-                      <option value="hinglish">🇮🇳 Hinglish</option>
-                    </select>
+                    <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Duration (Mins)</label>
+                    <input
+                      type="number"
+                      value={testDuration}
+                      onChange={(e) => setTestDuration(Number(e.target.value))}
+                      className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold"
+                      required
+                    />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Chapter Title</label>
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Test Title</label>
                   <input
                     type="text"
-                    value={crTitle}
-                    onChange={(e) => setCrTitle(e.target.value)}
-                    placeholder="e.g. Assumptions & Inferences"
+                    value={testTitle}
+                    onChange={(e) => setTestTitle(e.target.value)}
+                    placeholder="e.g. Critical Reasoning Chapter 1 Mock Test"
                     className="w-full border p-2.5 rounded-lg text-sm bg-white"
                     required
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Practice MCQ PDF URL (Optional)</label>
-                  <input
-                    type="url"
-                    value={crPdfUrl}
-                    onChange={(e) => setCrPdfUrl(e.target.value)}
-                    placeholder="https://your-supabase-url/storage/v1/object/public/...pdf"
-                    className="w-full border p-2.5 rounded-lg text-sm bg-white"
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Total Marks</label>
+                    <input
+                      type="number"
+                      value={testTotalMarks}
+                      onChange={(e) => setTestTotalMarks(Number(e.target.value))}
+                      className="w-full border p-2.5 rounded-lg text-sm bg-white"
+                      required
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 pt-6">
+                    <input
+                      type="checkbox"
+                      id="testLockCheck"
+                      checked={testIsLocked}
+                      onChange={(e) => setTestIsLocked(e.target.checked)}
+                      className="w-4 h-4 rounded accent-blue-600"
+                    />
+                    <label htmlFor="testLockCheck" className="text-xs font-bold text-slate-700 cursor-pointer">
+                      🔒 Lock Test (Course Purchase Required)
+                    </label>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-3 py-2">
-                  <input
-                    type="checkbox"
-                    id="crIsLockedCheck"
-                    checked={crIsLocked}
-                    onChange={(e) => setCrIsLocked(e.target.checked)}
-                    className="w-4 h-4 rounded accent-blue-600"
-                  />
-                  <label htmlFor="crIsLockedCheck" className="text-xs font-bold text-slate-700 cursor-pointer">
-                    🔒 Lock this chapter (Requires purchase; uncheck for free demo)
-                  </label>
-                </div>
-
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Content (Markdown Supported)</label>
-                  <textarea
-                    rows={10}
-                    value={crMarkdown}
-                    onChange={(e) => setCrMarkdown(e.target.value)}
-                    placeholder="Write chapter content using Markdown..."
-                    className="w-full border p-2.5 rounded-lg text-xs font-mono bg-white"
+                  <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Upload Excel File (.xlsx)</label>
+                  <input
+                    type="file"
+                    accept=".xlsx, .xls"
+                    onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
+                    className="w-full border p-2.5 rounded-lg text-xs bg-white text-slate-700"
                     required
                   />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Excel column headers required in row 1: <code className="bg-slate-100 px-1 py-0.5 rounded text-slate-600">question_text, option_a, option_b, option_c, option_d, correct_option, explanation</code>
+                  </p>
                 </div>
 
-                <button type="submit" className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow">
-                  Save CR Chapter to Supabase 🚀
+                {testUploadStatus && <p className="text-xs font-bold text-blue-600 bg-blue-50 p-2.5 rounded-lg border border-blue-100">{testUploadStatus}</p>}
+
+                <button type="submit" className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow transition">
+                  Upload Test & Import Excel Questions 🚀
                 </button>
               </form>
 
+              {/* Excel Format Guide Card */}
               <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
-                <h2 className="text-base font-bold text-slate-800 border-b pb-2">Live Markdown Preview</h2>
-                <div className="prose prose-sm max-w-none max-h-[450px] overflow-y-auto p-4 bg-slate-50 rounded-lg border">
-                  <h2 className="font-bold text-slate-900">{crTitle || 'Chapter Title Preview'}</h2>
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{crMarkdown || '_Start typing markdown to preview..._'}</ReactMarkdown>
+                <h2 className="text-base font-bold text-slate-800 border-b pb-2">Excel File Format Instructions</h2>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Ensure your Excel spreadsheet (<strong className="text-slate-900">.xlsx</strong>) has the following header names in the very first row:
+                </p>
+                <div className="bg-slate-900 text-slate-200 p-4 rounded-xl font-mono text-[11px] overflow-x-auto space-y-1">
+                  <p className="text-amber-400">question_text | option_a | option_b | option_c | option_d | correct_option | explanation</p>
+                  <p className="text-slate-400">Which assumption is strongest?... | Option A text | Option B text | Option C text | Option D text | A | Explanation goes here...</p>
                 </div>
+                <p className="text-[11px] text-slate-500">
+                  * Note: <code className="text-slate-700 font-bold">correct_option</code> should be a single letter like <code className="text-slate-700 font-bold">A</code>, <code className="text-slate-700 font-bold">B</code>, <code className="text-slate-700 font-bold">C</code>, or <code className="text-slate-700 font-bold">D</code>.
+                </p>
               </div>
+
             </div>
 
-            {/* EXISTING CHAPTERS LIST */}
+            {/* Existing Tests List Table */}
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
-              <h3 className="text-sm font-bold text-slate-800 border-b pb-2">Existing Critical Reasoning Chapters ({crChapters.length})</h3>
+              <h3 className="text-sm font-bold text-slate-800 border-b pb-2">Existing Mock Tests ({allTests.length})</h3>
               <div className="space-y-2">
-                {crChapters.map((ch) => (
-                  <div key={ch.id} className="flex justify-between items-center p-3 border rounded-lg bg-slate-50">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded">Ch {ch.chapter_number}</span>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${ch.language === 'hinglish' ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-800'}`}>
-                        {ch.language}
-                      </span>
-                      <span className="text-xs font-bold text-slate-800">{ch.title}</span>
-                      {ch.is_locked ? <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">🔒 Locked</span> : <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded">🔓 Free</span>}
+                {allTests.map((t) => (
+                  <div key={t.id} className="flex justify-between items-center p-3 border rounded-lg bg-slate-50">
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded">Ch {t.chapter_number}</span>
+                      <span className="text-xs font-bold text-slate-800">{t.title}</span>
+                      <span className="text-[10px] font-mono text-slate-500">⏱️ {t.duration_minutes}m | 📝 {t.total_marks} Marks</span>
+                      {t.is_locked ? <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">🔒 Locked</span> : <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded">🔓 Free</span>}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button 
-                        onClick={() => {
-                          setCrChapterNo(ch.chapter_number);
-                          setCrLanguage(ch.language);
-                          setCrTitle(ch.title);
-                          setCrMarkdown(ch.markdown_content);
-                          setCrIsLocked(ch.is_locked);
-                          setCrPdfUrl(ch.pdf_mcq_url || '');
-                        }}
-                        className="px-3 py-1 bg-blue-100 text-blue-700 font-bold text-xs rounded-lg transition"
-                      >
-                        Edit ✏️
-                      </button>
-                      <button
-                        onClick={() => handleDeleteCriticalReasoningChapter(ch.id)}
-                        className="px-3 py-1 bg-rose-100 text-rose-700 font-bold text-xs rounded-lg transition"
-                      >
-                        Delete 🗑️
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => handleDeleteTest(t.id)}
+                      className="px-3 py-1 bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold text-xs rounded-lg transition"
+                    >
+                      Delete Test 🗑️
+                    </button>
                   </div>
                 ))}
               </div>
             </div>
+          </div>
+        )}
+      {/* CRITICAL REASONING CHAPTER BUILDER & PRICING TAB */}
+        {activeTab === 'critical_reasoning_manager' && (
+          <div className="space-y-6">
+            {/* 🏷️ 1. PRICING CONTROL CARD */}
+              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                <div className="border-b pb-3 flex justify-between items-center">
+                  <div>
+                    <h2 className="text-base font-bold text-slate-800">🏷️ Critical Reasoning Course Pricing Control</h2>
+                    <p className="text-xs text-slate-500">Live prices shown on the student course reader page.</p>
+                  </div>
+                  {pricingStatusMsg && <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-lg border">{pricingStatusMsg}</span>}
+                </div>
+
+                <form onSubmit={handleSavePricing} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                  <div>
+                    <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Original Price (Crossed)</label>
+                    <input
+                      type="number"
+                      value={crOriginalPrice}
+                      onChange={(e) => setCrOriginalPrice(e.target.value)}
+                      className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold text-slate-800"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Launch Offer Price</label>
+                    <input
+                      type="number"
+                      value={crLaunchPrice}
+                      onChange={(e) => setCrLaunchPrice(e.target.value)}
+                      className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold text-amber-600"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Price with Code 'BSOL'</label>
+                    <input
+                      type="number"
+                      value={crCouponPrice}
+                      onChange={(e) => setCrCouponPrice(e.target.value)}
+                      className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold text-emerald-600"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <button type="submit" className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow">
+                      Save Pricing 💾
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* 📊 2. EXCEL BULK UPLOAD CARD */}
+              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-3">
+                <h2 className="text-base font-bold text-slate-800 border-b pb-2">📊 Bulk Upload Chapters via Excel (.xlsx)</h2>
+                <p className="text-xs text-slate-500">
+                  Upload a spreadsheet with columns matching: <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">chapter_number, language, title, markdown_content, is_locked, pdf_mcq_url</code>.
+                </p>
+                <input
+                  type="file"
+                  accept=".xlsx, .xls, .csv"
+                  onChange={handleExcelUpload}
+                  className="text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-600 file:text-white hover:file:bg-emerald-700 cursor-pointer"
+                />
+              </div>
+
+              {/* 📝 3. SINGLE CHAPTER BUILDER FORM */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <form onSubmit={handleSaveCriticalReasoningChapter} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                  <h2 className="text-base font-bold text-slate-800 border-b pb-2">Add / Edit Critical Reasoning Chapter</h2>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Chapter Number</label>
+                      <input
+                        type="number"
+                        value={crChapterNo}
+                        onChange={(e) => setCrChapterNo(Number(e.target.value))}
+                        className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Language Mode</label>
+                      <select
+                        value={crLanguage}
+                        onChange={(e: any) => setCrLanguage(e.target.value)}
+                        className="w-full border p-2.5 rounded-lg text-sm bg-white font-bold text-blue-600"
+                      >
+                        <option value="english">🇬🇧 English</option>
+                        <option value="hinglish">🇮🇳 Hinglish</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Chapter Title</label>
+                    <input
+                      type="text"
+                      value={crTitle}
+                      onChange={(e) => setCrTitle(e.target.value)}
+                      placeholder="e.g. Assumptions & Inferences"
+                      className="w-full border p-2.5 rounded-lg text-sm bg-white"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Practice MCQ PDF URL (Optional)</label>
+                    <input
+                      type="url"
+                      value={crPdfUrl}
+                      onChange={(e) => setCrPdfUrl(e.target.value)}
+                      placeholder="https://..."
+                      className="w-full border p-2.5 rounded-lg text-sm bg-white"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-3 py-2">
+                    <input
+                      type="checkbox"
+                      id="crIsLockedCheck"
+                      checked={crIsLocked}
+                      onChange={(e) => setCrIsLocked(e.target.checked)}
+                      className="w-4 h-4 rounded accent-blue-600"
+                    />
+                    <label htmlFor="crIsLockedCheck" className="text-xs font-bold text-slate-700 cursor-pointer">
+                      🔒 Lock this chapter (Requires purchase; uncheck for free demo)
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Content (Markdown Supported)</label>
+                    <textarea
+                      rows={10}
+                      value={crMarkdown}
+                      onChange={(e) => setCrMarkdown(e.target.value)}
+                      placeholder="Write chapter content..."
+                      className="w-full border p-2.5 rounded-lg text-xs font-mono bg-white"
+                      required
+                    />
+                  </div>
+
+                  <button type="submit" className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow">
+                    Save CR Chapter to Supabase 🚀
+                  </button>
+                </form>
+
+                {/* LIVE PREVIEW */}
+                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                  <h2 className="text-base font-bold text-slate-800 border-b pb-2">Live Markdown Preview</h2>
+                  <div className="prose prose-sm max-w-none max-h-[450px] overflow-y-auto p-4 bg-slate-50 rounded-lg border">
+                    <h2 className="font-bold text-slate-900">{crTitle || 'Chapter Title Preview'}</h2>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{crMarkdown || '_Start typing markdown to preview..._'}</ReactMarkdown>
+                  </div>
+                </div>
+              </div>
+
+              {/* 📚 EXISTING CHAPTERS LIST */}
+              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                <h3 className="text-sm font-bold text-slate-800 border-b pb-2">Existing Critical Reasoning Chapters ({crChapters.length})</h3>
+                <div className="space-y-2">
+                  {crChapters.map((ch) => (
+                    <div key={ch.id} className="flex justify-between items-center p-3 border rounded-lg bg-slate-50">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded">Ch {ch.chapter_number}</span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${ch.language === 'hinglish' ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-800'}`}>
+                          {ch.language}
+                        </span>
+                        <span className="text-xs font-bold text-slate-800">{ch.title}</span>
+                        {ch.is_locked ? <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">🔒 Locked</span> : <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded">🔓 Free</span>}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => {
+                            setCrChapterNo(ch.chapter_number);
+                            setCrLanguage(ch.language);
+                            setCrTitle(ch.title);
+                            setCrMarkdown(ch.markdown_content);
+                            setCrIsLocked(ch.is_locked);
+                            setCrPdfUrl(ch.pdf_mcq_url || '');
+                          }}
+                          className="px-3 py-1 bg-blue-100 text-blue-700 font-bold text-xs rounded-lg transition"
+                        >
+                          Edit ✏️
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCriticalReasoningChapter(ch.id)}
+                          className="px-3 py-1 bg-rose-100 text-rose-700 font-bold text-xs rounded-lg transition"
+                        >
+                          Delete 🗑️
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
           </div>
         )}
@@ -2989,6 +4611,23 @@ export default function AdminPage() {
       {/* BSCA QUIZ BUILDER TAB */}
       {activeTab === 'bsca_quiz_builder' && (
         <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900 border border-white/[0.08] p-5 rounded-2xl">
+            <div>
+              <h2 className="text-lg font-black text-white">💡 BSCA 360° Current Affairs Suite</h2>
+              <p className="text-xs text-slate-400">
+                Upload daily Word (.docx) files to auto-parse and publish Daily Digest Articles &amp; Quizzes together, or upload Monthly Capsules.
+              </p>
+            </div>
+            <Link
+              href="/bsca"
+              target="_blank"
+              className="px-4 py-2 bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-black text-xs rounded-xl shadow shrink-0"
+            >
+              View Live BSCA Hub ↗
+            </Link>
+          </div>
+
+          <AdminBscaManager />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <form onSubmit={handleCreateQuiz} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
               <h2 className="text-base font-bold text-slate-800 border-b pb-2">Step 1: Create Daily Quiz Container</h2>
@@ -3493,8 +5132,9 @@ export default function AdminPage() {
             </button>
           </form>
 
+          {/* Pre-existing Exam Categories with Deletion */}
           <div className="border-t pt-4 space-y-3">
-            <h3 className="text-sm font-bold text-slate-800">Configured Custom Exams ({dynamicExamsList.length})</h3>
+            <h3 className="text-sm font-bold text-slate-800">Pre-existing Exam Categories ({dynamicExamsList.length})</h3>
             <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto border rounded-xl p-2 bg-slate-50">
               {dynamicExamsList.length === 0 ? (
                 <p className="text-xs text-slate-500 p-2">No custom exams created yet.</p>
@@ -3507,7 +5147,7 @@ export default function AdminPage() {
                     </div>
                     <button
                       onClick={() => handleDeleteExamCategory(ex.id, ex.exam_name)}
-                      className="text-rose-600 hover:text-rose-800 font-bold px-2 py-1 rounded"
+                      className="bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold px-3 py-1 rounded-lg transition"
                     >
                       Delete 🗑️
                     </button>
@@ -4083,6 +5723,7 @@ export default function AdminPage() {
             })}
           </div>
         )}
+              </div>
       </div>
     </div>
   );

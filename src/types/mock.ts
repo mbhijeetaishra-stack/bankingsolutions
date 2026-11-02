@@ -5,10 +5,13 @@ export interface Question {
   section: SubjectCategory;
   passageText?: string;
   questionText: string;
+  imageUrl?: string;
+  solutionImageUrl?: string;
   options: string[];
   correctOptionIndex: number;
   marks: number;
   negativeMarks: number;
+  explanation?: string;
 }
 
 export interface SectionConfig {

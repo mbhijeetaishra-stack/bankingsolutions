@@ -487,7 +487,7 @@ export default function ComputerIonExamPage() {
                           onClick={() => startQuiz(quiz.id, false)}
                           className="w-full py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs uppercase tracking-wider rounded-xl text-center shadow-lg transition"
                         >
-                          Attempt Test (iON Mode) →
+                          Attempt Test (CBT Mode) →
                         </button>
                       )}
                     </div>
@@ -504,7 +504,7 @@ export default function ComputerIonExamPage() {
   if (loadingQuestions) {
     return (
       <div className="min-h-screen bg-slate-900 text-amber-400 flex items-center justify-center text-sm font-bold">
-        Loading BS TCS iON Portal...
+        Loading BankingSolutions Test Portal...
       </div>
     );
   }
@@ -524,7 +524,7 @@ export default function ComputerIonExamPage() {
           <div className="flex justify-between items-center border-b border-slate-800 pb-4">
             <div className="flex items-center gap-2">
               <span className="bg-amber-400 text-slate-950 font-black px-2.5 py-1 rounded text-xs md:text-sm shadow">
-                BS iON
+                BS CBT
               </span>
               <span className="font-extrabold text-white text-sm md:text-base">
                 Performance Scorecard
@@ -626,7 +626,7 @@ export default function ComputerIonExamPage() {
         <div className="flex items-center gap-2 md:gap-3">
           <div className="bg-amber-400 text-slate-950 font-black px-2 py-0.5 md:py-1 rounded text-xs md:text-sm shadow flex items-center gap-1">
             <span className="tracking-tighter">BS</span>
-            <span className="text-[9px] md:text-[10px] bg-slate-950 text-amber-400 px-1 rounded">iON</span>
+            <span className="text-[9px] md:text-[10px] bg-slate-950 text-amber-400 px-1 rounded">CBT</span>
           </div>
           <span className="font-extrabold text-xs md:text-sm tracking-wide uppercase truncate max-w-[140px] sm:max-w-none">
             BankingSolutions — {activeQuizId?.replace('_', ' ')}

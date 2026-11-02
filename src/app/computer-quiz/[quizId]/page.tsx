@@ -181,7 +181,7 @@ export default function ComputerIonTestRunner({ params }: { params: Promise<{ qu
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-900 text-amber-400 flex items-center justify-center text-sm font-bold">
-        Loading iON Portal for {quizId.toUpperCase()}...
+        Loading CBT Portal for {quizId.toUpperCase()}...
       </div>
     );
   }
@@ -431,7 +431,7 @@ export default function ComputerIonTestRunner({ params }: { params: Promise<{ qu
       <header className="bg-[#1d63b8] text-white h-14 flex justify-between items-center px-4 shadow-md shrink-0">
         <div className="flex items-center gap-3">
           <div className="bg-white text-[#1d63b8] font-black px-2.5 py-1 rounded text-sm shadow">
-            iON
+            CBT
           </div>
           <span className="font-bold text-sm tracking-wide hidden md:inline uppercase">
             IBPS RRB — {quizId.replace('_', ' ')}

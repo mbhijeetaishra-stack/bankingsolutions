@@ -1,0 +1,93 @@
+BSCA Daily Current Affairs & GA Quiz
+Date: 2026-10-25
+
+Q1. Which regulatory body in India recently introduced the comprehensive regulatory framework on digital lending and unauthorized loan apps?
+(A) Securities and Exchange Board of India (SEBI)
+(B) Reserve Bank of India (RBI)
+(C) Insurance Regulatory and Development Authority (IRDAI)
+(D) Pension Fund Regulatory and Development Authority (PFRDA)
+(E) National Bank for Agriculture and Rural Development (NABARD)
+Ans: (B)
+Explanation: The Reserve Bank of India (RBI) issued regulatory guidelines for digital lending to protect borrowers from predatory lending practices, unauthorized apps, and unethical recovery tactics.
+
+Q2. Who among the following has been appointed as the Executive Director for India at the International Monetary Fund (IMF)?
+(A) Raghuram Rajan
+(B) Viral Acharya
+(C) Urjit Patel
+(D) K.V. Subramanian
+(E) Arvind Subramanian
+Ans: (D)
+Explanation: Former Chief Economic Adviser K.V. Subramanian was appointed as the Executive Director (India) at the International Monetary Fund (IMF).
+
+Q3. What is the minimum Capital Adequacy Ratio (CAR) / Capital to Risk (Weighted) Assets Ratio (CRAR) required to be maintained by Scheduled Commercial Banks in India as per RBI Basel III norms?
+(A) 8.0%
+(B) 9.0%
+(C) 10.5%
+(D) 11.5%
+(E) 12.0%
+Ans: (B)
+Explanation: As per RBI's Basel III guidelines, Scheduled Commercial Banks in India are required to maintain a minimum Capital Adequacy Ratio (CAR) of 9.0% (excluding Capital Conservation Buffer).
+
+Q4. In which state was India's first international multi-modal logistics park developed under the Bharatmala Pariyojana?
+(A) Gujarat
+(B) Maharashtra
+(C) Assam
+(D) Tamil Nadu
+(E) Karnataka
+Ans: (C)
+Explanation: India's first international multi-modal logistics park (MMLP) was developed at Jogighopa in Assam under the flagship Bharatmala Pariyojana.
+
+Q5. What is the current maximum transaction limit per day for Small Value Digital Payments in Offline Mode (UPI Lite) as revised by the Reserve Bank of India?
+(A) Rs. 1,000
+(B) Rs. 2,000
+(C) Rs. 5,000
+(D) Rs. 10,000
+(E) Rs. 20,000
+Ans: (B)
+Explanation: The overall limit for small value digital transactions in offline mode on a payment instrument is Rs. 2,000 at any point in time, with individual transaction cap of Rs. 500.
+
+Q6. Which public sector bank launched the digital banking super-app named 'YONO' (You Only Need One)?
+(A) Punjab National Bank
+(B) Bank of Baroda
+(C) State Bank of India
+(D) Canara Bank
+(E) Union Bank of India
+Ans: (C)
+Explanation: State Bank of India (SBI) launched the integrated digital banking and lifestyle platform 'YONO' (You Only Need One).
+
+Q7. Who was named the recipient of the 2026 Saraswati Samman for outstanding literary contributions?
+(A) Prabha Varma
+(B) Ramdarash Mishra
+(C) Sharad Pagare
+(D) Vasdev Mohi
+(E) K. Siva Reddy
+Ans: (A)
+Explanation: Noted poet and author Prabha Varma was chosen for the Saraswati Samman instituted by the KK Birla Foundation.
+
+Q8. In the Monetary Policy Committee (MPC) of the Reserve Bank of India, how many members are there in total?
+(A) 4
+(B) 5
+(C) 6
+(D) 7
+(E) 8
+Ans: (C)
+Explanation: The Monetary Policy Committee (MPC) consists of 6 members: 3 from the Reserve Bank of India (including the RBI Governor who acts as the ex-officio chairperson) and 3 external members appointed by the Central Government.
+
+Q9. What is the statutory lock-in period for investments made in the Public Provident Fund (PPF) scheme in India?
+(A) 5 Years
+(B) 10 Years
+(C) 15 Years
+(D) 20 Years
+(E) 25 Years
+Ans: (C)
+Explanation: The Public Provident Fund (PPF) account has an initial statutory maturity period of 15 years, which can be extended in blocks of 5 years thereafter.
+
+Q10. Where is the permanent headquarters of the Asian Infrastructure Investment Bank (AIIB) located?
+(A) Manila, Philippines
+(B) Beijing, China
+(C) Shanghai, China
+(D) Tokyo, Japan
+(E) Singapore
+Ans: (B)
+Explanation: The Asian Infrastructure Investment Bank (AIIB) is a multilateral development bank headquartered in Beijing, China, of which India is the second-largest shareholder.
+

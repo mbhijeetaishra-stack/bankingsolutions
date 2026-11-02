@@ -246,7 +246,25 @@ export const TwoPaneMockEngine: React.FC<EngineProps> = ({ testTitle, sections, 
           <div className="flex-1 flex overflow-y-auto p-4 gap-6">
             {/* Passage Pane (Left) */}
             {activeQuestion?.passageText && (
-              <div className="w-1/2 overflow-y-auto pr-4 border-r border-slate-200 text-sm leading-relaxed text-slate-800 font-medium">
+              <div className="w-1/2 overflow-y-auto pr-4 border-r border-slate-200 text-sm leading-relaxed text-slate-800 font-medium whitespace-pre-line">
+                <div className="border-l-4 border-[#1D63B8] bg-blue-50 px-3 py-1.5 text-xs font-bold text-[#1D63B8] mb-3 rounded-r flex items-center justify-between">
+                  <span>
+                    {(() => {
+                      const p = (activeQuestion.passageText || '').toLowerCase();
+                      if (p.includes('puzzle') || p.includes('seating') || p.includes('facing') || p.includes('sitting') || p.includes('floor') || p.includes('box')) {
+                        return '🧩 Reasoning Puzzle / Seating Context';
+                      }
+                      if (p.includes('graph') || p.includes('chart') || p.includes('table') || p.includes('data interpretation') || p.includes('di')) {
+                        return '📊 Data Interpretation (DI) Context';
+                      }
+                      if (p.includes('passage') || p.includes('comprehension') || p.includes('read')) {
+                        return '📖 Reading Comprehension / Passage Context';
+                      }
+                      return '📌 Directions / Passage Context';
+                    })()}
+                  </span>
+                  <span className="text-[10px] text-blue-600 font-semibold uppercase">Left Pane</span>
+                </div>
                 {activeQuestion.passageText}
               </div>
             )}
@@ -280,6 +298,24 @@ export const TwoPaneMockEngine: React.FC<EngineProps> = ({ testTitle, sections, 
                   );
                 })}
               </div>
+
+              {(activeQuestion?.explanation || activeQuestion?.solutionImageUrl) && (
+                <div className="mt-4 p-3.5 bg-amber-50 border border-amber-200 rounded-lg text-xs space-y-1.5">
+                  <span className="font-bold text-amber-900 block">💡 Solution &amp; Explanation:</span>
+                  {activeQuestion.explanation && (
+                    <p className="text-slate-800 leading-relaxed whitespace-pre-line">{activeQuestion.explanation}</p>
+                  )}
+                  {activeQuestion.solutionImageUrl && (
+                    <div className="my-2 text-center">
+                      <img
+                        src={activeQuestion.solutionImageUrl}
+                        alt="Solution Diagram"
+                        className="max-w-full max-h-72 h-auto mx-auto rounded border border-slate-300 shadow-sm bg-white p-1"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>

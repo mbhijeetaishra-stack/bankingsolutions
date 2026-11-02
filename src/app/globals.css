@@ -1,28 +1,27 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #020617;
+  --foreground: #f8fafc;
 }
 
-/*theme inline {
+@theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}*/
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 @keyframes marqueeScroll {
@@ -33,7 +32,89 @@ body {
 .animate-marquee-slow {
   display: inline-block;
   white-space: nowrap;
-  animation: marqueeScroll 25s linear infinite;
+  animation: marqueeScroll 28s linear infinite;
+}
+
+.animate-marquee-slow:hover {
+  animation-play-state: paused;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in,
+.animate-fadeIn {
+  animation: fadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes tileShake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px) rotate(-1deg); }
+  40% { transform: translateX(6px) rotate(1deg); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+
+.animate-tile-shake {
+  animation: tileShake 0.38s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+@keyframes tilePopVanish {
+  0% { transform: scale(1); opacity: 1; }
+  45% { transform: scale(1.07); opacity: 1; }
+  100% { transform: scale(0.65); opacity: 0; }
+}
+
+.animate-tile-pop {
+  animation: tilePopVanish 0.24s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes bossHitShake {
+  0%, 100% { transform: translate(0, 0) scale(1); filter: brightness(1); }
+  15% { transform: translate(-8px, -4px) scale(0.96) rotate(-2deg); filter: brightness(1.45); }
+  35% { transform: translate(8px, 3px) scale(1.03) rotate(2deg); filter: brightness(1.25); }
+  55% { transform: translate(-5px, 2px) scale(0.98) rotate(-1deg); }
+  75% { transform: translate(4px, -2px) scale(1.01); }
+}
+
+.animate-boss-hit {
+  animation: bossHitShake 0.48s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+@keyframes damageFloatUp {
+  0% { opacity: 0; transform: translateY(8px) scale(0.85); }
+  20% { opacity: 1; transform: translateY(-6px) scale(1.1); }
+  80% { opacity: 1; transform: translateY(-28px) scale(1); }
+  100% { opacity: 0; transform: translateY(-42px) scale(0.92); }
+}
+
+.animate-damage-float {
+  animation: damageFloatUp 1.05s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes bossIdleFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+.animate-boss-float {
+  animation: bossIdleFloat 3.4s ease-in-out infinite;
+}
+
+/* Subtle dot/grid pattern for hero & elevated dark cards */
+.bg-grid-pattern {
+  background-size: 32px 32px;
+  background-image: 
+    linear-gradient(to right, rgba(148, 163, 184, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.04) 1px, transparent 1px);
 }
 
 /* 🌟 Enhanced Typography & Markdown Table Styling */
@@ -127,4 +208,274 @@ body {
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #475569;
+}
+
+/* Elevated Dark Theme overrides for Admin Dashboard */
+.admin-dark-surface .bg-white {
+  background-color: rgba(15, 23, 42, 0.85) !important;
+  backdrop-filter: blur(12px);
+}
+.admin-dark-surface .bg-slate-50 {
+  background-color: rgba(2, 6, 23, 0.7) !important;
+}
+.admin-dark-surface .bg-slate-100 {
+  background-color: rgba(30, 41, 59, 0.75) !important;
+}
+.admin-dark-surface .border-slate-200,
+.admin-dark-surface .border-slate-300,
+.admin-dark-surface .border-b {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+.admin-dark-surface .text-slate-900,
+.admin-dark-surface .text-slate-800 {
+  color: #f8fafc !important;
+}
+.admin-dark-surface .text-slate-700,
+.admin-dark-surface .text-slate-600 {
+  color: #cbd5e1 !important;
+}
+.admin-dark-surface .text-slate-500 {
+  color: #94a3b8 !important;
+}
+.admin-dark-surface input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.admin-dark-surface select,
+.admin-dark-surface textarea {
+  background-color: #020617 !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  color: #f8fafc !important;
+}
+.admin-dark-surface input::placeholder,
+.admin-dark-surface textarea::placeholder {
+  color: #64748b !important;
+}
+.admin-dark-surface table thead tr {
+  background-color: rgba(30, 41, 59, 0.9) !important;
+}
+.admin-dark-surface table tbody tr:hover {
+  background-color: rgba(30, 41, 59, 0.45) !important;
+}
+
+/* ========================================================================= */
+/* ☀️ LIGHT MODE THEME OVERRIDES                                            */
+/* ========================================================================= */
+:root[data-theme="light"],
+html.light,
+html[data-theme="light"],
+body.light,
+body[data-theme="light"] {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+/* Smooth transition for theme switching */
+body, aside, header, nav {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+/* Light Backgrounds & Main Containers (excluding CBT exam) */
+[data-theme="light"] [class*="bg-[#020617]"]:not([data-cbt-exam]):not([data-cbt-exam] *),
+.light [class*="bg-[#020617]"]:not([data-cbt-exam]):not([data-cbt-exam] *),
+[data-theme="light"] [class*="bg-slate-950"]:not([data-cbt-exam]):not([data-cbt-exam] *),
+.light [class*="bg-slate-950"]:not([data-cbt-exam]):not([data-cbt-exam] *),
+html.light .bg-\[\#020617\],
+html.light .bg-slate-950 {
+  background-color: #f8fafc !important;
+}
+
+/* Light Surfaces & Elevated Cards (excluding CBT exam) */
+[data-theme="light"] [class*="bg-slate-900"]:not([data-cbt-exam]):not([data-cbt-exam] *),
+.light [class*="bg-slate-900"]:not([data-cbt-exam]):not([data-cbt-exam] *),
+html.light .bg-slate-900 {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.05), 0 1px 2px -1px rgba(15, 23, 42, 0.03) !important;
+}
+
+/* Secondary Surfaces, Sub-cards & Badges */
+[data-theme="light"] [class*="bg-slate-800"]:not([data-cbt-exam]):not([data-cbt-exam] *),
+.light [class*="bg-slate-800"]:not([data-cbt-exam]):not([data-cbt-exam] *),
+html.light .bg-slate-800 {
+  background-color: #f1f5f9 !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* Sidebars in Light Mode */
+[data-theme="light"] aside,
+.light aside {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 2px 0 14px -3px rgba(15, 23, 42, 0.05) !important;
+}
+
+/* Headers & Sticky Nav Bars in Light Mode */
+[data-theme="light"] header,
+.light header,
+[data-theme="light"] nav,
+.light nav {
+  background-color: rgba(255, 255, 255, 0.96) !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.03) !important;
+}
+
+/* Borders in Light Mode */
+[data-theme="light"] [class*="border-white"]:not([data-cbt-exam]):not([data-cbt-exam] *),
+.light [class*="border-white"]:not([data-cbt-exam]):not([data-cbt-exam] *),
+[data-theme="light"] [class*="border-slate-800"]:not([data-cbt-exam]):not([data-cbt-exam] *),
+.light [class*="border-slate-800"]:not([data-cbt-exam]):not([data-cbt-exam] *),
+html.light .border-slate-800 {
+  border-color: #e2e8f0 !important;
+}
+
+[data-theme="light"] [class*="border-slate-700"]:not([data-cbt-exam]):not([data-cbt-exam] *),
+.light [class*="border-slate-700"]:not([data-cbt-exam]):not([data-cbt-exam] *) {
+  border-color: #cbd5e1 !important;
+}
+
+/* Headings in Light Mode */
+[data-theme="light"] h1:not([data-cbt-exam] *),
+[data-theme="light"] h2:not([data-cbt-exam] *),
+[data-theme="light"] h3:not([data-cbt-exam] *),
+[data-theme="light"] h4:not([data-cbt-exam] *),
+.light h1:not([data-cbt-exam] *),
+.light h2:not([data-cbt-exam] *),
+.light h3:not([data-cbt-exam] *),
+.light h4:not([data-cbt-exam] *) {
+  color: #0f172a !important;
+}
+
+/* Text Colors in Light Mode */
+[data-theme="light"] [class*="text-slate-100"]:not([data-cbt-exam] *),
+.light [class*="text-slate-100"]:not([data-cbt-exam] *),
+[data-theme="light"] [class*="text-slate-200"]:not([data-cbt-exam] *),
+.light [class*="text-slate-200"]:not([data-cbt-exam] *) {
+  color: #1e293b !important;
+}
+
+[data-theme="light"] [class*="text-slate-300"]:not([data-cbt-exam] *),
+.light [class*="text-slate-300"]:not([data-cbt-exam] *) {
+  color: #334155 !important;
+}
+
+[data-theme="light"] [class*="text-slate-400"]:not([data-cbt-exam] *),
+.light [class*="text-slate-400"]:not([data-cbt-exam] *),
+[data-theme="light"] [class*="text-slate-500"]:not([data-cbt-exam] *),
+.light [class*="text-slate-500"]:not([data-cbt-exam] *) {
+  color: #64748b !important;
+}
+
+/* General white text overrides, preserving bright buttons */
+[data-theme="light"] [class*="text-white"]:not([class*="bg-amber"]):not([class*="bg-blue"]):not([class*="bg-emerald"]):not([class*="bg-rose"]):not([class*="bg-red"]):not(button[class*="bg-amber"]):not([data-cbt-exam] *),
+.light [class*="text-white"]:not([class*="bg-amber"]):not([class*="bg-blue"]):not([class*="bg-emerald"]):not([class*="bg-rose"]):not([class*="bg-red"]):not(button[class*="bg-amber"]):not([data-cbt-exam] *) {
+  color: #0f172a !important;
+}
+
+/* Form Inputs, Selects & Textareas */
+[data-theme="light"] input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([data-cbt-exam] *),
+.light input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([data-cbt-exam] *),
+[data-theme="light"] select:not([data-cbt-exam] *),
+.light select:not([data-cbt-exam] *),
+[data-theme="light"] textarea:not([data-cbt-exam] *),
+.light textarea:not([data-cbt-exam] *) {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+[data-theme="light"] input::placeholder,
+.light input::placeholder,
+[data-theme="light"] textarea::placeholder,
+.light textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Decorative Glow Blobs: Soften in Light Mode */
+[data-theme="light"] [class*="blur-[150px]"],
+[data-theme="light"] [class*="blur-[140px]"],
+[data-theme="light"] [class*="blur-[130px]"],
+.light [class*="blur-[150px]"],
+.light [class*="blur-[140px]"],
+.light [class*="blur-[130px]"] {
+  opacity: 0.12 !important;
+}
+
+/* Amber Action Buttons: Retain High Contrast Dark Text */
+[data-theme="light"] [class*="bg-amber-400"],
+.light [class*="bg-amber-400"],
+[data-theme="light"] [class*="from-amber-400"],
+.light [class*="from-amber-400"] {
+  color: #020617 !important;
+}
+
+/* Amber Text Accents: Darker Amber for Contrast against White */
+[data-theme="light"] [class*="text-amber-300"]:not([class*="bg-amber"]):not([class*="bg-slate-950"]),
+.light [class*="text-amber-300"]:not([class*="bg-amber"]):not([class*="bg-slate-950"]),
+[data-theme="light"] [class*="text-amber-400"]:not([class*="bg-amber"]):not([class*="bg-slate-950"]),
+.light [class*="text-amber-400"]:not([class*="bg-amber"]):not([class*="bg-slate-950"]) {
+  color: #b45309 !important;
+}
+
+[data-theme="light"] [class*="border-amber-400"],
+.light [class*="border-amber-400"] {
+  border-color: rgba(217, 119, 6, 0.4) !important;
+}
+
+[data-theme="light"] [class*="bg-amber-400/10"],
+.light [class*="bg-amber-400/10"],
+[data-theme="light"] [class*="bg-amber-400/15"],
+.light [class*="bg-amber-400/15"],
+[data-theme="light"] [class*="bg-amber-400/20"],
+.light [class*="bg-amber-400/20"],
+[data-theme="light"] [class*="bg-amber-500/10"],
+.light [class*="bg-amber-500/10"] {
+  background-color: rgba(245, 158, 11, 0.14) !important;
+}
+
+/* Light Mode Prose / Study Notes */
+[data-theme="light"] .prose,
+.light .prose {
+  color: #334155;
+}
+
+[data-theme="light"] .prose h1,
+[data-theme="light"] .prose h2,
+[data-theme="light"] .prose h3,
+[data-theme="light"] .prose h4,
+.light .prose h1,
+.light .prose h2,
+.light .prose h3,
+.light .prose h4 {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .prose table,
+.light .prose table {
+  background-color: #ffffff;
+  border-color: #e2e8f0;
+}
+
+[data-theme="light"] .prose th,
+.light .prose th {
+  background-color: #f1f5f9;
+  color: #1e293b;
+  border-bottom: 1px solid #cbd5e1;
+}
+
+[data-theme="light"] .prose td,
+.light .prose td {
+  border-bottom: 1px solid #e2e8f0;
+  color: #334155;
+}
+
+[data-theme="light"] .prose tr:hover td,
+.light .prose tr:hover td {
+  background-color: rgba(241, 245, 249, 0.7);
+}
+
+[data-theme="light"] .bg-grid-pattern,
+.light .bg-grid-pattern {
+  background-image: 
+    linear-gradient(to right, rgba(100, 116, 139, 0.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(100, 116, 139, 0.08) 1px, transparent 1px);
 }

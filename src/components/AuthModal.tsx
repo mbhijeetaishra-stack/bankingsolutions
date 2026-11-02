@@ -103,33 +103,35 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-xl p-4 animate-fade-in">
+      <div className="bg-gradient-to-b from-slate-900 to-slate-950 border border-white/[0.1] rounded-3xl p-7 w-full max-w-md shadow-[0_25px_70px_-15px_rgba(0,0,0,0.7)] relative overflow-hidden">
+        <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-56 h-28 bg-amber-400/15 blur-3xl pointer-events-none" />
+
         {/* CLOSE BUTTON */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-slate-400 hover:text-white text-lg font-bold"
+          className="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white text-xs font-bold flex items-center justify-center transition"
         >
           ✕
         </button>
 
         {/* HEADER BRANDING */}
-        <div className="text-center mb-6">
-          <div className="h-12 w-12 bg-amber-400 rounded-xl flex items-center justify-center text-slate-950 font-black text-xl mx-auto mb-3 shadow-lg shadow-amber-400/20">
+        <div className="text-center mb-6 relative">
+          <div className="h-12 w-12 bg-gradient-to-br from-amber-400 to-amber-500 rounded-2xl flex items-center justify-center text-slate-950 font-black text-xl mx-auto mb-3 shadow-lg shadow-amber-400/20">
             BS
           </div>
-          <h2 className="text-xl font-bold text-white">
+          <h2 className="text-xl font-black text-white tracking-tight">
             {isSignUp ? 'Create Aspirant Account' : 'Welcome Back'}
           </h2>
           <p className="text-xs text-slate-400 mt-1">
             {isSignUp
-              ? 'Join 10.6K+ students tracking mock test scores'
-              : 'Log in to access your test reports and calculation lab'}
+              ? 'Join 11.5K+ students tracking mock test scores'
+              : 'Log in to access your test reports and study courses'}
           </p>
         </div>
 
         {/* TOP TOGGLE TABS */}
-        <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs mb-4">
+        <div className="flex bg-slate-950 p-1 rounded-2xl border border-white/[0.08] text-xs mb-5">
           <button
             type="button"
             onClick={() => {
@@ -137,8 +139,8 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
               setErrorMsg('');
               setSuccessMsg('');
             }}
-            className={`flex-1 py-2 font-bold rounded-lg transition ${
-              !isSignUp ? 'bg-amber-400 text-slate-950 shadow' : 'text-slate-400'
+            className={`flex-1 py-2.5 font-bold rounded-xl transition ${
+              !isSignUp ? 'bg-amber-400 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'
             }`}
           >
             Log In
@@ -150,8 +152,8 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
               setErrorMsg('');
               setSuccessMsg('');
             }}
-            className={`flex-1 py-2 font-bold rounded-lg transition ${
-              isSignUp ? 'bg-amber-400 text-slate-950 shadow' : 'text-slate-400'
+            className={`flex-1 py-2.5 font-bold rounded-xl transition ${
+              isSignUp ? 'bg-amber-400 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'
             }`}
           >
             Sign Up
@@ -160,13 +162,13 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
 
         {/* FEEDBACK MESSAGES */}
         {errorMsg && (
-          <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/30 text-rose-400 rounded-lg text-xs font-medium leading-relaxed">
+          <div className="mb-4 p-3.5 bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-xl text-xs font-medium leading-relaxed">
             {errorMsg}
           </div>
         )}
 
         {successMsg && (
-          <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-lg text-xs font-medium leading-relaxed">
+          <div className="mb-4 p-3.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 rounded-xl text-xs font-medium leading-relaxed">
             {successMsg}
           </div>
         )}
@@ -176,7 +178,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
           type="button"
           onClick={handleGoogleSignIn}
           disabled={loading}
-          className="w-full mb-4 py-2.5 bg-white hover:bg-slate-100 text-slate-900 font-bold text-xs rounded-xl shadow border border-slate-300 flex items-center justify-center gap-2 transition disabled:opacity-50"
+          className="w-full mb-4 py-3 bg-white hover:bg-slate-100 text-slate-900 font-bold text-xs rounded-xl shadow border border-slate-200 flex items-center justify-center gap-2.5 transition disabled:opacity-50"
         >
           <svg className="w-4 h-4" viewBox="0 0 24 24">
             <path
@@ -200,47 +202,47 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
         </button>
 
         <div className="flex items-center my-4">
-          <div className="flex-1 border-t border-slate-800"></div>
-          <span className="px-3 text-[10px] text-slate-500 uppercase font-bold">OR</span>
-          <div className="flex-1 border-t border-slate-800"></div>
+          <div className="flex-1 border-t border-white/[0.08]"></div>
+          <span className="px-3 text-[10px] text-slate-500 uppercase font-bold tracking-widest">OR</span>
+          <div className="flex-1 border-t border-white/[0.08]"></div>
         </div>
 
         {/* AUTH FORM */}
         <form onSubmit={handleAuth} className="space-y-4">
           {isSignUp && (
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Full Name</label>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Full Name</label>
               <input
                 type="text"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="Your Name"
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-amber-400"
+                className="w-full bg-slate-950 border border-white/[0.1] rounded-xl p-3 text-sm text-white focus:outline-none focus:border-amber-400 transition"
                 required
               />
             </div>
           )}
 
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">Email Address</label>
+            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Email Address</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="student@gmail.com"
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-amber-400"
+              className="w-full bg-slate-950 border border-white/[0.1] rounded-xl p-3 text-sm text-white focus:outline-none focus:border-amber-400 transition"
               required
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">Password</label>
+            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Password</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-amber-400"
+              className="w-full bg-slate-950 border border-white/[0.1] rounded-xl p-3 text-sm text-white focus:outline-none focus:border-amber-400 transition"
               required
             />
           </div>
@@ -248,14 +250,14 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold py-3 rounded-xl transition text-sm uppercase tracking-wider shadow-lg shadow-amber-400/20 disabled:opacity-50"
+            className="w-full bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black py-3.5 rounded-xl transition text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20 disabled:opacity-50"
           >
             {loading ? 'Processing...' : isSignUp ? 'Create Account' : 'Log In'}
           </button>
         </form>
 
         {/* BOTTOM MODE SWITCH PROMPT */}
-        <div className="mt-6 text-center text-xs text-slate-400 border-t border-slate-800 pt-4">
+        <div className="mt-6 text-center text-xs text-slate-400 border-t border-white/[0.08] pt-4">
           {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
           <button
             type="button"

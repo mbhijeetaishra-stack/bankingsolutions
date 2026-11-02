@@ -1,0 +1,114 @@
+Title: BankingSolutions Mock Test Simulation (Official CBT Sample)
+Exam: IBPS PO Prelims
+Duration: 60
+Marks: 100
+Cutoff: 58
+
+[SECTION: QUANT]
+
+Directions (Q1-Q2): The following data shows the number of accounts (Savings and Current) opened in five different branches (A, B, C, D, E) of a public sector bank:
+- Branch A: 250 Savings, 150 Current
+- Branch B: 350 Savings, 200 Current
+- Branch C: 300 Savings, 320 Current
+- Branch D: 420 Savings, 400 Current
+- Branch E: 500 Savings, 280 Current
+Study the data carefully and answer questions 1 and 2:
+[IMAGE: https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800]
+
+Q1. What is the ratio of total savings accounts opened in branches A and B together to the total current accounts opened in branches C and D together?
+(A) 4 : 5
+(B) 5 : 6
+(C) 7 : 8
+(D) 3 : 4
+(E) 8 : 9
+Ans: (B)
+Marks: +1.0, -0.25
+Explanation: Total savings in A and B = 250 + 350 = 600. Total current in C and D = 320 + 400 = 720. Required ratio = 600 : 720 = 5 : 6.
+
+Q2. The total number of accounts opened in Branch E (500) is what percentage more or less than the total accounts opened in Branch A (400)?
+(A) 15% more
+(B) 20% less
+(C) 25% more
+(D) 30% more
+(E) 10% less
+Ans: (C)
+Marks: +1.0, -0.25
+Explanation: Difference = ((500 - 400) / 400) * 100 = 25% more.
+
+[STANDALONE]
+Q3. Find the missing number in the given series: 12, 26, 54, 110, 222, ?
+(A) 442
+(B) 444
+(C) 446
+(D) 448
+(E) 450
+Ans: (C)
+Marks: +1.0, -0.25
+Explanation: Pattern: *2 + 2. 12*2 + 2 = 26; 26*2 + 2 = 54; 54*2 + 2 = 110; 110*2 + 2 = 222; 222*2 + 2 = 446.
+
+[SECTION: REASONING]
+
+[PUZZLE: Q4-Q5]
+Directions (Q4-Q5): Eight professionals — P, Q, R, S, T, U, V, and W — are sitting in a straight row facing North, but not necessarily in the same order:
+1. P sits third from one of the extreme ends.
+2. Only two persons sit between P and T.
+3. V sits immediate left of T.
+4. W sits at the extreme left end of the row.
+5. Arrangement from left to right: W - R - P - V - T - U - S - Q.
+
+Q4. Who sits at the extreme left end of the row?
+(A) S
+(B) W
+(C) R
+(D) U
+(E) Q
+Ans: (B)
+Marks: +1.0, -0.25
+Explanation: Based on clue 4, W sits at the extreme left end.
+
+Q5. How many persons sit between P and W?
+(A) One
+(B) Two
+(C) Three
+(D) Four
+(E) None
+Ans: (A)
+Marks: +1.0, -0.25
+Explanation: Only R sits between P and W.
+
+[SECTION: ENGLISH]
+
+Directions (Q6-Q7): Read the passage and answer the questions:
+Central Bank Digital Currencies (CBDCs) are legal tender issued by a central bank in digital form. The Reserve Bank of India has piloted the Digital Rupee (e-Rupee) for wholesale and retail segments to reduce the physical cost of managing currency and foster financial inclusion.
+
+Q6. According to the passage, which of the following is a primary objective of launching the Digital Rupee (e-Rupee)?
+(A) To eliminate traditional bank branches completely
+(B) To lower the operational expenses of cash management and enhance financial inclusion
+(C) To replace international forex reserves with gold
+(D) To convert commercial banks into private NBFCs
+(E) To mandate crypto mining across public sector institutions
+Ans: (B)
+Marks: +1.0, -0.25
+Explanation: The passage directly mentions reducing physical cash logistics costs and fostering financial inclusion as key goals.
+
+Q7. Choose the word most SIMILAR in meaning to 'FOSTER' as used in the passage:
+(A) Impede
+(B) Nurture
+(C) Dismantle
+(D) Ignore
+(E) Relinquish
+Ans: (B)
+Marks: +1.0, -0.25
+Explanation: 'Foster' means to encourage development or growth, which is synonymous with 'Nurture'.
+
+[SECTION: GA]
+
+Q8. Which regulatory authority in India oversees and regulates the National Pension System (NPS)?
+(A) SEBI
+(B) RBI
+(C) PFRDA
+(D) IRDAI
+(E) EPFO
+Ans: (C)
+Marks: +1.0, -0.25
+Explanation: The Pension Fund Regulatory and Development Authority (PFRDA) is the statutory regulatory body governing the National Pension System (NPS).
