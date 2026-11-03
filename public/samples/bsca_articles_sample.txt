@@ -1,0 +1,34 @@
+BSCA Daily Current Affairs Articles
+Date: 2026-11-02
+
+BANKING & FINANCE
+
+RBI Introduces Unified Lending Interface (ULI) for Frictionless Credit Delivery
+Key Stats: ₹50,000 Cr Credit Target | 100% Digital KYC | MSME & Agri Focus
+- The Reserve Bank of India (RBI) announced the nationwide rollout of the Unified Lending Interface (ULI) to enable frictionless credit delivery, especially for agricultural and MSME borrowers.
+- ULI operates on a plug-and-play architecture with standardized APIs connecting lenders to digital land records, GSTN data, and milk cooperative databases.
+- Just as UPI transformed retail payments, ULI is designed to compress credit appraisal turnaround times from weeks to minutes.
+Static GK:
+RBI Headquarters: Mumbai, Maharashtra
+RBI Established: 1 April 1935 (RBI Act, 1934)
+
+ECONOMY & BUSINESS
+
+Cabinet Approves PM-eBus Sewa Payment Security Mechanism with ₹3,435 Cr Outlay
+Key Stats: ₹3,435.33 Cr Outlay | 38,000+ e-Buses | FY25 to FY29
+- The Union Cabinet approved the PM-eBus Sewa-Payment Security Mechanism (PSM) scheme with a financial outlay of ₹3,435.33 crore to accelerate electric bus adoption by Public Transport Authorities (PTAs).
+- Under the scheme, Convergence Energy Services Limited (CESL) will ensure timely monthly payments to OEMs/operators through a dedicated RBI escrow facility in case of PTA defaults.
+Static GK:
+Implementing Agency: Convergence Energy Services Limited (CESL)
+Nodal Ministry: Ministry of Heavy Industries
+
+APPOINTMENTS & RESIGNATIONS
+
+Justice Sanjiv Khanna Appointed 51st Chief Justice of India
+Key Stats: 51st CJI | Article 124(2) | Supreme Court of India
+- The President of India appointed Justice Sanjiv Khanna as the 51st Chief Justice of India under clause (2) of Article 124 of the Constitution of India.
+- He also serves as the Executive Chairman of the National Legal Services Authority (NALSA).
+Static GK:
+Supreme Court Established: 28 January 1950
+Constitutional Provision: Article 124
+

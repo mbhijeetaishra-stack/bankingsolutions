@@ -484,6 +484,7 @@ export function mapUpdateFeedToBscaArticle(row: Record<string, unknown>): BscaAr
 // Dual-Engine Fetch for Articles (Merges dedicated bsca_articles + legacy updates_feed ONE_LINERs)
 export async function fetchBscaArticles(): Promise<BscaArticle[]> {
   const articlesMap = new Map<string, BscaArticle>();
+  let loadedDedicatedTable = false;
 
   // 1. Fetch Dedicated bsca_articles from Supabase
   try {
@@ -493,35 +494,16 @@ export async function fetchBscaArticles(): Promise<BscaArticle[]> {
       .order('date', { ascending: false })
       .order('created_at', { ascending: false });
 
-    if (!error && Array.isArray(data)) {
+    if (!error && Array.isArray(data) && data.length > 0) {
+      loadedDedicatedTable = true;
       data.forEach((a) => {
         articlesMap.set(a.id, a as BscaArticle);
       });
     }
   } catch {}
 
-  // 2. Fetch all legacy CA ONE_LINERs from updates_feed table!
-  try {
-    const { data: updateRows, error: updErr } = await supabase
-      .from('updates_feed')
-      .select('*')
-      .eq('category', 'ONE_LINER')
-      .order('post_date', { ascending: false })
-      .order('created_at', { ascending: false });
-
-    if (!updErr && Array.isArray(updateRows)) {
-      updateRows.forEach((row) => {
-        const mapped = mapUpdateFeedToBscaArticle(row);
-        // Only add if not already present
-        if (!articlesMap.has(mapped.id) && !articlesMap.has(row.id)) {
-          articlesMap.set(mapped.id, mapped);
-        }
-      });
-    }
-  } catch {}
-
-  // 3. Fallback to Cloud admin_settings if articlesMap is empty
-  if (articlesMap.size === 0) {
+  // 2. Fallback / Sync from Cloud admin_settings when dedicated table had no rows
+  if (!loadedDedicatedTable) {
     try {
       const { data } = await supabase
         .from('admin_settings')
@@ -538,7 +520,7 @@ export async function fetchBscaArticles(): Promise<BscaArticle[]> {
     } catch {}
   }
 
-  // 4. LocalStorage fallback
+  // 3. LocalStorage fallback if cloud returned nothing yet
   if (articlesMap.size === 0 && typeof window !== 'undefined') {
     try {
       const local = localStorage.getItem(BSCA_ARTICLES_KEY);
@@ -551,13 +533,32 @@ export async function fetchBscaArticles(): Promise<BscaArticle[]> {
     } catch {}
   }
 
-  // 5. If still empty, seed defaults
+  // 4. Fetch legacy CA ONE_LINERs from updates_feed table (only for dates not replaced by dedicated articles)
+  try {
+    const { data: updateRows, error: updErr } = await supabase
+      .from('updates_feed')
+      .select('*')
+      .eq('category', 'ONE_LINER')
+      .order('post_date', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    if (!updErr && Array.isArray(updateRows)) {
+      updateRows.forEach((row) => {
+        const mapped = mapUpdateFeedToBscaArticle(row as Record<string, unknown>);
+        if (!articlesMap.has(mapped.id) && !articlesMap.has(String(row.id))) {
+          articlesMap.set(mapped.id, mapped);
+        }
+      });
+    }
+  } catch {}
+
+  // 5. Seed defaults only if empty or if no admin articles exist for the seed's date
   if (articlesMap.size === 0) {
     DEFAULT_BSCA_ARTICLES.forEach((a) => articlesMap.set(a.id, a));
   } else {
-    // Ensure default high-yield seeds for 25 October are included
+    const existingDates = new Set(Array.from(articlesMap.values()).map((a) => a.date));
     DEFAULT_BSCA_ARTICLES.forEach((seed) => {
-      if (!articlesMap.has(seed.id)) {
+      if (!existingDates.has(seed.date) && !articlesMap.has(seed.id)) {
         articlesMap.set(seed.id, seed);
       }
     });
@@ -575,7 +576,10 @@ export async function fetchBscaArticles(): Promise<BscaArticle[]> {
   return result;
 }
 
-export async function saveBscaArticles(articles: BscaArticle[]): Promise<boolean> {
+export async function saveBscaArticles(
+  articles: BscaArticle[],
+  options?: { replaceDate?: string; deletedIds?: string[] }
+): Promise<boolean> {
   if (typeof window !== 'undefined') {
     try {
       localStorage.setItem(BSCA_ARTICLES_KEY, JSON.stringify(articles));
@@ -583,8 +587,15 @@ export async function saveBscaArticles(articles: BscaArticle[]): Promise<boolean
   }
 
   try {
-    const { error } = await supabase.from('bsca_articles').upsert(articles);
-    if (!error) return true;
+    if (options?.replaceDate) {
+      await supabase.from('bsca_articles').delete().eq('date', options.replaceDate);
+    }
+    if (options?.deletedIds && options.deletedIds.length > 0) {
+      await supabase.from('bsca_articles').delete().in('id', options.deletedIds);
+    }
+    if (articles.length > 0) {
+      await supabase.from('bsca_articles').upsert(articles);
+    }
   } catch {}
 
   await persistSettingToSupabase(BSCA_ARTICLES_KEY, JSON.stringify(articles));
@@ -681,13 +692,15 @@ export async function fetchBscaDayPdfs(): Promise<BscaDayPdf[]> {
 
     if (pErr || !pdfs) return [];
 
-    return pdfs.map((p: any) => {
-      const { cleanTopics, hindiPdfUrl } = extractHindiPdfFromTopic(p.topic_list);
+    return pdfs.map((p: Record<string, unknown>) => {
+      const topicRaw = typeof p.topic_list === 'string' ? p.topic_list : undefined;
+      const { cleanTopics, hindiPdfUrl } = extractHindiPdfFromTopic(topicRaw);
+      const courseId = String(p.course_id || '');
       return {
         ...p,
-        monthTitle: courseMap[p.course_id] || 'General',
+        monthTitle: courseMap[courseId] || 'General',
         topic_list: cleanTopics,
-        pdf_hindi_url: p.pdf_hindi_url || hindiPdfUrl || undefined,
+        pdf_hindi_url: (typeof p.pdf_hindi_url === 'string' && p.pdf_hindi_url) || hindiPdfUrl || undefined,
       };
     }) as BscaDayPdf[];
   } catch {
@@ -718,7 +731,7 @@ export async function createBscaDayPdf(item: {
 }): Promise<{ success: boolean; error?: string }> {
   try {
     const combinedTopics = encodeHindiPdfIntoTopic(item.topic_list, item.pdf_hindi_url);
-    const dbPayload: any = {
+    const dbPayload: Record<string, unknown> = {
       course_id: item.course_id,
       day_number: item.day_number,
       title: item.title,
@@ -746,7 +759,7 @@ export async function updateBscaDayPdf(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const combinedTopics = encodeHindiPdfIntoTopic(updates.topic_list, updates.pdf_hindi_url);
-    const payload: any = {};
+    const payload: Record<string, unknown> = {};
     if (updates.title !== undefined) payload.title = updates.title;
     if (updates.pdf_url !== undefined) payload.pdf_url = updates.pdf_url;
     if (updates.release_date !== undefined) payload.release_date = updates.release_date;
@@ -794,13 +807,302 @@ export function toggleMarkArticleRead(articleId: string): boolean {
   }
 }
 
+export const SAMPLE_BSCA_ARTICLES_FORMAT = `BSCA Daily Current Affairs Articles
+Date: 2026-11-02
+
+BANKING & FINANCE
+
+RBI Introduces Unified Lending Interface (ULI) for Frictionless Credit Delivery
+Key Stats: ₹50,000 Cr Credit Target | 100% Digital KYC | MSME & Agri Focus
+- The Reserve Bank of India (RBI) announced the nationwide rollout of the Unified Lending Interface (ULI) to enable frictionless credit delivery, especially for agricultural and MSME borrowers.
+- ULI operates on a plug-and-play architecture with standardized APIs connecting lenders to digital land records, GSTN data, and milk cooperative databases.
+- Just as UPI transformed retail payments, ULI is designed to compress credit appraisal turnaround times from weeks to minutes.
+Static GK:
+RBI Headquarters: Mumbai, Maharashtra
+RBI Established: 1 April 1935 (RBI Act, 1934)
+
+ECONOMY & BUSINESS
+
+Cabinet Approves PM-eBus Sewa Payment Security Mechanism with ₹3,435 Cr Outlay
+Key Stats: ₹3,435.33 Cr Outlay | 38,000+ e-Buses | FY25 to FY29
+- The Union Cabinet approved the PM-eBus Sewa-Payment Security Mechanism (PSM) scheme with a financial outlay of ₹3,435.33 crore to accelerate electric bus adoption by Public Transport Authorities (PTAs).
+- Under the scheme, Convergence Energy Services Limited (CESL) will ensure timely monthly payments to OEMs/operators through a dedicated RBI escrow facility in case of PTA defaults.
+Static GK:
+Implementing Agency: Convergence Energy Services Limited (CESL)
+Nodal Ministry: Ministry of Heavy Industries
+
+APPOINTMENTS & RESIGNATIONS
+
+Justice Sanjiv Khanna Appointed 51st Chief Justice of India
+Key Stats: 51st CJI | Article 124(2) | Supreme Court of India
+- The President of India appointed Justice Sanjiv Khanna as the 51st Chief Justice of India under clause (2) of Article 124 of the Constitution of India.
+- He also serves as the Executive Chairman of the National Legal Services Authority (NALSA).
+Static GK:
+Supreme Court Established: 28 January 1950
+Constitutional Provision: Article 124`;
+
+/**
+ * Extracts raw plain text from an uploaded Word (.docx / .doc), Text (.txt), or Markdown (.md) file.
+ */
+export async function extractTextFromUploadedDoc(file: File): Promise<string> {
+  const lower = file.name.toLowerCase();
+
+  if (lower.endsWith('.txt') || lower.endsWith('.md')) {
+    return await file.text();
+  }
+
+  const arrayBuffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(arrayBuffer);
+
+  // Check if OOXML ZIP (.docx or .doc saved in modern Word format — magic bytes PK\x03\x04)
+  const isZipOoxml =
+    bytes.length >= 4 &&
+    bytes[0] === 0x50 &&
+    bytes[1] === 0x4b &&
+    bytes[2] === 0x03 &&
+    bytes[3] === 0x04;
+
+  if (lower.endsWith('.docx') || isZipOoxml) {
+    const mammoth = await import('mammoth');
+    const lib = (mammoth.default || mammoth) as {
+      extractRawText: (opts: { arrayBuffer: ArrayBuffer }) => Promise<{ value: string }>;
+    };
+    const { value } = await lib.extractRawText({ arrayBuffer });
+    return value;
+  }
+
+  if (lower.endsWith('.doc')) {
+    const utf8Text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+    const trimmed = utf8Text.trimStart();
+
+    // 1. HTML / Word XML saved with .doc extension (e.g. Google Docs / Word Web Page .doc)
+    if (
+      /^<(?:!DOCTYPE|html|\?xml|w:wordDocument)/i.test(trimmed) ||
+      /MIME-Version:/i.test(trimmed.slice(0, 200))
+    ) {
+      return utf8Text
+        .replace(/<style[\s\S]*?<\/style>/gi, '')
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<(?:br|\/p|\/div|\/li|\/tr|\/h[1-6])\b[^>]*>/gi, '\n')
+        .replace(/<li\b[^>]*>/gi, '- ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'")
+        .replace(/[ \t]+/g, ' ')
+        .replace(/\n\s*\n+/g, '\n\n')
+        .trim();
+    }
+
+    // 2. RTF saved with .doc extension
+    if (trimmed.startsWith('{\\rtf')) {
+      return utf8Text
+        .replace(/\\(?:par|pard|line)\b\s*/g, '\n')
+        .replace(/\\'([0-9a-fA-F]{2})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+        .replace(/\\[a-zA-Z]+-?\d*\s?/g, '')
+        .replace(/[{}]/g, '')
+        .replace(/\n\s*\n+/g, '\n\n')
+        .trim();
+    }
+
+    // 3. Legacy OLE2 Binary Word 97-2003 (.doc) — magic bytes D0 CF 11 E0
+    const isOle2 =
+      bytes.length >= 4 &&
+      bytes[0] === 0xd0 &&
+      bytes[1] === 0xcf &&
+      bytes[2] === 0x11 &&
+      bytes[3] === 0xe0;
+
+    if (isOle2) {
+      // Extract both UTF-16LE and ASCII text runs from WordDocument stream
+      const segments: string[] = [];
+
+      // Scan UTF-16LE readable blocks
+      let u16Buf = '';
+      for (let i = 512; i + 1 < bytes.length; i += 2) {
+        const code = bytes[i] | (bytes[i + 1] << 8);
+        if (code === 0x000d || code === 0x000a) {
+          u16Buf += '\n';
+        } else if (
+          (code >= 0x0020 && code <= 0x007e) ||
+          code === 0x20b9 || // ₹
+          code === 0x2022 || // •
+          code === 0x2013 || // –
+          code === 0x2014 || // —
+          (code >= 0x0900 && code <= 0x097f) // Devanagari
+        ) {
+          u16Buf += String.fromCharCode(code);
+        } else {
+          if (u16Buf.trim().length >= 24) {
+            segments.push(u16Buf.trim());
+          }
+          u16Buf = '';
+        }
+      }
+      if (u16Buf.trim().length >= 24) segments.push(u16Buf.trim());
+
+      // Scan single-byte CP1252/ASCII readable blocks
+      let asciiBuf = '';
+      for (let i = 512; i < bytes.length; i++) {
+        const b = bytes[i];
+        if (b === 0x0d || b === 0x0a) {
+          asciiBuf += '\n';
+        } else if (b === 0x09 || (b >= 0x20 && b <= 0x7e)) {
+          asciiBuf += String.fromCharCode(b);
+        } else {
+          if (asciiBuf.trim().length >= 30 && /[a-zA-Z]{3,}/.test(asciiBuf)) {
+            segments.push(asciiBuf.trim());
+          }
+          asciiBuf = '';
+        }
+      }
+      if (asciiBuf.trim().length >= 30 && /[a-zA-Z]{3,}/.test(asciiBuf)) {
+        segments.push(asciiBuf.trim());
+      }
+
+      const noiseBlock = /^(?:Root Entry|WordDocument|CompObj|SummaryInformation|DocumentSummaryInformation|Normal\.dot|Microsoft Office Word|Times New Roman|Calibri|Arial)/i;
+      const cleaned = segments
+        .map((s) =>
+          s
+            .split(/\r?\n/)
+            .map((l) => l.trim())
+            .filter((l) => l.length > 1 && !noiseBlock.test(l) && !/^HYPERLINK\b/i.test(l))
+            .join('\n')
+        )
+        .filter((s) => s.length >= 24);
+
+      if (cleaned.length > 0) {
+        return cleaned.join('\n\n');
+      }
+
+      throw new Error(
+        'This legacy binary .doc file could not be read cleanly. Please save it as Word (.docx) or Plain Text (.txt) in MS Word / Google Docs and re-upload.'
+      );
+    }
+
+    // Plain text saved with .doc extension
+    if (utf8Text.trim().length > 0) {
+      return utf8Text;
+    }
+  }
+
+  throw new Error('Unsupported file format. Please upload a Word (.docx / .doc), Text (.txt), or Markdown (.md) file.');
+}
+
+function parseNormalizedDateString(raw: string): string | null {
+  const s = raw.trim();
+  // YYYY-MM-DD or YYYY/MM/DD
+  const isoMatch = s.match(/^(\d{4})[-\/\.](\d{1,2})[-\/\.](\d{1,2})$/);
+  if (isoMatch) {
+    const y = isoMatch[1];
+    const m = isoMatch[2].padStart(2, '0');
+    const d = isoMatch[3].padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  // DD-MM-YYYY or DD/MM/YYYY (standard Indian date format)
+  const dmyMatch = s.match(/^(\d{1,2})[-\/\.](\d{1,2})[-\/\.](\d{4})$/);
+  if (dmyMatch) {
+    const first = Number(dmyMatch[1]);
+    const second = Number(dmyMatch[2]);
+    const y = dmyMatch[3];
+    // Assume DD-MM-YYYY unless second > 12
+    const day = second > 12 ? second : first;
+    const month = second > 12 ? first : second;
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+
+  // e.g. "02 November 2026" or "Nov 2, 2026"
+  const parsed = new Date(s);
+  if (!isNaN(parsed.getTime())) {
+    const y = parsed.getFullYear();
+    const m = String(parsed.getMonth() + 1).padStart(2, '0');
+    const d = String(parsed.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  return null;
+}
+
+function mapCategoryKeyword(text: string): BscaCategory | null {
+  const u = text.toUpperCase().trim();
+  if (!u) return null;
+  if (/\b(?:BANKING|FINANCE|FINANCIAL|RBI\s+CIRCULAR|BANKING\s*&\s*RBI)\b/.test(u)) return 'BANKING_FINANCE';
+  if (/\b(?:ECONOMY|ECONOMIC|BUSINESS|GDP)\b/.test(u)) return 'ECONOMY_BUSINESS';
+  if (/\b(?:APPOINTMENTS?|RESIGNATIONS?)\b/.test(u)) return 'APPOINTMENTS';
+  if (/\b(?:INTERNATIONAL|GLOBAL\s+AFFAIRS|WORLD\s+NEWS)\b/.test(u)) return 'INTERNATIONAL';
+  if (/\b(?:NATIONAL|INDIA\s+NEWS|STATE\s+NEWS)\b/.test(u)) return 'NATIONAL';
+  if (/\b(?:MOUS?|SUMMITS?|CONFERENCES?|AGREEMENTS?|SCHEMES?)\b/.test(u)) return 'MOUS_SUMMITS';
+  if (/\b(?:REPORTS?|INDICES|INDEX|RANKS?|RANKINGS?)\b/.test(u)) return 'REPORTS_INDICES';
+  if (/\b(?:SPORTS?)\b/.test(u)) return 'SPORTS';
+  if (/\b(?:AWARDS?|HONOURS?|HONORS?|PRIZES?)\b/.test(u)) return 'AWARDS_HONOURS';
+  if (/\b(?:DEFENCE|DEFENSE|SCIENCE|TECHNOLOGY|SPACE)\b/.test(u)) return 'DEFENCE_SCIENCE';
+  if (/\b(?:IMPORTANT\s+DAYS?|DAYS?\s*&\s*THEMES?)\b/.test(u)) return 'IMPORTANT_DAYS';
+  if (/\b(?:MISC|MISCELLANEOUS|GENERAL\s+AFFAIRS|OBITUAR(?:Y|IES)|BOOKS?\s*&\s*AUTHORS?)\b/.test(u)) return 'MISC';
+  return null;
+}
+
+/**
+ * Detects whether a line is a standalone section Category header or explicit `Category: ...` metadata tag
+ * (without accidentally matching full article headlines like "RBI keeps Repo Rate unchanged at 6.50%").
+ */
+function detectArticleCategoryLine(line: string): { category: BscaCategory; isInlineTag: boolean } | null {
+  // 1. Explicit "Category: Banking & Finance" tag
+  const explicitMatch = line.match(/^(?:Category|Section)\s*[:\-]\s*(.+)$/i);
+  if (explicitMatch) {
+    const cat = mapCategoryKeyword(explicitMatch[1]);
+    if (cat) return { category: cat, isInlineTag: true };
+  }
+
+  // Never treat bullet lines as category headers
+  if (/^[\-\•\*\u2022\u25cf\u25b6→➢]\s*/.test(line)) return null;
+
+  // Strip decorative wrappers like "## [BANKING & FINANCE]" or "=== NATIONAL AFFAIRS ==="
+  const stripped = line
+    .replace(/^[#=\-\*\[\(\s🏦📈🇮🇳🌍🎖️🤝📊🏆⚽🛡️📅📰]+/, '')
+    .replace(/[#=\-\*\]\)\s:]+$/, '')
+    .trim();
+
+  if (!stripped || stripped.length > 48) return null;
+
+  const exactSectionRegex =
+    /^(?:BANKING(?:\s*(?:&|AND|\/)\s*(?:FINANCE|FINANCIAL\s+AWARENESS|RBI|ECONOMY))?(?:\s+NEWS|\s+AFFAIRS)?|FINANCIAL\s+AWARENESS|ECONOMY(?:\s*(?:&|AND|\/)\s*BUSINESS)?(?:\s+NEWS|\s+AFFAIRS)?|BUSINESS(?:\s*(?:&|AND)\s*ECONOMY)?|NATIONAL(?:\s+(?:NEWS|AFFAIRS))?|STATE(?:\s+(?:NEWS|AFFAIRS))?|INTERNATIONAL(?:\s+(?:NEWS|AFFAIRS))?|GLOBAL\s+AFFAIRS|APPOINTMENTS?(?:\s*(?:&|AND|\/)\s*RESIGNATIONS?)?|MOUS?(?:\s*(?:&|AND|\/)\s*(?:SUMMITS?|AGREEMENTS?|CONFERENCES?))?|SUMMITS?(?:\s*(?:&|AND|\/)\s*CONFERENCES?)?|AGREEMENTS?(?:\s*(?:&|AND)\s*MOUS?)?|SCHEMES?(?:\s*(?:&|AND)\s*COMMITTEES?)?|REPORTS?(?:\s*(?:&|AND|\/)\s*(?:INDICES|INDEX|RANKS?|RANKINGS?))?|RANKS?(?:\s*(?:&|AND)\s*(?:REPORTS?|INDICES))?|SPORTS?(?:\s+NEWS)?|AWARDS?(?:\s*(?:&|AND|\/)\s*(?:HONOURS?|HONORS?))?|DEFENCE(?:\s*(?:&|AND|\/)\s*(?:SCIENCE|TECHNOLOGY))?|SCIENCE(?:\s*(?:&|AND|\/)\s*(?:TECHNOLOGY|DEFENCE|SPACE))?|IMPORTANT\s+DAYS?(?:\s*(?:&|AND)\s*THEMES?)?|MISC(?:ELLANEOUS)?|OBITUAR(?:Y|IES)|BOOKS?(?:\s*(?:&|AND)\s*AUTHORS?)?)$/i;
+
+  if (exactSectionRegex.test(stripped)) {
+    const cat = mapCategoryKeyword(stripped);
+    if (cat) return { category: cat, isInlineTag: false };
+  }
+
+  return null;
+}
+
+function splitKeyStatsLine(raw: string): string[] {
+  const cleaned = raw.trim();
+  if (!cleaned) return [];
+  if (cleaned.includes('|') || cleaned.includes(';')) {
+    return cleaned
+      .split(/[|;]/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  }
+  // Split commas that are NOT thousands separators inside numbers (e.g. ₹57,613 Cr stays intact)
+  return cleaned
+    .split(/,(?!\d{2,3}\b)/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
 // ===========================================================================
-// WORD (.docx) / TEXT PARSER FOR PROFESSIONAL BSCA & DAILY QUIZ
+// WORD (.docx / .doc) / TEXT PARSER FOR PROFESSIONAL BSCA & DAILY QUIZ
 // ===========================================================================
 export function parseBscaDocText(
   content: string,
   defaultDate?: string,
-  mode: 'auto' | 'quiz_only' | 'combined' = 'auto'
+  mode: 'auto' | 'quiz_only' | 'articles_only' | 'combined' = 'auto'
 ): BscaParsedDocResult {
   const lines = content
     .split(/\r?\n/)
@@ -811,13 +1113,14 @@ export function parseBscaDocText(
   let quizTitle = `BSCA Daily GA Quiz – ${date}`;
 
   // Check if date header exists in first 25 lines
-  const dateRegex = /(?:Date|Dated)\s*[:\-]?\s*([0-9]{1,2}[-\/\.][0-9]{1,2}[-\/\.][0-9]{2,4}|[0-9]{4}[-\/\.][0-9]{1,2}[-\/\.][0-9]{1,2}|[0-9]{1,2}\s+[A-Za-z]+\s+[0-9]{4})/i;
+  const dateRegex =
+    /(?:Date|Dated|Edition)\s*[:\-]?\s*([0-9]{1,2}[-\/\.][0-9]{1,2}[-\/\.][0-9]{2,4}|[0-9]{4}[-\/\.][0-9]{1,2}[-\/\.][0-9]{1,2}|[0-9]{1,2}\s+[A-Za-z]+\s*,?\s*[0-9]{4}|[A-Za-z]+\s+[0-9]{1,2}\s*,?\s*[0-9]{4})/i;
   for (let i = 0; i < Math.min(25, lines.length); i++) {
     const m = lines[i].match(dateRegex);
     if (m && m[1]) {
-      const parsedDate = new Date(m[1]);
-      if (!isNaN(parsedDate.getTime())) {
-        date = parsedDate.toISOString().slice(0, 10);
+      const normalized = parseNormalizedDateString(m[1]);
+      if (normalized) {
+        date = normalized;
         quizTitle = `BSCA Daily GA Quiz – ${date}`;
       }
       break;
@@ -832,7 +1135,7 @@ export function parseBscaDocText(
       !l.startsWith('Q1') &&
       !l.startsWith('Q.1') &&
       !l.startsWith('1.') &&
-      !/^(?:Date|Dated)\s*[:\-]/i.test(l) &&
+      !/^(?:Date|Dated|Edition)\s*[:\-]/i.test(l) &&
       l.length < 140
     ) {
       quizTitle = l.replace(/^[#\*\-\s]+/, '').replace(/[#\*]+$/, '').trim();
@@ -853,19 +1156,31 @@ export function parseBscaDocText(
   let quizLines: string[] = [];
 
   const qStartMarkerRegex = /^(?:Q(?:uestion)?\s*[\.\:\)]?\s*[1-9]|\(?\d+\)[\.\)]|\b[1-9]\.|\b[1-9]\))\s+/i;
-  const hasCategoryMarker = lines.some((l) =>
-    /^(?:BANKING|FINANCE|ECONOMY|BUSINESS|NATIONAL|INTERNATIONAL|APPOINTMENTS|MOU|SUMMIT|SPORTS|AWARDS|DEFENCE|SCIENCE|IMPORTANT\s+DAYS)\b/i.test(l)
-  );
+  const hasCategoryMarker = lines.some((l) => detectArticleCategoryLine(l) !== null);
   const hasQuestionMarker = lines.some((l) => qStartMarkerRegex.test(l));
+  const explicitQuizDividerRegex =
+    /^(?:DAILY(?:\s+CURRENT\s+AFFAIRS|\s+GA)?\s+QUIZ|CURRENT\s+AFFAIRS\s+QUIZ|---+\s*QUIZ\s*---+)/i;
 
-  if (mode === 'quiz_only' || (!hasCategoryMarker && hasQuestionMarker)) {
+  if (mode === 'articles_only') {
+    // Dedicated Articles Upload Mode: never cut off on numbered headlines/bullets; only stop at an explicit Quiz section banner if present
+    let dividerIdx = -1;
+    for (let i = 1; i < lines.length; i++) {
+      if (explicitQuizDividerRegex.test(lines[i])) {
+        dividerIdx = i;
+        break;
+      }
+    }
+    articleLines = dividerIdx === -1 ? lines : lines.slice(0, dividerIdx);
+    quizLines = [];
+  } else if (mode === 'quiz_only' || (!hasCategoryMarker && hasQuestionMarker)) {
     // Pure Quiz Document
     articleLines = [];
     quizLines = lines;
   } else {
     // Combined or Auto with Articles
     let quizStartIndex = -1;
-    const quizHeaderRegex = /^(?:DAILY(?:\s+CURRENT\s+AFFAIRS|\s+GA)?\s+QUIZ|CURRENT\s+AFFAIRS\s+QUIZ|---+\s*QUIZ\s*---+|Q1[\.\s\:\)]|Q\.1[\.\s\:\)]|QUESTION\s*1[\.\s\:\)])/i;
+    const quizHeaderRegex =
+      /^(?:DAILY(?:\s+CURRENT\s+AFFAIRS|\s+GA)?\s+QUIZ|CURRENT\s+AFFAIRS\s+QUIZ|---+\s*QUIZ\s*---+|Q1[\.\s\:\)]|Q\.1[\.\s\:\)]|QUESTION\s*1[\.\s\:\)])/i;
     for (let i = 0; i < lines.length; i++) {
       if (quizHeaderRegex.test(lines[i])) {
         quizStartIndex = i;
@@ -874,7 +1189,6 @@ export function parseBscaDocText(
     }
 
     if (quizStartIndex === -1 && hasQuestionMarker) {
-      // Find first question start
       for (let i = 0; i < lines.length; i++) {
         if (qStartMarkerRegex.test(lines[i])) {
           quizStartIndex = i;
@@ -893,106 +1207,157 @@ export function parseBscaDocText(
     let currentTitle = '';
     let currentBullets: string[] = [];
     let currentStaticGk: BscaStaticGkItem[] = [];
+    let currentKeyStats: string[] = [];
+    let currentImportance: 'HIGH' | 'MEDIUM' | null = null;
+    let currentFeatured = false;
     let inStaticGk = false;
 
     function flushArticle() {
       if (currentTitle.trim()) {
+        const cleanTitle = currentTitle.trim();
+        const finalBullets = currentBullets.length > 0 ? currentBullets : [cleanTitle];
+        let finalStats = currentKeyStats;
+        if (finalStats.length === 0) {
+          const statMatches =
+            finalBullets
+              .join(' ')
+              .match(/(?:₹|Rs\.?\s?|\$)[0-9,]+(?:\.[0-9]+)?(?:\s?(?:Lakh|Crore|Cr|Billion|Million|Trillion))?|[0-9]+(?:\.[0-9]+)?%|[0-9]+(?:st|nd|rd|th)\s+Rank/gi) || [];
+          finalStats = Array.from(new Set(statMatches.map((s) => s.trim()))).slice(0, 4);
+        }
+
         articles.push({
           date,
-          title: currentTitle.trim(),
+          title: cleanTitle,
           category: currentCategory,
-          bullets: currentBullets.length > 0 ? currentBullets : [currentTitle.trim()],
+          bullets: finalBullets,
           staticGk: currentStaticGk,
-          readTimeMin: Math.max(1, Math.round((currentBullets.join(' ').split(/\s+/).length + 20) / 100)),
-          importance: currentCategory === 'BANKING_FINANCE' || currentCategory === 'ECONOMY_BUSINESS' ? 'HIGH' : 'MEDIUM',
+          keyStats: finalStats.length > 0 ? finalStats : undefined,
+          isFeaturedHero: currentFeatured || undefined,
+          readTimeMin: Math.max(1, Math.round((finalBullets.join(' ').split(/\s+/).length + 20) / 100)),
+          importance:
+            currentImportance ||
+            (currentCategory === 'BANKING_FINANCE' || currentCategory === 'ECONOMY_BUSINESS' ? 'HIGH' : 'MEDIUM'),
         });
       }
       currentTitle = '';
       currentBullets = [];
       currentStaticGk = [];
+      currentKeyStats = [];
+      currentImportance = null;
+      currentFeatured = false;
       inStaticGk = false;
     }
 
     for (let i = 0; i < articleLines.length; i++) {
       const line = articleLines[i];
 
-      // Skip isolated Date line or separator
-      if (/^(?:Date|Dated)\s*[:\-]?\s*[0-9A-Za-z]/i.test(line) || /^[-=_\*]{3,}$/.test(line)) {
+      // Skip isolated Date line, document title banner on line 0/1, or horizontal separator
+      if (
+        /^(?:Date|Dated|Edition)\s*[:\-]?\s*[0-9A-Za-z]/i.test(line) ||
+        /^[-=_\*]{3,}$/.test(line) ||
+        (i <= 2 &&
+          !currentTitle &&
+          /^(?:BSCA\s+)?(?:Daily\s+)?Current\s+Affairs(?:\s+(?:Articles?|Digest|Notes|Edition|Update))?$/i.test(
+            line.replace(/^[#\*\s]+/, '').replace(/[#\*\s]+$/, '')
+          ))
+      ) {
         continue;
       }
 
-      // Detect Category Line
-      const catUpper = line.toUpperCase();
-      if (catUpper.includes('BANKING') || catUpper.includes('RBI') || catUpper.includes('FINANCIAL')) {
-        flushArticle();
-        currentCategory = 'BANKING_FINANCE';
+      // Detect Category Header or "Category: ..." tag
+      const detectedCat = detectArticleCategoryLine(line);
+      if (detectedCat) {
+        if (detectedCat.isInlineTag) {
+          // If Category: ... appears before bullets, apply to current article; if current article already has bullets, flush first
+          if (currentTitle && currentBullets.length > 0) {
+            flushArticle();
+          }
+          currentCategory = detectedCat.category;
+        } else {
+          flushArticle();
+          currentCategory = detectedCat.category;
+        }
         continue;
-      } else if (catUpper.includes('ECONOMY') || catUpper.includes('BUSINESS') || catUpper.includes('GDP')) {
-        flushArticle();
-        currentCategory = 'ECONOMY_BUSINESS';
+      }
+
+      // Detect Key Stats line (e.g. "Key Stats: ₹50,000 Cr | 100% Digital")
+      const statsMatch = line.match(/^(?:Key\s+Stats?|Key\s+Figures?|Stats?)\s*[:\-]\s*(.+)$/i);
+      if (statsMatch) {
+        inStaticGk = false;
+        currentKeyStats.push(...splitKeyStatsLine(statsMatch[1]));
         continue;
-      } else if (catUpper.includes('APPOINTMENT') || catUpper.includes('RESIGNATION')) {
-        flushArticle();
-        currentCategory = 'APPOINTMENTS';
+      }
+
+      // Detect Importance / Featured tags
+      const impMatch = line.match(/^Importance\s*[:\-]\s*(HIGH|MEDIUM)/i);
+      if (impMatch) {
+        currentImportance = impMatch[1].toUpperCase() === 'HIGH' ? 'HIGH' : 'MEDIUM';
         continue;
-      } else if (catUpper.includes('NATIONAL')) {
-        flushArticle();
-        currentCategory = 'NATIONAL';
+      }
+      if (/^Featured(?:\s+Hero)?\s*[:\-]\s*(?:Yes|True|1)/i.test(line)) {
+        currentFeatured = true;
         continue;
-      } else if (catUpper.includes('INTERNATIONAL') || catUpper.includes('GLOBAL')) {
+      }
+
+      // Detect Explicit Headline tag (e.g. "Headline: ...", "Title: ...", "Article 1: ...", "News 1: ...")
+      const explicitHeadline = line.match(/^(?:Headline|Title|(?:Article|News)\s*\d*)\s*[:\-\.]\s*(.+)$/i);
+      if (explicitHeadline && explicitHeadline[1].trim()) {
         flushArticle();
-        currentCategory = 'INTERNATIONAL';
-        continue;
-      } else if (catUpper.includes('MOU') || catUpper.includes('SUMMIT') || catUpper.includes('SCHEME')) {
-        flushArticle();
-        currentCategory = 'MOUS_SUMMITS';
-        continue;
-      } else if (catUpper.includes('REPORT') || catUpper.includes('INDEX') || catUpper.includes('RANK')) {
-        flushArticle();
-        currentCategory = 'REPORTS_INDICES';
-        continue;
-      } else if (catUpper.includes('SPORT')) {
-        flushArticle();
-        currentCategory = 'SPORTS';
-        continue;
-      } else if (catUpper.includes('AWARD') || catUpper.includes('HONOUR') || catUpper.includes('HONOR')) {
-        flushArticle();
-        currentCategory = 'AWARDS_HONOURS';
-        continue;
-      } else if (catUpper.includes('DEFENCE') || catUpper.includes('SCIENCE') || catUpper.includes('ISRO') || catUpper.includes('DRDO')) {
-        flushArticle();
-        currentCategory = 'DEFENCE_SCIENCE';
-        continue;
-      } else if (catUpper.includes('IMPORTANT DAY')) {
-        flushArticle();
-        currentCategory = 'IMPORTANT_DAYS';
+        currentTitle = explicitHeadline[1].replace(/^[#\*\s]+/, '').replace(/[#\*]+$/, '').trim();
         continue;
       }
 
       // Detect Static GK section
-      if (/^(?:Static\s+GK|Static\s+Takeaways?|Static\s+Points?|Headquarters?|Capital|Currency)\s*[:\-]?/i.test(line)) {
+      if (/^(?:Static\s+GK|Static\s+Takeaways?|Static\s+Points?|Static\s+Facts?)\s*[:\-]?/i.test(line)) {
         inStaticGk = true;
-        const stripped = line.replace(/^(?:Static\s+GK|Static\s+Takeaways?|Static\s+Points?)\s*[:\-]?\s*/i, '').trim();
-        if (stripped.includes(':')) {
-          const [k, ...rest] = stripped.split(':');
-          currentStaticGk.push({ key: k.trim(), value: rest.join(':').trim() });
+        const stripped = line.replace(/^(?:Static\s+GK|Static\s+Takeaways?|Static\s+Points?|Static\s+Facts?)\s*[:\-]?\s*/i, '').trim();
+        if (stripped) {
+          stripped.split('|').forEach((chunk) => {
+            if (chunk.includes(':')) {
+              const [k, ...rest] = chunk.split(':');
+              if (k.trim() && rest.join(':').trim()) {
+                currentStaticGk.push({ key: k.trim(), value: rest.join(':').trim() });
+              }
+            }
+          });
         }
         continue;
       }
 
       if (inStaticGk) {
-        if (line.includes(':')) {
-          const [k, ...rest] = line.replace(/^[\-\•\*\d\.]+\s*/, '').split(':');
-          currentStaticGk.push({ key: k.trim(), value: rest.join(':').trim() });
-          continue;
-        } else {
-          inStaticGk = false;
+        const cleanGkCandidate = line.replace(/^[\-\•\*\u2022\u25cf\u25b6\d\.\)]+\s*/, '').trim();
+        if (cleanGkCandidate.includes(':') && cleanGkCandidate.indexOf(':') < 45) {
+          const [k, ...rest] = cleanGkCandidate.split(':');
+          const keyText = k.trim();
+          const valText = rest.join(':').trim();
+          if (keyText && valText) {
+            currentStaticGk.push({ key: keyText, value: valText });
+            continue;
+          }
         }
+        inStaticGk = false;
       }
 
-      // Bullet point line
-      if (/^[\-\•\*\u2022\u25cf\u25b6]\s*/.test(line) || /^[0-9]+[\.\)]\s+/.test(line)) {
-        const cleanBullet = line.replace(/^[\-\•\*\u2022\u25cf\u25b6\d\.\)]+\s*/, '').trim();
+      // Numbered line: e.g. "1. RBI launches..." — if we have no title, OR if previous article already collected unnumbered bullets/staticGk, treat as new numbered article headline!
+      const numberedMatch = line.match(/^(\d+)[\.\)]\s+(.+)$/);
+      if (numberedMatch) {
+        const textBody = numberedMatch[2].trim();
+        if (!currentTitle) {
+          currentTitle = textBody;
+          continue;
+        }
+        if ((currentBullets.length > 0 || currentStaticGk.length > 0) && textBody.length < 180 && !textBody.endsWith(';')) {
+          flushArticle();
+          currentTitle = textBody;
+          continue;
+        }
+        currentBullets.push(textBody);
+        continue;
+      }
+
+      // Bullet point line (-, •, *, ▪, →, ➢)
+      if (/^[\-\•\*\u2022\u25cf\u25b6▪→➢]\s*/.test(line)) {
+        const cleanBullet = line.replace(/^[\-\•\*\u2022\u25cf\u25b6▪→➢]+\s*/, '').trim();
         if (!currentTitle) {
           currentTitle = cleanBullet;
         } else {
@@ -1001,10 +1366,17 @@ export function parseBscaDocText(
         continue;
       }
 
-      // Potential headline
-      if (line.length < 160 && !line.endsWith('.') && !line.endsWith(';')) {
+      // Markdown heading (e.g. ### Headline)
+      if (/^#{1,4}\s+/.test(line)) {
         flushArticle();
-        currentTitle = line.replace(/^[#\*\s]+/, '').trim();
+        currentTitle = line.replace(/^#{1,4}\s+/, '').replace(/[#\*]+$/, '').trim();
+        continue;
+      }
+
+      // Potential standalone headline vs paragraph bullet
+      if (line.length < 170 && !line.endsWith('.') && !line.endsWith(';')) {
+        flushArticle();
+        currentTitle = line.replace(/^[#\*\s]+/, '').replace(/[#\*]+$/, '').trim();
       } else {
         if (!currentTitle) {
           currentTitle = line;

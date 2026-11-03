@@ -131,6 +131,7 @@ export default function AdminPage() {
     | 'rrb_course_manager'
     | 'word_matrix_manager'
     | 'ca_boss_fight_manager'
+    | 'bsca_articles_doc'
   >('updates_publisher');
   const [allPurchases, setAllPurchases] = useState<any[]>([]);
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -2358,6 +2359,7 @@ async function handleDeleteRrbDay(dayNum: number) {
         { id: "daily_mission_manager", label: "🔥 Daily Mission & XP" },
         { id: "updates_publisher", label: "📢 Updates & One-Liners" },
         { id: "targets_manager", label: "🎯 Daily Targets" },
+        { id: "bsca_articles_doc", label: "📰 BSCA Articles (Doc)" },
         { id: "bsca_quiz_builder", label: "💡 BSCA Daily Quiz" },
         { id: "word_matrix_manager", label: "🧩 Word Matrix (Vocab)" },
         { id: "ca_boss_fight_manager", label: "⚔️ CA Boss Fight (Raid)" },
@@ -4608,6 +4610,29 @@ Ans: (A)`}
         </div>
       )}
 
+      {/* DEDICATED BSCA ARTICLES DOC UPLOADER & UPDATER TAB */}
+      {activeTab === 'bsca_articles_doc' && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900 border border-emerald-500/20 p-5 rounded-2xl">
+            <div>
+              <h2 className="text-lg font-black text-white">📰 BSCA Articles Updater (.doc / .docx)</h2>
+              <p className="text-xs text-slate-400">
+                Dedicated space to upload Word (.doc / .docx) files to publish new BSCA Daily Digest articles or replace/update articles for any date.
+              </p>
+            </div>
+            <Link
+              href="/bsca"
+              target="_blank"
+              className="px-4 py-2 bg-gradient-to-r from-emerald-400 to-teal-400 text-slate-950 font-black text-xs rounded-xl shadow shrink-0"
+            >
+              View Live BSCA Articles ↗
+            </Link>
+          </div>
+
+          <AdminBscaManager key="bsca_articles_doc" initialSubTab="articles_doc" />
+        </div>
+      )}
+
       {/* BSCA QUIZ BUILDER TAB */}
       {activeTab === 'bsca_quiz_builder' && (
         <div className="space-y-6">
@@ -4627,7 +4652,7 @@ Ans: (A)`}
             </Link>
           </div>
 
-          <AdminBscaManager />
+          <AdminBscaManager key="bsca_quiz_builder" initialSubTab="quiz_word" />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <form onSubmit={handleCreateQuiz} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
               <h2 className="text-base font-bold text-slate-800 border-b pb-2">Step 1: Create Daily Quiz Container</h2>

@@ -12,6 +12,7 @@ import {
   createBscaDayPdf,
   updateBscaDayPdf,
   deleteBscaDayPdf,
+  extractTextFromUploadedDoc,
   fetchBscaArticles,
   fetchBscaCapsules,
   fetchBscaCourses,
@@ -20,12 +21,24 @@ import {
   getPdfYearAndMonth,
   MONTH_NAMES,
   parseBscaDocText,
+  SAMPLE_BSCA_ARTICLES_FORMAT,
   saveBscaArticles,
   saveBscaCapsules,
 } from '@/lib/bsca';
 import AdminBscaPricing from './AdminBscaPricing';
 
-type SubTab = 'quiz_word' | 'word' | 'paste' | 'manual' | 'daypdfs' | 'capsules' | 'pricing' | 'manage';
+export type BscaAdminSubTab =
+  | 'articles_doc'
+  | 'quiz_word'
+  | 'word'
+  | 'paste'
+  | 'manual'
+  | 'daypdfs'
+  | 'capsules'
+  | 'pricing'
+  | 'manage';
+
+type SubTab = BscaAdminSubTab;
 
 const SAMPLE_QUIZ_FORMAT_TEXT = `BSCA Daily Current Affairs & GA Quiz
 Date: ${new Date().toISOString().slice(0, 10)}
@@ -70,10 +83,31 @@ const inputCls =
   'w-full bg-slate-950 border border-white/[0.1] focus:border-amber-400/60 rounded-xl px-3.5 py-2.5 text-sm text-white outline-none transition placeholder:text-slate-600';
 const labelCls = 'text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5';
 
-export default function AdminBscaManager() {
-  const [subTab, setSubTab] = useState<SubTab>('quiz_word');
+export default function AdminBscaManager({
+  initialSubTab = 'quiz_word',
+}: {
+  initialSubTab?: BscaAdminSubTab;
+} = {}) {
+  const [subTab, setSubTab] = useState<SubTab>(initialSubTab);
   const [statusMsg, setStatusMsg] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // Dedicated BSCA Articles Doc (.doc / .docx) Upload & Update States
+  const [docArticlesFileName, setDocArticlesFileName] = useState('');
+  const [docArticlesDate, setDocArticlesDate] = useState(new Date().toISOString().slice(0, 10));
+  const [docArticlesUpdateMode, setDocArticlesUpdateMode] = useState<'replace' | 'append'>('replace');
+  const [docAutoDetectDate, setDocAutoDetectDate] = useState(true);
+  const [docParsedArticles, setDocParsedArticles] = useState<Omit<BscaArticle, 'id'>[]>([]);
+  const [copiedArticlesFormat, setCopiedArticlesFormat] = useState(false);
+  const [showArticlesFormatGuide, setShowArticlesFormatGuide] = useState(false);
+
+  // Inline Edit State for Already-Published Articles
+  const [editingPubId, setEditingPubId] = useState<string | null>(null);
+  const [editPubTitle, setEditPubTitle] = useState('');
+  const [editPubCategory, setEditPubCategory] = useState<BscaCategory>('BANKING_FINANCE');
+  const [editPubBullets, setEditPubBullets] = useState('');
+  const [editPubKeyStats, setEditPubKeyStats] = useState('');
+  const [editPubStaticGk, setEditPubStaticGk] = useState('');
 
   // Dedicated BSCA Quiz Word Upload States
   const [quizWordFileName, setQuizWordFileName] = useState('');
@@ -194,7 +228,200 @@ export default function AdminBscaManager() {
   }, [newDayCourseId]);
 
   // =========================================================================
-  // 0. DEDICATED BSCA QUIZ WORD (.docx) PARSER & PUBLISHER
+  // 0A. DEDICATED BSCA ARTICLES DOC (.doc / .docx) UPLOADER & UPDATER
+  // =========================================================================
+  function handleCopyArticlesFormat() {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(SAMPLE_BSCA_ARTICLES_FORMAT);
+      setCopiedArticlesFormat(true);
+      setTimeout(() => setCopiedArticlesFormat(false), 2500);
+    }
+  }
+
+  async function handleArticlesDocFile(file: File) {
+    setStatusMsg('');
+    setDocArticlesFileName(file.name);
+    setBusy(true);
+
+    try {
+      const rawText = await extractTextFromUploadedDoc(file);
+      const result = parseBscaDocText(rawText, docArticlesDate, 'articles_only');
+
+      const effectiveDate = docAutoDetectDate && result.date ? result.date : docArticlesDate;
+      if (docAutoDetectDate && result.date) {
+        setDocArticlesDate(result.date);
+      }
+
+      const normalizedArticles = result.articles.map((a) => ({
+        ...a,
+        date: effectiveDate,
+      }));
+      setDocParsedArticles(normalizedArticles);
+
+      if (normalizedArticles.length === 0) {
+        setStatusMsg(
+          '⚠️ No articles were detected in the uploaded doc file. Check the Sample Doc Format Guide above for category headers, headlines, and bullets.'
+        );
+      } else {
+        const existingCount = publishedArticles.filter((a) => a.date === effectiveDate).length;
+        setStatusMsg(
+          `✅ Extracted ${normalizedArticles.length} current affairs articles from "${file.name}" for ${effectiveDate}` +
+            (existingCount > 0 && docArticlesUpdateMode === 'replace'
+              ? ` (ready to update & replace ${existingCount} existing articles on ${effectiveDate}).`
+              : existingCount > 0
+                ? ` (ready to append alongside ${existingCount} existing articles on ${effectiveDate}).`
+                : '!')
+        );
+      }
+    } catch (err: unknown) {
+      setStatusMsg(`❌ Error reading doc file: ${getErrMsg(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleUpdateDocParsedArticle(index: number, patch: Partial<Omit<BscaArticle, 'id'>>) {
+    setDocParsedArticles((prev) => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+  }
+
+  function handleRemoveDocParsedArticle(index: number) {
+    setDocParsedArticles((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function handleAddBlankDocArticle() {
+    setDocParsedArticles((prev) => [
+      ...prev,
+      {
+        date: docArticlesDate,
+        title: 'New Current Affairs Headline',
+        category: 'BANKING_FINANCE',
+        bullets: ['Key exam-relevant takeaway point 1.'],
+        staticGk: [],
+        readTimeMin: 1,
+        importance: 'HIGH',
+      },
+    ]);
+  }
+
+  async function handlePublishDocArticles() {
+    if (docParsedArticles.length === 0) {
+      return setStatusMsg('❌ No extracted articles to publish. Upload a .doc / .docx file first.');
+    }
+    if (!docArticlesDate) {
+      return setStatusMsg('❌ Please choose a target publication date.');
+    }
+
+    setBusy(true);
+    setStatusMsg(
+      docArticlesUpdateMode === 'replace'
+        ? `🔄 Updating BSCA articles for ${docArticlesDate}…`
+        : `➕ Appending BSCA articles to ${docArticlesDate}…`
+    );
+
+    try {
+      const nowIso = new Date().toISOString();
+      const newRecords: BscaArticle[] = docParsedArticles
+        .filter((a) => a.title.trim().length > 0)
+        .map((art, idx) => ({
+          ...art,
+          id: `art_${docArticlesDate}_${Date.now()}_${idx}`,
+          date: docArticlesDate,
+          title: art.title.trim(),
+          bullets: art.bullets.filter((b) => b.trim().length > 0),
+          created_at: nowIso,
+        }));
+
+      const oldOnDate = publishedArticles.filter((a) => a.date === docArticlesDate);
+      const otherDates = publishedArticles.filter((a) => a.date !== docArticlesDate);
+
+      let mergedArticles: BscaArticle[];
+      if (docArticlesUpdateMode === 'replace') {
+        mergedArticles = [...newRecords, ...otherDates];
+        await saveBscaArticles(mergedArticles, {
+          replaceDate: docArticlesDate,
+          deletedIds: oldOnDate.map((a) => a.id),
+        });
+      } else {
+        mergedArticles = [...newRecords, ...publishedArticles];
+        await saveBscaArticles(mergedArticles);
+      }
+
+      setPublishedArticles(mergedArticles);
+      setDocParsedArticles([]);
+      setDocArticlesFileName('');
+      setStatusMsg(
+        docArticlesUpdateMode === 'replace'
+          ? `🎉 Updated ${docArticlesDate} with ${newRecords.length} articles (replaced ${oldOnDate.length} previous articles)!`
+          : `🎉 Appended ${newRecords.length} new articles to ${docArticlesDate}!`
+      );
+      await refreshPublishedData();
+    } catch (err: unknown) {
+      setStatusMsg(`❌ Error updating articles: ${getErrMsg(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleStartEditPublishedArticle(art: BscaArticle) {
+    setEditingPubId(art.id);
+    setEditPubTitle(art.title);
+    setEditPubCategory(art.category);
+    setEditPubBullets(art.bullets.join('\n'));
+    setEditPubKeyStats((art.keyStats || []).join(' | '));
+    setEditPubStaticGk(art.staticGk.map((g) => `${g.key}: ${g.value}`).join('\n'));
+  }
+
+  async function handleSavePublishedArticleEdit(articleId: string) {
+    if (!editPubTitle.trim()) {
+      return setStatusMsg('❌ Article headline cannot be empty.');
+    }
+    setBusy(true);
+    try {
+      const bullets = editPubBullets
+        .split('\n')
+        .map((b) => b.trim())
+        .filter((b) => b.length > 0);
+      const keyStats = editPubKeyStats
+        .split(/[|,]/)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      const staticGk = editPubStaticGk
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l.includes(':'))
+        .map((l) => {
+          const [k, ...rest] = l.split(':');
+          return { key: k.trim(), value: rest.join(':').trim() };
+        })
+        .filter((g) => g.key && g.value);
+
+      const updated = publishedArticles.map((a) =>
+        a.id === articleId
+          ? {
+              ...a,
+              title: editPubTitle.trim(),
+              category: editPubCategory,
+              bullets: bullets.length > 0 ? bullets : [editPubTitle.trim()],
+              keyStats: keyStats.length > 0 ? keyStats : undefined,
+              staticGk,
+              readTimeMin: Math.max(1, Math.round((bullets.join(' ').split(/\s+/).length + 20) / 100)),
+            }
+          : a
+      );
+
+      await saveBscaArticles(updated);
+      setPublishedArticles(updated);
+      setEditingPubId(null);
+      setStatusMsg('✅ Article updated successfully!');
+    } catch (err: unknown) {
+      setStatusMsg(`❌ Error saving article edit: ${getErrMsg(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // =========================================================================
+  // 0B. DEDICATED BSCA QUIZ WORD (.docx) PARSER & PUBLISHER
   // =========================================================================
   function handleCopyFormat() {
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
@@ -420,7 +647,7 @@ export default function AdminBscaManager() {
 
         const otherDatesArticles = publishedArticles.filter((a) => a.date !== parsedDate);
         const mergedArticles = [...articlesToSave, ...otherDatesArticles];
-        await saveBscaArticles(mergedArticles);
+        await saveBscaArticles(mergedArticles, { replaceDate: parsedDate });
         setPublishedArticles(mergedArticles);
       }
 
@@ -599,7 +826,7 @@ export default function AdminBscaManager() {
   async function handleDeleteArticle(id: string) {
     if (!confirm('Are you sure you want to delete this article?')) return;
     const updated = publishedArticles.filter((a) => a.id !== id);
-    await saveBscaArticles(updated);
+    await saveBscaArticles(updated, { deletedIds: [id] });
     setPublishedArticles(updated);
     setStatusMsg('Article deleted.');
   }
@@ -843,6 +1070,7 @@ export default function AdminBscaManager() {
           {/* Vertical Sub-Tab Navigation */}
           <nav className="space-y-1.5">
             {[
+              { id: 'articles_doc', label: 'Update Articles (.doc/.docx)', icon: '📰', count: publishedArticles.length },
               { id: 'quiz_word', label: 'Upload BSCA Quiz (.docx)', icon: '💡', count: publishedQuizzes.length },
               { id: 'word', label: '1-Click Articles & Quiz', icon: '📄', count: null },
               { id: 'paste', label: 'Paste Raw News Text', icon: '📋', count: null },
@@ -892,7 +1120,528 @@ export default function AdminBscaManager() {
         <div className="flex-1 min-w-0 space-y-6">
 
       {/* ========================================================================= */}
-      {/* SUB-TAB 0: DEDICATED BSCA QUIZ WORD (.DOCX) UPLOADER                      */}
+      {/* SUB-TAB 0A: DEDICATED BSCA ARTICLES DOC (.DOC / .DOCX) UPDATER            */}
+      {/* ========================================================================= */}
+      {subTab === 'articles_doc' && (
+        <div className="space-y-6">
+          <div className="bg-slate-900/80 border border-white/[0.08] rounded-3xl p-6 sm:p-7 space-y-5 shadow-xl">
+            {/* Header & Sample Format Downloads */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/[0.08] pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-400/30">
+                    Dedicated Articles Updater
+                  </span>
+                </div>
+                <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2 mt-1.5">
+                  <span>📰</span>
+                  <span>Update BSCA Daily Articles via Doc File (.doc / .docx)</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
+                  Upload a Word document (<code>.doc</code> or <code>.docx</code>), plain text (<code>.txt</code>), or Markdown (<code>.md</code>) file to publish new BSCA current affairs articles or cleanly replace/update an existing date&apos;s articles without touching quizzes.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <a
+                  href="/samples/bsca_articles_sample.docx"
+                  download="BSCA_Articles_Sample.docx"
+                  className="px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs transition shadow-md flex items-center gap-1.5 shrink-0"
+                  title="Download sample BSCA Articles Word (.docx) template"
+                >
+                  <span>📥</span>
+                  <span>Sample Doc (.docx)</span>
+                </a>
+                <a
+                  href="/samples/bsca_articles_sample.txt"
+                  download="BSCA_Articles_Sample.txt"
+                  className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/[0.08] font-bold text-xs transition flex items-center gap-1.5 shrink-0"
+                  title="Download plain text sample template"
+                >
+                  <span>📄</span>
+                  <span>Sample (.txt)</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={handleCopyArticlesFormat}
+                  className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/[0.08] font-bold text-xs transition flex items-center gap-1.5 shrink-0 cursor-pointer"
+                  title="Copy standard BSCA articles format to clipboard"
+                >
+                  <span>{copiedArticlesFormat ? '✓' : '📋'}</span>
+                  <span>{copiedArticlesFormat ? 'Copied!' : 'Copy Format'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Collapsible Format Guide */}
+            <div className="p-4 rounded-2xl bg-slate-950/70 border border-white/[0.06] space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-amber-300 flex items-center gap-1.5">
+                  <span>📝</span> Standard BSCA Articles Format in Word (.doc / .docx)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowArticlesFormatGuide(!showArticlesFormatGuide)}
+                  className="text-slate-400 hover:text-white underline text-[11px] cursor-pointer"
+                >
+                  {showArticlesFormatGuide ? 'Hide Guide ▲' : 'Show Guide ▼'}
+                </button>
+              </div>
+
+              {showArticlesFormatGuide && (
+                <div className="pt-2 text-slate-300 space-y-2 border-t border-white/[0.06] font-mono text-[11px] leading-relaxed bg-slate-950/90 p-3.5 rounded-xl">
+                  <p className="text-slate-400">Date: 2026-11-02</p>
+                  <p className="text-amber-300 font-bold">BANKING &amp; FINANCE</p>
+                  <p className="text-white font-bold">RBI Introduces Unified Lending Interface (ULI) for Frictionless Credit Delivery</p>
+                  <p className="text-sky-300">Key Stats: ₹50,000 Cr Credit Target | 100% Digital KYC | MSME &amp; Agri Focus</p>
+                  <p>
+                    - The Reserve Bank of India (RBI) announced the nationwide rollout of ULI...
+                    <br />- ULI operates on standardized APIs connecting lenders to digital land &amp; GSTN records.
+                  </p>
+                  <p className="text-emerald-400 font-bold">Static GK:</p>
+                  <p className="text-emerald-200">
+                    RBI Headquarters: Mumbai, Maharashtra
+                    <br />
+                    RBI Established: 1 April 1935
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Target Date, Update Mode & Quick Existing Date Picker */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+              <div className="md:col-span-4">
+                <span className={labelCls}>Target Edition Date</span>
+                <input
+                  type="date"
+                  value={docArticlesDate}
+                  onChange={(e) => {
+                    const nextDate = e.target.value;
+                    setDocArticlesDate(nextDate);
+                    setDocParsedArticles((prev) => prev.map((a) => ({ ...a, date: nextDate })));
+                  }}
+                  className={inputCls}
+                />
+              </div>
+
+              <div className="md:col-span-5">
+                <span className={labelCls}>Update Action on Publish</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDocArticlesUpdateMode('replace')}
+                    className={`px-3 py-2.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                      docArticlesUpdateMode === 'replace'
+                        ? 'bg-amber-400 text-slate-950 border-amber-400 font-black shadow'
+                        : 'bg-slate-950 text-slate-300 border-white/[0.1] hover:border-amber-400/40'
+                    }`}
+                  >
+                    🔄 Replace Date&apos;s Articles
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDocArticlesUpdateMode('append')}
+                    className={`px-3 py-2.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                      docArticlesUpdateMode === 'append'
+                        ? 'bg-emerald-400 text-slate-950 border-emerald-400 font-black shadow'
+                        : 'bg-slate-950 text-slate-300 border-white/[0.1] hover:border-emerald-400/40'
+                    }`}
+                  >
+                    ➕ Append to Date
+                  </button>
+                </div>
+              </div>
+
+              <div className="md:col-span-3">
+                <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-950 border border-white/[0.08] cursor-pointer text-xs text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={docAutoDetectDate}
+                    onChange={(e) => setDocAutoDetectDate(e.target.checked)}
+                    className="w-4 h-4 rounded accent-amber-400"
+                  />
+                  <span className="font-semibold leading-tight">Auto-read Date from Doc</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Quick Select Existing Dates Strip */}
+            {articleDates.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                <span className="text-[11px] font-bold text-slate-400 mr-1">Quick Select Published Date to Update:</span>
+                {articleDates.slice(0, 8).map((d) => {
+                  const countOnDate = publishedArticles.filter((a) => a.date === d).length;
+                  const active = docArticlesDate === d;
+                  return (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => {
+                        setDocArticlesDate(d);
+                        setDocAutoDetectDate(false);
+                        setDocParsedArticles((prev) => prev.map((a) => ({ ...a, date: d })));
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer ${
+                        active
+                          ? 'bg-amber-400/20 border-amber-400 text-amber-300'
+                          : 'bg-slate-950 border-white/[0.08] text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {d} ({countOnDate})
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Doc File Upload Dropzone */}
+            <label className="block cursor-pointer border-2 border-dashed border-emerald-400/40 hover:border-emerald-400 rounded-3xl p-8 sm:p-10 text-center bg-slate-950/60 hover:bg-slate-950/90 transition group shadow-inner">
+              <div className="text-4xl mb-2 group-hover:scale-110 transition-transform">📰</div>
+              <span className="text-sm sm:text-base font-black text-white block">
+                {busy
+                  ? 'Extracting articles from document…'
+                  : docArticlesFileName || 'Click or drag & drop BSCA Articles Doc (.doc / .docx) file'}
+              </span>
+              <span className="text-xs text-slate-400 mt-1 block">
+                Supports Word (<code>.doc</code>, <code>.docx</code>), Text (<code>.txt</code>), and Markdown (<code>.md</code>). Extracts Categories, Headlines, Key Stats, Bullets &amp; Static GK only.
+              </span>
+              <div className="mt-3 inline-flex items-center gap-2 px-4 py-1.5 rounded-lg bg-emerald-400/15 border border-emerald-400/30 text-emerald-300 text-xs font-bold">
+                <span>📎 Browse .doc / .docx File</span>
+              </div>
+              <input
+                type="file"
+                accept=".doc,.docx,.txt,.md,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                className="hidden"
+                disabled={busy}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void handleArticlesDocFile(f);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+          </div>
+
+          {/* Extracted Articles Preview, Inline Editor & Publish/Update Button */}
+          {docParsedArticles.length > 0 && (
+            <div className="bg-slate-900/90 border border-emerald-400/30 rounded-3xl p-6 sm:p-7 space-y-5 shadow-2xl animate-fadeIn">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/[0.08] pb-4">
+                <div>
+                  <h4 className="text-lg font-black text-white flex items-center gap-2">
+                    <span>✨</span>
+                    <span>Review &amp; Edit Extracted Articles ({docParsedArticles.length})</span>
+                  </h4>
+                  <span className="text-xs text-emerald-300">
+                    Target Date: <b>{docArticlesDate}</b> · Mode:{' '}
+                    <b>
+                      {docArticlesUpdateMode === 'replace'
+                        ? `Replace existing (${publishedArticles.filter((a) => a.date === docArticlesDate).length} live articles will be updated)`
+                        : 'Append to existing articles'}
+                    </b>
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleAddBlankDocArticle}
+                    className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/[0.1] font-bold text-xs transition cursor-pointer"
+                  >
+                    + Add Article Row
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={handlePublishDocArticles}
+                    className="px-6 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-400 via-emerald-300 to-teal-400 hover:from-emerald-300 hover:to-teal-300 text-slate-950 font-black text-xs sm:text-sm shadow-xl shadow-emerald-500/20 transition flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <span>
+                      {busy
+                        ? 'Updating…'
+                        : docArticlesUpdateMode === 'replace'
+                          ? `🚀 Update ${docParsedArticles.length} Articles for ${docArticlesDate}`
+                          : `🚀 Append ${docParsedArticles.length} Articles to ${docArticlesDate}`}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-4 max-h-[650px] overflow-y-auto pr-1 scrollbar-thin">
+                {docParsedArticles.map((art, idx) => (
+                  <div
+                    key={idx}
+                    className="bg-slate-950/85 border border-white/[0.08] rounded-2xl p-4 sm:p-5 space-y-3"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="w-6 h-6 rounded-lg bg-emerald-400/20 text-emerald-300 font-black text-xs flex items-center justify-center border border-emerald-400/30">
+                          {idx + 1}
+                        </span>
+                        <select
+                          value={art.category}
+                          onChange={(e) =>
+                            handleUpdateDocParsedArticle(idx, { category: e.target.value as BscaCategory })
+                          }
+                          className="bg-slate-900 border border-white/[0.12] rounded-lg px-2.5 py-1 text-xs font-bold text-amber-300 outline-none"
+                        >
+                          {BSCA_CATEGORIES.map((c) => (
+                            <option key={c.key} value={c.key}>
+                              {c.icon} {c.label}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={art.importance || 'MEDIUM'}
+                          onChange={(e) =>
+                            handleUpdateDocParsedArticle(idx, {
+                              importance: e.target.value as 'HIGH' | 'MEDIUM',
+                            })
+                          }
+                          className="bg-slate-900 border border-white/[0.12] rounded-lg px-2.5 py-1 text-xs font-bold text-slate-300 outline-none"
+                        >
+                          <option value="HIGH">🔥 High Priority</option>
+                          <option value="MEDIUM">📌 Standard</option>
+                        </select>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveDocParsedArticle(idx)}
+                        className="text-[11px] text-rose-400 hover:text-rose-300 px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 font-bold transition self-end sm:self-auto cursor-pointer"
+                      >
+                        ✕ Remove
+                      </button>
+                    </div>
+
+                    <div>
+                      <span className={labelCls}>Headline</span>
+                      <input
+                        type="text"
+                        value={art.title}
+                        onChange={(e) => handleUpdateDocParsedArticle(idx, { title: e.target.value })}
+                        className={inputCls}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <span className={labelCls}>Bullet Points (One per line)</span>
+                        <textarea
+                          rows={3}
+                          value={art.bullets.join('\n')}
+                          onChange={(e) =>
+                            handleUpdateDocParsedArticle(idx, {
+                              bullets: e.target.value.split('\n'),
+                            })
+                          }
+                          className={inputCls}
+                        />
+                      </div>
+                      <div className="space-y-2.5">
+                        <div>
+                          <span className={labelCls}>Key Stats (Pipe | separated)</span>
+                          <input
+                            type="text"
+                            value={(art.keyStats || []).join(' | ')}
+                            placeholder="e.g. ₹50,000 Cr | 100% Digital KYC"
+                            onChange={(e) =>
+                              handleUpdateDocParsedArticle(idx, {
+                                keyStats: e.target.value
+                                  .split('|')
+                                  .map((s) => s.trim())
+                                  .filter(Boolean),
+                              })
+                            }
+                            className={inputCls}
+                          />
+                        </div>
+                        <div>
+                          <span className={labelCls}>Static GK (Key: Value per line)</span>
+                          <textarea
+                            rows={2}
+                            value={art.staticGk.map((g) => `${g.key}: ${g.value}`).join('\n')}
+                            placeholder={'RBI Headquarters: Mumbai\nGovernor: Sanjay Malhotra'}
+                            onChange={(e) => {
+                              const nextGk = e.target.value
+                                .split('\n')
+                                .filter((l) => l.includes(':'))
+                                .map((l) => {
+                                  const [k, ...rest] = l.split(':');
+                                  return { key: k.trim(), value: rest.join(':').trim() };
+                                });
+                              handleUpdateDocParsedArticle(idx, { staticGk: nextGk });
+                            }}
+                            className={inputCls}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Currently Published Articles on Selected Date (Inline Edit / Quick Inspect) */}
+          <div className="bg-slate-900/70 border border-white/[0.08] rounded-3xl p-6 sm:p-7 space-y-4 shadow-xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/[0.08] pb-3">
+              <div>
+                <h4 className="text-sm sm:text-base font-black text-white">
+                  Live BSCA Articles on {docArticlesDate} (
+                  {publishedArticles.filter((a) => a.date === docArticlesDate).length})
+                </h4>
+                <p className="text-xs text-slate-400">
+                  Upload a <code>.doc</code> / <code>.docx</code> file above in Replace mode to overwrite this date, or edit individual articles inline below.
+                </p>
+              </div>
+              <a
+                href="/bsca"
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs font-bold rounded-xl border border-white/[0.08] transition flex items-center gap-1 shrink-0"
+              >
+                <span>View on BSCA Hub</span>
+                <span>↗</span>
+              </a>
+            </div>
+
+            {publishedArticles.filter((a) => a.date === docArticlesDate).length === 0 ? (
+              <p className="text-xs text-slate-400 py-4 text-center">
+                No articles published yet for <b>{docArticlesDate}</b>. Upload a Word (.doc / .docx) file above to publish articles for this date.
+              </p>
+            ) : (
+              <div className="space-y-3 max-h-[480px] overflow-y-auto pr-1 scrollbar-thin">
+                {publishedArticles
+                  .filter((a) => a.date === docArticlesDate)
+                  .map((art) => {
+                    const meta = getCategoryMeta(art.category);
+                    const isEditing = editingPubId === art.id;
+                    return (
+                      <div
+                        key={art.id}
+                        className="bg-slate-950/75 border border-white/[0.07] rounded-2xl p-4 space-y-3"
+                      >
+                        {isEditing ? (
+                          <div className="space-y-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                              <div className="sm:col-span-2">
+                                <span className={labelCls}>Headline</span>
+                                <input
+                                  type="text"
+                                  value={editPubTitle}
+                                  onChange={(e) => setEditPubTitle(e.target.value)}
+                                  className={inputCls}
+                                />
+                              </div>
+                              <div>
+                                <span className={labelCls}>Category</span>
+                                <select
+                                  value={editPubCategory}
+                                  onChange={(e) => setEditPubCategory(e.target.value as BscaCategory)}
+                                  className={inputCls}
+                                >
+                                  {BSCA_CATEGORIES.map((c) => (
+                                    <option key={c.key} value={c.key}>
+                                      {c.icon} {c.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <div>
+                              <span className={labelCls}>Bullets (One per line)</span>
+                              <textarea
+                                rows={3}
+                                value={editPubBullets}
+                                onChange={(e) => setEditPubBullets(e.target.value)}
+                                className={inputCls}
+                              />
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div>
+                                <span className={labelCls}>Key Stats (Pipe | separated)</span>
+                                <input
+                                  type="text"
+                                  value={editPubKeyStats}
+                                  onChange={(e) => setEditPubKeyStats(e.target.value)}
+                                  className={inputCls}
+                                />
+                              </div>
+                              <div>
+                                <span className={labelCls}>Static GK (Key: Value per line)</span>
+                                <textarea
+                                  rows={2}
+                                  value={editPubStaticGk}
+                                  onChange={(e) => setEditPubStaticGk(e.target.value)}
+                                  className={inputCls}
+                                />
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 justify-end">
+                              <button
+                                type="button"
+                                onClick={() => setEditingPubId(null)}
+                                className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold cursor-pointer"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => void handleSavePublishedArticleEdit(art.id)}
+                                className="px-4 py-1.5 rounded-lg bg-emerald-400 text-slate-950 text-xs font-black cursor-pointer"
+                              >
+                                Save Article Changes
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="space-y-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${meta.badgeCls}`}>
+                                  {meta.icon} {meta.label}
+                                </span>
+                                {art.keyStats && art.keyStats.length > 0 && (
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-400/20">
+                                    {art.keyStats.length} Key Stats
+                                  </span>
+                                )}
+                              </div>
+                              <h5 className="font-bold text-white text-sm">{art.title}</h5>
+                              <p className="text-xs text-slate-400">
+                                {art.bullets.length} bullets · {art.staticGk.length} static GK notes
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleStartEditPublishedArticle(art)}
+                                className="px-3 py-1.5 rounded-lg bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 text-xs font-bold transition cursor-pointer"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleDeleteArticle(art.id)}
+                                className="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-xs font-bold transition cursor-pointer"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* SUB-TAB 0B: DEDICATED BSCA QUIZ WORD (.DOCX) UPLOADER                     */}
       {/* ========================================================================= */}
       {subTab === 'quiz_word' && (
         <div className="space-y-6">
@@ -1042,7 +1791,7 @@ export default function AdminBscaManager() {
                     <span>Review Extracted Quiz ({quizWordQuestions.length} Questions)</span>
                   </h4>
                   <span className="text-xs text-amber-300">
-                    Ready to publish for <b>{quizWordDate}</b> as <strong>"{quizWordTitle}"</strong> ({quizWordDuration} mins)
+                    Ready to publish for <b>{quizWordDate}</b> as <strong>&ldquo;{quizWordTitle}&rdquo;</strong> ({quizWordDuration} mins)
                   </span>
                 </div>
 
@@ -2086,7 +2835,7 @@ export default function AdminBscaManager() {
                 <h3 className="text-base font-black text-white">Published Articles Archive</h3>
                 <span className="text-xs text-slate-400">Total: {publishedArticles.length} Articles</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-bold text-slate-400">Filter Date:</span>
                 <select
                   value={manageFilterDate}
@@ -2100,6 +2849,20 @@ export default function AdminBscaManager() {
                     </option>
                   ))}
                 </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (manageFilterDate !== 'ALL') {
+                      setDocArticlesDate(manageFilterDate);
+                      setDocAutoDetectDate(false);
+                    }
+                    setSubTab('articles_doc');
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-black text-xs transition shadow flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>📰</span>
+                  <span>Update Articles via Doc (.doc/.docx)</span>
+                </button>
               </div>
             </div>
 

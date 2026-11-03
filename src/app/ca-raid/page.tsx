@@ -14,6 +14,19 @@ import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import ThemeToggle from '@/components/ThemeToggle';
 import {
+  HeadToHeadIncomingBanner,
+  HeadToHeadLiveTargetBar,
+  HeadToHeadSharePanel,
+  HeadToHeadVerdictBanner,
+} from '@/components/HeadToHeadChallengeCard';
+import {
+  decodeChallengeToken,
+  evaluateCaRaidDuel,
+  getSavedChallengerName,
+  saveChallengerName,
+  type CaRaidChallengePayload,
+} from '@/lib/headToHeadChallenge';
+import {
   getNotebookItems,
   recordMistakeQuestions,
   toggleBookmarkQuestion,
@@ -65,7 +78,24 @@ function formatDurationMs(ms: number): string {
 
 function CaBossRaidContent() {
   const searchParams = useSearchParams();
-  const initialRaidParam = searchParams.get('raid') || '';
+  const challengeTokenParam = searchParams.get('c');
+
+  const incomingChallenge = useMemo<CaRaidChallengePayload | null>(() => {
+    const decoded = decodeChallengeToken(challengeTokenParam, 'ca_raid');
+    return decoded && decoded.arena === 'ca_raid' ? decoded : null;
+  }, [challengeTokenParam]);
+
+  const [dismissedChallengeToken, setDismissedChallengeToken] = useState<string | null>(null);
+  const [acceptedChallenge, setAcceptedChallenge] = useState<CaRaidChallengePayload | null>(null);
+
+  const pendingChallenge =
+    incomingChallenge &&
+    challengeTokenParam !== dismissedChallengeToken &&
+    !acceptedChallenge
+      ? incomingChallenge
+      : null;
+
+  const initialRaidParam = searchParams.get('raid') || incomingChallenge?.raidId || '';
   const initialDateParam = searchParams.get('date') || '';
   const initialMonthParam = searchParams.get('month') || '';
   const initialTabParam = searchParams.get('tab');
@@ -135,7 +165,7 @@ function CaBossRaidContent() {
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      let resolvedName = 'Aspirant Raider';
+      let resolvedName = getSavedChallengerName('Aspirant Raider');
       let resolvedId = vid;
 
       if (session?.user) {
@@ -399,6 +429,27 @@ function CaBossRaidContent() {
     setPhase('battling');
   };
 
+  const handleAcceptRaidChallenge = (challenge: CaRaidChallengePayload) => {
+    setAcceptedChallenge(challenge);
+    if (activeEdition && activeEdition.id === challenge.raidId) {
+      handleStartRaid();
+      return;
+    }
+    if (challenge.raidId.startsWith('month_')) {
+      const mKey = challenge.raidId.replace('month_', '').slice(0, 7);
+      setSelectedScope('MONTH');
+      setSelectedYear(mKey.slice(0, 4));
+      setSelectedMonthNum(mKey.slice(5, 7));
+      setSelectedDate(`${mKey}-01`);
+    } else if (challenge.raidId.startsWith('date_')) {
+      const dKey = challenge.raidId.replace('date_', '').slice(0, 10);
+      setSelectedScope('DATE');
+      setSelectedYear(dKey.slice(0, 4));
+      setSelectedMonthNum(dKey.slice(5, 7));
+      setSelectedDate(dKey);
+    }
+  };
+
   const triggerDamagePopup = useCallback(
     (amount: number, isCrit: boolean, isMiss: boolean) => {
       const id = popupCounterRef.current++;
@@ -638,6 +689,35 @@ function CaBossRaidContent() {
   const raidAttempt = activeEdition
     ? playerStats.attemptsByRaidId[activeEdition.id]
     : undefined;
+
+  const activeRaidChallenge =
+    acceptedChallenge && activeEdition && acceptedChallenge.raidId === activeEdition.id
+      ? acceptedChallenge
+      : null;
+
+  const duelOutcome = useMemo(() => {
+    if (!activeRaidChallenge || phase !== 'victory') return null;
+    return evaluateCaRaidDuel(
+      activeRaidChallenge,
+      correctSoFar,
+      personalDamage,
+      finalTimeMs
+    );
+  }, [activeRaidChallenge, correctSoFar, finalTimeMs, personalDamage, phase]);
+
+  const raidSharePayload = useMemo<CaRaidChallengePayload | null>(() => {
+    if (!activeEdition) return null;
+    return {
+      arena: 'ca_raid',
+      challenger: raiderName,
+      score: correctSoFar,
+      totalQuestions: activeEdition.questions.length,
+      damage: personalDamage,
+      timeMs: finalTimeMs,
+      raidId: activeEdition.id,
+      bossName: activeEdition.bossName,
+    };
+  }, [activeEdition, correctSoFar, finalTimeMs, personalDamage, raiderName]);
 
   return (
     <div className="min-h-screen bg-[#020617] text-slate-100 font-sans relative overflow-x-hidden selection:bg-amber-400 selection:text-slate-950">
@@ -1126,7 +1206,21 @@ function CaBossRaidContent() {
             {activeTab === 'arena' && (
               <>
                 {phase === 'lobby' && (
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in">
+                  <div className="space-y-6 animate-fade-in">
+                    {pendingChallenge && (
+                      <HeadToHeadIncomingBanner
+                        challenge={pendingChallenge}
+                        acceptButtonLabel={
+                          activeEdition.id === pendingChallenge.raidId
+                            ? '⚔️ Accept Boss Duel & Start →'
+                            : '⚔️ Load Challenged Boss Fight →'
+                        }
+                        onAccept={() => handleAcceptRaidChallenge(pendingChallenge)}
+                        onDismiss={() => setDismissedChallengeToken(challengeTokenParam)}
+                      />
+                    )}
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2 bg-slate-900/80 border border-white/[0.08] rounded-3xl p-6 sm:p-8 shadow-xl space-y-6">
                       <div className="space-y-2">
                         <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-amber-400/15 text-amber-300 border border-amber-400/30">
@@ -1264,10 +1358,23 @@ function CaBossRaidContent() {
                       </div>
                     </div>
                   </div>
+                  </div>
                 )}
 
                 {phase === 'battling' && currentQuestion && (
                   <div className="space-y-5 animate-fade-in">
+                    {activeRaidChallenge && (
+                      <HeadToHeadLiveTargetBar
+                        challengerName={activeRaidChallenge.challenger}
+                        currentValue={correctSoFar}
+                        targetValue={activeRaidChallenge.score}
+                        unitLabel="correct"
+                        extraTargetNote={`${activeRaidChallenge.damage.toLocaleString()} DMG in ${formatDurationMs(
+                          activeRaidChallenge.timeMs
+                        )}`}
+                      />
+                    )}
+
                     {/* Battle HUD */}
                     <div className="bg-slate-900/90 border border-white/[0.1] rounded-3xl p-4 sm:p-5 shadow-xl grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
                       <div className="flex items-center gap-3.5 relative">
@@ -1573,6 +1680,24 @@ function CaBossRaidContent() {
                         </div>
                       )}
                     </div>
+
+                    {duelOutcome && (
+                      <HeadToHeadVerdictBanner
+                        outcome={duelOutcome}
+                        onRematchSameSeed={handleStartRaid}
+                      />
+                    )}
+
+                    {raidSharePayload && (
+                      <HeadToHeadSharePanel
+                        payload={raidSharePayload}
+                        onChallengerNameChange={(nextName) => {
+                          saveChallengerName(nextName);
+                          setRaiderName(nextName);
+                        }}
+                        conqueredChallenge={duelOutcome}
+                      />
+                    )}
 
                     {/* Question Solutions & Vault Bookmarking */}
                     <div className="bg-slate-900/80 border border-white/[0.08] rounded-3xl p-6 sm:p-7 space-y-4">

@@ -1,8 +1,24 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import type { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+import {
+  decodeChallengeToken,
+  evaluateCalcLabDuel,
+  formatCalcDurationLabel,
+  getSavedChallengerName,
+  saveChallengerName,
+  type CalcLabChallengePayload,
+} from '@/lib/headToHeadChallenge';
+import {
+  HeadToHeadIncomingBanner,
+  HeadToHeadLiveTargetBar,
+  HeadToHeadSharePanel,
+  HeadToHeadVerdictBanner,
+} from '@/components/HeadToHeadChallengeCard';
 
 type ModuleType =
   | 'mixed'
@@ -102,49 +118,300 @@ function getEloLeagueBadge(elo: number): { label: string; icon: string; color: s
   return { label: 'Bronze League', icon: '🛡️', color: 'text-orange-300 bg-orange-500/15 border-orange-500/40' };
 }
 
-export default function CalcLabPage() {
+function stepLcgSeed(seed: number): { nextSeed: number; value: number } {
+  const nextSeed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+  return { nextSeed, value: nextSeed / 4294967296 };
+}
+
+function hashCodeToSeed(text: string): number {
+  let hash = 2166136261;
+  const clean = text.trim().toUpperCase();
+  for (let i = 0; i < clean.length; i++) {
+    hash ^= clean.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) || 1234567;
+}
+
+function readStoredNumber(key: string, fallback: number): number {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const val = Number(localStorage.getItem(key));
+    return Number.isFinite(val) && val >= 0 ? val : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function shufflePoolWithSeed(pool: QuestionProblem[], seedRef: { current: number }): QuestionProblem[] {
+  const copy = [...pool];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const stepped = stepLcgSeed(seedRef.current);
+    seedRef.current = stepped.nextSeed;
+    const j = Math.floor(stepped.value * (i + 1));
+    const tmp = copy[i];
+    copy[i] = copy[j];
+    copy[j] = tmp;
+  }
+  return copy;
+}
+
+function generateSeededProblem(
+  moduleType: ModuleType,
+  diff: DifficultyLevel,
+  seedRef: { current: number },
+  queueRef: { current: QuestionProblem[] }
+): QuestionProblem {
+  const nextRand = (): number => {
+    const stepped = stepLcgSeed(seedRef.current);
+    seedRef.current = stepped.nextSeed;
+    return stepped.value;
+  };
+
+  const randInt = (min: number, max: number): number =>
+    Math.floor(nextRand() * (max - min + 1)) + min;
+
+  if (moduleType === 'add_sub') {
+    const isAdd = nextRand() > 0.45;
+    const maxVal = diff === 'easy' ? 60 : diff === 'medium' ? 180 : 450;
+    const minVal = diff === 'easy' ? 12 : 25;
+    if (isAdd) {
+      const a = randInt(minVal, maxVal);
+      const b = randInt(minVal, maxVal);
+      return {
+        prompt: `${a} + ${b}`,
+        answer: a + b,
+        explanation: `${a} + ${b} = ${a + b}`,
+        tag: 'Rapid Addition',
+      };
+    }
+    const a = randInt(minVal + 30, maxVal + 50);
+    const b = randInt(minVal, a - 5);
+    return {
+      prompt: `${a} − ${b}`,
+      answer: a - b,
+      explanation: `${a} − ${b} = ${a - b}`,
+      tag: 'Rapid Subtraction',
+    };
+  }
+
+  if (moduleType === 'simplification') {
+    const pattern = randInt(1, 3);
+    if (pattern === 1) {
+      const a = randInt(6, 18);
+      const b = randInt(3, 9);
+      const c = randInt(10, 45);
+      const ans = a * b + c;
+      return {
+        prompt: `(${a} × ${b}) + ${c}`,
+        answer: ans,
+        explanation: `${a * b} + ${c} = ${ans}`,
+        tag: 'BODMAS Simplification',
+      };
+    }
+    if (pattern === 2) {
+      const n = randInt(8, 22);
+      const sub = randInt(10, 40);
+      const ans = n * n - sub;
+      return {
+        prompt: `${n}² − ${sub}`,
+        answer: ans,
+        explanation: `${n * n} − ${sub} = ${ans}`,
+        tag: 'Square Simplification',
+      };
+    }
+    const divisor = randInt(3, 12);
+    const quotient = randInt(6, 18);
+    const add = randInt(12, 48);
+    const dividend = divisor * quotient;
+    const ans = quotient + add;
+    return {
+      prompt: `(${dividend} ÷ ${divisor}) + ${add}`,
+      answer: ans,
+      explanation: `${quotient} + ${add} = ${ans}`,
+      tag: 'BODMAS Division',
+    };
+  }
+
+  if (moduleType === 'tables') {
+    const maxA = diff === 'easy' ? 20 : diff === 'medium' ? 29 : 36;
+    const num1 = randInt(12, maxA);
+    const num2 = randInt(3, diff === 'hard' ? 14 : 9);
+    return {
+      prompt: `${num1} × ${num2}`,
+      answer: num1 * num2,
+      explanation: `${num1} × ${num2} = ${num1 * num2}`,
+      tag: 'Multiplication Table',
+    };
+  }
+
+  if (moduleType === 'squares') {
+    const maxSq = diff === 'easy' ? 30 : diff === 'medium' ? 50 : 65;
+    const num = randInt(11, maxSq);
+    return {
+      prompt: `${num}²`,
+      answer: num * num,
+      explanation: `${num} × ${num} = ${num * num}`,
+      tag: 'Perfect Square',
+    };
+  }
+
+  if (moduleType === 'cubes') {
+    const maxCube = diff === 'easy' ? 15 : diff === 'medium' ? 22 : 28;
+    const num = randInt(5, maxCube);
+    return {
+      prompt: `${num}³`,
+      answer: num * num * num,
+      explanation: `${num} × ${num} × ${num} = ${num * num * num}`,
+      tag: 'Perfect Cube',
+    };
+  }
+
+  if (moduleType === 'percentages') {
+    if (queueRef.current.length === 0) {
+      queueRef.current = shufflePoolWithSeed(fractionPercentagePool, seedRef);
+    }
+    return queueRef.current.pop()!;
+  }
+
+  const ops = ['+', '-', '×', '÷', 'sq', 'pct'];
+  const chosenOp = ops[Math.floor(nextRand() * ops.length)];
+
+  if (chosenOp === '+') {
+    const a = randInt(14, diff === 'hard' ? 185 : 95);
+    const b = randInt(14, diff === 'hard' ? 185 : 95);
+    return {
+      prompt: `${a} + ${b}`,
+      answer: a + b,
+      explanation: `${a} + ${b} = ${a + b}`,
+      tag: 'Addition',
+    };
+  }
+  if (chosenOp === '-') {
+    const a = randInt(35, diff === 'hard' ? 220 : 120);
+    const b = randInt(11, a - 4);
+    return {
+      prompt: `${a} − ${b}`,
+      answer: a - b,
+      explanation: `${a} − ${b} = ${a - b}`,
+      tag: 'Subtraction',
+    };
+  }
+  if (chosenOp === '×') {
+    const a = randInt(11, diff === 'hard' ? 28 : 22);
+    const b = randInt(3, 9);
+    return {
+      prompt: `${a} × ${b}`,
+      answer: a * b,
+      explanation: `${a} × ${b} = ${a * b}`,
+      tag: 'Multiplication',
+    };
+  }
+  if (chosenOp === 'sq') {
+    const n = randInt(11, 32);
+    return {
+      prompt: `${n}²`,
+      answer: n * n,
+      explanation: `${n} × ${n} = ${n * n}`,
+      tag: 'Squares',
+    };
+  }
+  if (chosenOp === 'pct') {
+    return fractionPercentagePool[Math.floor(nextRand() * fractionPercentagePool.length)];
+  }
+
+  const divisor = randInt(3, 15);
+  const quotient = randInt(4, 21);
+  const dividend = divisor * quotient;
+  return {
+    prompt: `${dividend} ÷ ${divisor}`,
+    answer: quotient,
+    explanation: `${dividend} ÷ ${divisor} = ${quotient}`,
+    tag: 'Division',
+  };
+}
+
+function readMonotonicMs(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
+}
+
+function createFreshSessionSeed(salt: number): number {
+  return ((Math.floor(readMonotonicMs() * 1000) ^ salt) >>> 0) || 24681357;
+}
+
+function CalcLabContent() {
+  const searchParams = useSearchParams();
+  const challengeTokenParam = searchParams.get('c');
+
+  const decodedUrlChallenge = useMemo(() => {
+    const parsed = decodeChallengeToken(challengeTokenParam, 'calc_lab');
+    return parsed?.arena === 'calc_lab' ? parsed : null;
+  }, [challengeTokenParam]);
+
+  const [dismissedToken, setDismissedToken] = useState<string | null>(null);
+  const [acceptedChallenge, setAcceptedChallenge] = useState<CalcLabChallengePayload | null>(null);
+
+  const pendingChallenge =
+    decodedUrlChallenge && challengeTokenParam !== dismissedToken ? decodedUrlChallenge : null;
+
   const [activeTab, setActiveTab] = useState<'practice' | 'combat' | 'leaderboard'>('practice');
 
-  // Practice Configuration States
+  // Practice Configuration States (Default 1 Min = 60s Blitz!)
   const [selectedModule, setSelectedModule] = useState<ModuleType>('mixed');
   const [difficulty, setDifficulty] = useState<DifficultyLevel>('medium');
-  const [selectedMinutes, setSelectedMinutes] = useState<number>(2); // User selects how many minutes to practice!
+  const [selectedMinutes, setSelectedMinutes] = useState<number>(1);
   const [customMinutesInput, setCustomMinutesInput] = useState<string>('');
 
   // Combat Configuration States
-  const [combatDurationSec, setCombatDurationSec] = useState<number>(60); // 1 min or 2 min duel
+  const [combatDurationSec, setCombatDurationSec] = useState<number>(60);
   const [combatDifficulty, setCombatDifficulty] = useState<DifficultyLevel>('medium');
   const [friendRoomCode, setFriendRoomCode] = useState<string>('');
   const [isSearchingOpponent, setIsSearchingOpponent] = useState(false);
   const [activeOpponent, setActiveOpponent] = useState<CombatOpponent | null>(null);
   const [opponentScore, setOpponentScore] = useState(0);
-  const [opponentStreak, setOpponentStreak] = useState(0);
-  const [playerElo, setPlayerElo] = useState<number>(1200);
+  const [playerElo, setPlayerElo] = useState<number>(() => {
+    const v = readStoredNumber('bs_calc_combat_elo', 1200);
+    return v > 0 ? v : 1200;
+  });
   const [eloDelta, setEloDelta] = useState<number>(0);
-  const [combatWins, setCombatWins] = useState<number>(0);
-  const [combatLosses, setCombatLosses] = useState<number>(0);
+  const [combatWins, setCombatWins] = useState<number>(() =>
+    readStoredNumber('bs_calc_combat_wins', 0)
+  );
+  const [combatLosses, setCombatLosses] = useState<number>(() =>
+    readStoredNumber('bs_calc_combat_losses', 0)
+  );
 
   // Active Game Arena States
   const [gameModeType, setGameModeType] = useState<'practice' | 'combat'>('practice');
   const [isGameActive, setIsGameActive] = useState(false);
   const [isGameFinished, setIsGameFinished] = useState(false);
 
+  // Session Seed & Active Settings Snapshot (used to generate deterministic 1v1 Challenge Link!)
+  const [sessionSeed, setSessionSeed] = useState<number>(104729);
+  const [playedModule, setPlayedModule] = useState<ModuleType>('mixed');
+  const [playedDifficulty, setPlayedDifficulty] = useState<DifficultyLevel>('medium');
+
   // Game Metrics
-  const [totalDurationSec, setTotalDurationSec] = useState(120);
-  const [timeLeft, setTimeLeft] = useState(120);
+  const [totalDurationSec, setTotalDurationSec] = useState(60);
+  const [timeLeft, setTimeLeft] = useState(60);
   const [score, setScore] = useState(0);
-  const [wrongCount, setWrongCount] = useState(0);
   const [totalAttempted, setTotalAttempted] = useState(0);
   const [currentStreak, setCurrentStreak] = useState(0);
   const [bestStreakInSession, setBestStreakInSession] = useState(0);
   const [attemptHistory, setAttemptHistory] = useState<AttemptHistoryItem[]>([]);
 
-  const questionStartTimeRef = useRef<number>(Date.now());
+  const questionStartTimeRef = useRef<number>(0);
   const sessionQueueRef = useRef<QuestionProblem[]>([]);
-  const rngSeedRef = useRef<number>(Date.now());
+  const rngSeedRef = useRef<number>(104729);
+  const scoreRef = useRef<number>(0);
+  const totalAttemptedRef = useRef<number>(0);
+  const opponentScoreRef = useRef<number>(0);
 
-  // User & Leaderboard States
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  // User, Challenger Name & Leaderboard States
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [challengerDisplayName, setChallengerDisplayName] = useState<string>(() =>
+    getSavedChallengerName('Banking Aspirant')
+  );
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
   const [currentUserRank, setCurrentUserRank] = useState<{
@@ -163,105 +430,7 @@ export default function CalcLabPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const isSavingRef = useRef(false);
 
-  // Load saved ELO & Combat Stats
-  useEffect(() => {
-    try {
-      const savedElo = Number(localStorage.getItem('bs_calc_combat_elo') || 1200);
-      const savedWins = Number(localStorage.getItem('bs_calc_combat_wins') || 0);
-      const savedLosses = Number(localStorage.getItem('bs_calc_combat_losses') || 0);
-      if (savedElo > 0) setPlayerElo(savedElo);
-      if (savedWins >= 0) setCombatWins(savedWins);
-      if (savedLosses >= 0) setCombatLosses(savedLosses);
-    } catch {}
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      const user = session?.user || null;
-      setCurrentUser(user);
-      fetchLeaderboard(user?.id);
-    });
-  }, []);
-
-  useEffect(() => {
-    if (isGameActive && inputRef.current) {
-      inputRef.current.focus();
-    }
-  }, [isGameActive, currentProblem]);
-
-  // Main Countdown Timer
-  useEffect(() => {
-    if (!isGameActive) return;
-    const interval = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          endGame();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [isGameActive]);
-
-  // Simulated Live Opponent Tick in Combat Mode
-  useEffect(() => {
-    if (!isGameActive || gameModeType !== 'combat' || !activeOpponent) return;
-
-    const tickMs = Math.max(1400, activeOpponent.avgSolveMs);
-    const botTimer = setInterval(() => {
-      const jitter = (Math.random() - 0.5) * 0.35;
-      const didSolve = Math.random() < activeOpponent.accuracyRate + jitter * 0.1;
-      if (didSolve) {
-        setOpponentScore((prev) => prev + 1);
-        setOpponentStreak((prev) => prev + 1);
-      } else {
-        setOpponentStreak(0);
-      }
-    }, tickMs);
-
-    return () => clearInterval(botTimer);
-  }, [isGameActive, gameModeType, activeOpponent]);
-
-  // Deterministic pseudo-random helper when Room Code is used in Combat Mode
-  const nextRand = (): number => {
-    if (gameModeType === 'combat' && friendRoomCode.trim()) {
-      rngSeedRef.current = (rngSeedRef.current * 1664525 + 1013904223) % 4294967296;
-      return rngSeedRef.current / 4294967296;
-    }
-    return Math.random();
-  };
-
-  const randInt = (min: number, max: number): number => {
-    return Math.floor(nextRand() * (max - min + 1)) + min;
-  };
-
-  const fetchLeaderboard = async (userId?: string) => {
-    setLoadingLeaderboard(true);
-    const activeUserId = userId || currentUser?.id;
-
-    const { data, error } = await supabase
-      .from('calculation_lab_scores')
-      .select('*')
-      .order('score', { ascending: false })
-      .order('accuracy', { ascending: false })
-      .limit(50);
-
-    if (!error && data) {
-      setLeaderboard(data as LeaderboardEntry[]);
-
-      if (activeUserId) {
-        const foundIndex = data.findIndex((entry) => entry.user_id === activeUserId);
-        if (foundIndex !== -1) {
-          setCurrentUserRank(null);
-        } else {
-          fetchUserRankOutsideTop50(activeUserId);
-        }
-      }
-    }
-    setLoadingLeaderboard(false);
-  };
-
-  const fetchUserRankOutsideTop50 = async (userId: string) => {
+  const fetchUserRankOutsideTop50 = useCallback(async (userId: string) => {
     const { data: userData, error: userErr } = await supabase
       .from('calculation_lab_scores')
       .select('*')
@@ -291,317 +460,123 @@ export default function CalcLabPage() {
     } else {
       setCurrentUserRank(null);
     }
-  };
+  }, []);
 
-  // Enhanced Rapid Problem Generator
-  const generateProblem = (
-    moduleType: ModuleType,
-    diff: DifficultyLevel = difficulty
-  ): QuestionProblem => {
-    if (moduleType === 'add_sub') {
-      const isAdd = nextRand() > 0.45;
-      const maxVal = diff === 'easy' ? 60 : diff === 'medium' ? 180 : 450;
-      const minVal = diff === 'easy' ? 12 : 25;
-      if (isAdd) {
-        const a = randInt(minVal, maxVal);
-        const b = randInt(minVal, maxVal);
-        return {
-          prompt: `${a} + ${b}`,
-          answer: a + b,
-          explanation: `${a} + ${b} = ${a + b}`,
-          tag: 'Rapid Addition',
-        };
-      } else {
-        const a = randInt(minVal + 30, maxVal + 50);
-        const b = randInt(minVal, a - 5);
-        return {
-          prompt: `${a} − ${b}`,
-          answer: a - b,
-          explanation: `${a} − ${b} = ${a - b}`,
-          tag: 'Rapid Subtraction',
-        };
+  const fetchLeaderboard = useCallback(
+    async (userId?: string) => {
+      setLoadingLeaderboard(true);
+      const activeUserId = userId || currentUser?.id;
+
+      const { data, error } = await supabase
+        .from('calculation_lab_scores')
+        .select('*')
+        .order('score', { ascending: false })
+        .order('accuracy', { ascending: false })
+        .limit(50);
+
+      if (!error && data) {
+        setLeaderboard(data as LeaderboardEntry[]);
+
+        if (activeUserId) {
+          const foundIndex = data.findIndex((entry) => entry.user_id === activeUserId);
+          if (foundIndex !== -1) {
+            setCurrentUserRank(null);
+          } else {
+            await fetchUserRankOutsideTop50(activeUserId);
+          }
+        }
       }
-    }
+      setLoadingLeaderboard(false);
+    },
+    [currentUser?.id, fetchUserRankOutsideTop50]
+  );
 
-    if (moduleType === 'simplification') {
-      const pattern = randInt(1, 3);
-      if (pattern === 1) {
-        const a = randInt(6, 18);
-        const b = randInt(3, 9);
-        const c = randInt(10, 45);
-        const ans = a * b + c;
-        return {
-          prompt: `(${a} × ${b}) + ${c}`,
-          answer: ans,
-          explanation: `${a * b} + ${c} = ${ans}`,
-          tag: 'BODMAS Simplification',
-        };
-      } else if (pattern === 2) {
-        const n = randInt(8, 22);
-        const sub = randInt(10, 40);
-        const ans = n * n - sub;
-        return {
-          prompt: `${n}² − ${sub}`,
-          answer: ans,
-          explanation: `${n * n} − ${sub} = ${ans}`,
-          tag: 'Square Simplification',
-        };
-      } else {
-        const divisor = randInt(3, 12);
-        const quotient = randInt(6, 18);
-        const add = randInt(12, 48);
-        const dividend = divisor * quotient;
-        const ans = quotient + add;
-        return {
-          prompt: `(${dividend} ÷ ${divisor}) + ${add}`,
-          answer: ans,
-          explanation: `${quotient} + ${add} = ${ans}`,
-          tag: 'BODMAS Division',
-        };
+  useEffect(() => {
+    let active = true;
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!active) return;
+      const user = session?.user || null;
+      setCurrentUser(user);
+      if (user) {
+        const metaName =
+          (typeof user.user_metadata?.full_name === 'string' && user.user_metadata.full_name) ||
+          user.email?.split('@')[0] ||
+          '';
+        if (metaName) {
+          setChallengerDisplayName((prev) =>
+            prev === 'Banking Aspirant' ? metaName.slice(0, 28) : prev
+          );
+        }
       }
+      void fetchLeaderboard(user?.id);
+    });
+    return () => {
+      active = false;
+    };
+  }, [fetchLeaderboard]);
+
+  useEffect(() => {
+    if (isGameActive && inputRef.current) {
+      inputRef.current.focus();
     }
+  }, [isGameActive, currentProblem]);
 
-    if (moduleType === 'tables') {
-      const maxA = diff === 'easy' ? 20 : diff === 'medium' ? 29 : 36;
-      const num1 = randInt(12, maxA);
-      const num2 = randInt(3, diff === 'hard' ? 14 : 9);
-      return {
-        prompt: `${num1} × ${num2}`,
-        answer: num1 * num2,
-        explanation: `${num1} × ${num2} = ${num1 * num2}`,
-        tag: 'Multiplication Table',
-      };
-    }
-
-    if (moduleType === 'squares') {
-      const maxSq = diff === 'easy' ? 30 : diff === 'medium' ? 50 : 65;
-      const num = randInt(11, maxSq);
-      return {
-        prompt: `${num}²`,
-        answer: num * num,
-        explanation: `${num} × ${num} = ${num * num}`,
-        tag: 'Perfect Square',
-      };
-    }
-
-    if (moduleType === 'cubes') {
-      const maxCube = diff === 'easy' ? 15 : diff === 'medium' ? 22 : 28;
-      const num = randInt(5, maxCube);
-      return {
-        prompt: `${num}³`,
-        answer: num * num * num,
-        explanation: `${num} × ${num} × ${num} = ${num * num * num}`,
-        tag: 'Perfect Cube',
-      };
-    }
-
-    if (moduleType === 'percentages') {
-      if (sessionQueueRef.current.length === 0) {
-        sessionQueueRef.current = [...fractionPercentagePool].sort(
-          () => 0.5 - nextRand()
-        );
-      }
-      return sessionQueueRef.current.pop()!;
-    }
-
-    // Default: 'mixed' (fast mental math mix)
-    const ops = ['+', '-', '×', '÷', 'sq', 'pct'];
-    const chosenOp = ops[Math.floor(nextRand() * ops.length)];
-
-    if (chosenOp === '+') {
-      const a = randInt(14, diff === 'hard' ? 185 : 95);
-      const b = randInt(14, diff === 'hard' ? 185 : 95);
-      return {
-        prompt: `${a} + ${b}`,
-        answer: a + b,
-        explanation: `${a} + ${b} = ${a + b}`,
-        tag: 'Addition',
-      };
-    } else if (chosenOp === '-') {
-      const a = randInt(35, diff === 'hard' ? 220 : 120);
-      const b = randInt(11, a - 4);
-      return {
-        prompt: `${a} − ${b}`,
-        answer: a - b,
-        explanation: `${a} − ${b} = ${a - b}`,
-        tag: 'Subtraction',
-      };
-    } else if (chosenOp === '×') {
-      const a = randInt(11, diff === 'hard' ? 28 : 22);
-      const b = randInt(3, 9);
-      return {
-        prompt: `${a} × ${b}`,
-        answer: a * b,
-        explanation: `${a} × ${b} = ${a * b}`,
-        tag: 'Multiplication',
-      };
-    } else if (chosenOp === 'sq') {
-      const n = randInt(11, 32);
-      return {
-        prompt: `${n}²`,
-        answer: n * n,
-        explanation: `${n} × ${n} = ${n * n}`,
-        tag: 'Squares',
-      };
-    } else if (chosenOp === 'pct') {
-      const item =
-        fractionPercentagePool[
-          Math.floor(nextRand() * fractionPercentagePool.length)
-        ];
-      return item;
-    } else {
-      const divisor = randInt(3, 15);
-      const quotient = randInt(4, 21);
-      const dividend = divisor * quotient;
-      return {
-        prompt: `${dividend} ÷ ${divisor}`,
-        answer: quotient,
-        explanation: `${dividend} ÷ ${divisor} = ${quotient}`,
-        tag: 'Division',
-      };
-    }
-  };
-
-  // Start Solo Practice Mode with user-selected minutes
-  const startPracticeSession = () => {
-    const customMins = Number(customMinutesInput);
-    const finalMinutes =
-      customMins && customMins >= 1 && customMins <= 60
-        ? customMins
-        : selectedMinutes;
-    const durationSeconds = Math.max(30, Math.round(finalMinutes * 60));
-
-    isSavingRef.current = false;
-    setGameModeType('practice');
-    setActiveOpponent(null);
-    setScore(0);
-    setWrongCount(0);
-    setTotalAttempted(0);
-    setCurrentStreak(0);
-    setBestStreakInSession(0);
-    setAttemptHistory([]);
-    setTotalDurationSec(durationSeconds);
-    setTimeLeft(durationSeconds);
-    setUserInput('');
-    setIsGameFinished(false);
-    setIsGameActive(true);
-
-    sessionQueueRef.current = [...fractionPercentagePool].sort(
-      () => 0.5 - Math.random()
-    );
-    questionStartTimeRef.current = Date.now();
-    setCurrentProblem(generateProblem(selectedModule, difficulty));
-  };
-
-  // Start 1v1 Combat Mode (Ranked Speed Duel)
-  const startCombatMatchmaking = () => {
-    setIsSearchingOpponent(true);
-
-    // Pick opponent closest to player's ELO or by room code
-    let chosenOpponent =
-      COMBAT_OPPONENTS.find((o) => Math.abs(o.elo - playerElo) <= 180) ||
-      COMBAT_OPPONENTS[1];
-
-    if (friendRoomCode.trim()) {
-      // Seed deterministic RNG from room code so both friends get the exact same questions!
-      let hash = 2166136261;
-      const cleanCode = friendRoomCode.trim().toUpperCase();
-      for (let i = 0; i < cleanCode.length; i++) {
-        hash ^= cleanCode.charCodeAt(i);
-        hash = Math.imul(hash, 16777619);
-      }
-      rngSeedRef.current = Math.abs(hash) || 1234567;
-      chosenOpponent = {
-        name: `Room #${cleanCode} Challenger`,
-        elo: playerElo,
-        examBadge: 'Synced Seeded Duel',
-        avgSolveMs: 3100,
-        accuracyRate: 0.9,
-      };
-    } else {
-      rngSeedRef.current = Date.now();
-    }
-
-    setTimeout(() => {
-      setIsSearchingOpponent(false);
-      isSavingRef.current = false;
-      setGameModeType('combat');
-      setActiveOpponent(chosenOpponent);
-      setOpponentScore(0);
-      setOpponentStreak(0);
-      setEloDelta(0);
-
-      setScore(0);
-      setWrongCount(0);
-      setTotalAttempted(0);
-      setCurrentStreak(0);
-      setBestStreakInSession(0);
-      setAttemptHistory([]);
-      setTotalDurationSec(combatDurationSec);
-      setTimeLeft(combatDurationSec);
-      setUserInput('');
-      setIsGameFinished(false);
-      setIsGameActive(true);
-
-      sessionQueueRef.current = [...fractionPercentagePool].sort(
-        () => 0.5 - nextRand()
-      );
-      questionStartTimeRef.current = Date.now();
-      setCurrentProblem(generateProblem('mixed', combatDifficulty));
-    }, 1100);
-  };
-
-  const endGame = async () => {
+  const finishSession = useCallback(async () => {
     if (isSavingRef.current) return;
     isSavingRef.current = true;
+
+    const finalScore = scoreRef.current;
+    const finalAttempted = totalAttemptedRef.current;
+    const finalOppScore = opponentScoreRef.current;
 
     setIsGameActive(false);
     setIsGameFinished(true);
 
-    // Update Combat ELO if in combat mode
     if (gameModeType === 'combat' && activeOpponent) {
       let delta = 0;
-      if (score > opponentScore) {
+      if (finalScore > finalOppScore) {
         delta = 24;
-        const nextWins = combatWins + 1;
-        setCombatWins(nextWins);
-        try {
-          localStorage.setItem('bs_calc_combat_wins', String(nextWins));
-        } catch {}
-      } else if (score < opponentScore) {
+        setCombatWins((prevWins) => {
+          const nextWins = prevWins + 1;
+          try {
+            localStorage.setItem('bs_calc_combat_wins', String(nextWins));
+          } catch {}
+          return nextWins;
+        });
+      } else if (finalScore < finalOppScore) {
         delta = -16;
-        const nextLosses = combatLosses + 1;
-        setCombatLosses(nextLosses);
-        try {
-          localStorage.setItem('bs_calc_combat_losses', String(nextLosses));
-        } catch {}
+        setCombatLosses((prevLosses) => {
+          const nextLosses = prevLosses + 1;
+          try {
+            localStorage.setItem('bs_calc_combat_losses', String(nextLosses));
+          } catch {}
+          return nextLosses;
+        });
       } else {
-        delta = 4; // Draw bonus
+        delta = 4;
       }
-      const nextElo = Math.max(800, playerElo + delta);
       setEloDelta(delta);
-      setPlayerElo(nextElo);
-      try {
-        localStorage.setItem('bs_calc_combat_elo', String(nextElo));
-      } catch {}
+      setPlayerElo((prevElo) => {
+        const nextElo = Math.max(800, prevElo + delta);
+        try {
+          localStorage.setItem('bs_calc_combat_elo', String(nextElo));
+        } catch {}
+        return nextElo;
+      });
     }
 
     const session = (await supabase.auth.getSession()).data.session;
-    if (session?.user && score > 0) {
+    if (session?.user && finalScore > 0) {
       const studentName =
         session.user.user_metadata?.full_name ||
         session.user.email?.split('@')[0] ||
         'Aspirant';
 
       const accNum =
-        totalAttempted > 0
-          ? Number(((score / totalAttempted) * 100).toFixed(1))
-          : 100;
+        finalAttempted > 0 ? Number(((finalScore / finalAttempted) * 100).toFixed(1)) : 100;
 
       const modLabel =
-        gameModeType === 'combat'
-          ? '1V1_COMBAT'
-          : selectedModule.toUpperCase();
+        gameModeType === 'combat' ? '1V1_COMBAT' : playedModule.toUpperCase();
 
       await supabase.from('calculation_lab_scores').upsert(
         [
@@ -609,8 +584,8 @@ export default function CalcLabPage() {
             user_id: session.user.id,
             student_name: studentName,
             module_type: modLabel,
-            score: score,
-            total_attempted: totalAttempted,
+            score: finalScore,
+            total_attempted: finalAttempted,
             accuracy: accNum,
             created_at: new Date().toISOString(),
           },
@@ -618,16 +593,170 @@ export default function CalcLabPage() {
         { onConflict: 'user_id,module_type' }
       );
 
-      fetchLeaderboard(session.user.id);
+      void fetchLeaderboard(session.user.id);
     }
+  }, [activeOpponent, fetchLeaderboard, gameModeType, playedModule]);
+
+  // Main Countdown Timer
+  useEffect(() => {
+    if (!isGameActive) return;
+    const interval = window.setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          window.clearInterval(interval);
+          void finishSession();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [finishSession, isGameActive]);
+
+  // Simulated Live Opponent Tick in Combat Mode
+  useEffect(() => {
+    if (!isGameActive || gameModeType !== 'combat' || !activeOpponent) return;
+
+    const tickMs = Math.max(1400, activeOpponent.avgSolveMs);
+    const botTimer = window.setInterval(() => {
+      const jitter = (Math.random() - 0.5) * 0.35;
+      const didSolve = Math.random() < activeOpponent.accuracyRate + jitter * 0.1;
+      if (didSolve) {
+        setOpponentScore((prev) => {
+          const next = prev + 1;
+          opponentScoreRef.current = next;
+          return next;
+        });
+      }
+    }, tickMs);
+
+    return () => window.clearInterval(botTimer);
+  }, [isGameActive, gameModeType, activeOpponent]);
+
+  const launchSeededDrill = (opts: {
+    durationSeconds: number;
+    mod: ModuleType;
+    diff: DifficultyLevel;
+    seed: number;
+    modeType: 'practice' | 'combat';
+    opponent: CombatOpponent | null;
+    challengeContext: CalcLabChallengePayload | null;
+  }) => {
+    isSavingRef.current = false;
+    scoreRef.current = 0;
+    totalAttemptedRef.current = 0;
+    opponentScoreRef.current = 0;
+    rngSeedRef.current = opts.seed;
+
+    setSessionSeed(opts.seed);
+    setPlayedModule(opts.mod);
+    setPlayedDifficulty(opts.diff);
+    setAcceptedChallenge(opts.challengeContext);
+
+    setGameModeType(opts.modeType);
+    setActiveOpponent(opts.opponent);
+    setOpponentScore(0);
+    setEloDelta(0);
+
+    setScore(0);
+    setTotalAttempted(0);
+    setCurrentStreak(0);
+    setBestStreakInSession(0);
+    setAttemptHistory([]);
+    setTotalDurationSec(opts.durationSeconds);
+    setTimeLeft(opts.durationSeconds);
+    setUserInput('');
+    setIsGameFinished(false);
+    setIsGameActive(true);
+
+    sessionQueueRef.current = shufflePoolWithSeed(fractionPercentagePool, rngSeedRef);
+    questionStartTimeRef.current = readMonotonicMs();
+    setCurrentProblem(
+      generateSeededProblem(opts.mod, opts.diff, rngSeedRef, sessionQueueRef)
+    );
+  };
+
+  // Start Solo Practice Mode with user-selected minutes
+  const startPracticeSession = () => {
+    const customMins = Number(customMinutesInput);
+    const finalMinutes =
+      customMins && customMins >= 1 && customMins <= 60 ? customMins : selectedMinutes;
+    const durationSeconds = Math.max(30, Math.round(finalMinutes * 60));
+    const freshSeed = createFreshSessionSeed(0x5f3759df);
+
+    launchSeededDrill({
+      durationSeconds,
+      mod: selectedModule,
+      diff: difficulty,
+      seed: freshSeed,
+      modeType: 'practice',
+      opponent: null,
+      challengeContext: null,
+    });
+  };
+
+  // Accept Incoming Head-to-Head Challenge (exact same seed, module, difficulty & duration!)
+  const handleAcceptChallenge = (challenge: CalcLabChallengePayload) => {
+    setSelectedModule(challenge.module);
+    setDifficulty(challenge.difficulty);
+    if (challenge.durationSec % 60 === 0 && [1, 2, 3, 5, 10, 15].includes(challenge.durationSec / 60)) {
+      setSelectedMinutes(challenge.durationSec / 60);
+      setCustomMinutesInput('');
+    }
+    launchSeededDrill({
+      durationSeconds: challenge.durationSec,
+      mod: challenge.module,
+      diff: challenge.difficulty,
+      seed: challenge.seed,
+      modeType: 'practice',
+      opponent: null,
+      challengeContext: challenge,
+    });
+  };
+
+  // Start 1v1 Combat Mode (Ranked Speed Duel)
+  const startCombatMatchmaking = () => {
+    setIsSearchingOpponent(true);
+
+    let chosenOpponent =
+      COMBAT_OPPONENTS.find((o) => Math.abs(o.elo - playerElo) <= 180) || COMBAT_OPPONENTS[1];
+    let duelSeed = createFreshSessionSeed(0x9e3779b9);
+
+    if (friendRoomCode.trim()) {
+      const cleanCode = friendRoomCode.trim().toUpperCase();
+      duelSeed = hashCodeToSeed(cleanCode);
+      chosenOpponent = {
+        name: `Room #${cleanCode} Challenger`,
+        elo: playerElo,
+        examBadge: 'Synced Seeded Duel',
+        avgSolveMs: 3100,
+        accuracyRate: 0.9,
+      };
+    }
+
+    window.setTimeout(() => {
+      setIsSearchingOpponent(false);
+      launchSeededDrill({
+        durationSeconds: combatDurationSec,
+        mod: 'mixed',
+        diff: combatDifficulty,
+        seed: duelSeed,
+        modeType: 'combat',
+        opponent: chosenOpponent,
+        challengeContext: null,
+      });
+    }, 900);
   };
 
   const recordCorrectAnswer = (problem: QuestionProblem) => {
-    const elapsed = Date.now() - questionStartTimeRef.current;
+    const elapsed = Math.max(80, Math.round(readMonotonicMs() - questionStartTimeRef.current));
     setFeedback('correct');
-    const newScore = score + 1;
-    const newTotal = totalAttempted + 1;
+    const newScore = scoreRef.current + 1;
+    const newTotal = totalAttemptedRef.current + 1;
     const newStreak = currentStreak + 1;
+
+    scoreRef.current = newScore;
+    totalAttemptedRef.current = newTotal;
 
     setScore(newScore);
     setTotalAttempted(newTotal);
@@ -644,22 +773,22 @@ export default function CalcLabPage() {
       },
     ]);
 
-    setTimeout(() => {
+    window.setTimeout(() => {
       setFeedback('none');
       setUserInput('');
-      questionStartTimeRef.current = Date.now();
-      const activeMod = gameModeType === 'combat' ? 'mixed' : selectedModule;
-      const activeDiff = gameModeType === 'combat' ? combatDifficulty : difficulty;
-      setCurrentProblem(generateProblem(activeMod, activeDiff));
+      questionStartTimeRef.current = readMonotonicMs();
+      setCurrentProblem(
+        generateSeededProblem(playedModule, playedDifficulty, rngSeedRef, sessionQueueRef)
+      );
     }, 150);
   };
 
   const handleSkipQuestion = () => {
     if (!currentProblem || !isGameActive) return;
-    const elapsed = Date.now() - questionStartTimeRef.current;
+    const elapsed = Math.max(80, Math.round(readMonotonicMs() - questionStartTimeRef.current));
+    totalAttemptedRef.current += 1;
     setCurrentStreak(0);
-    setTotalAttempted((prev) => prev + 1);
-    setWrongCount((prev) => prev + 1);
+    setTotalAttempted(totalAttemptedRef.current);
     setAttemptHistory((prev) => [
       ...prev,
       {
@@ -671,10 +800,10 @@ export default function CalcLabPage() {
       },
     ]);
     setUserInput('');
-    questionStartTimeRef.current = Date.now();
-    const activeMod = gameModeType === 'combat' ? 'mixed' : selectedModule;
-    const activeDiff = gameModeType === 'combat' ? combatDifficulty : difficulty;
-    setCurrentProblem(generateProblem(activeMod, activeDiff));
+    questionStartTimeRef.current = readMonotonicMs();
+    setCurrentProblem(
+      generateSeededProblem(playedModule, playedDifficulty, rngSeedRef, sessionQueueRef)
+    );
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -693,11 +822,11 @@ export default function CalcLabPage() {
     if (!currentProblem || !userInput) return;
 
     if (parseInt(userInput, 10) !== currentProblem.answer) {
-      const elapsed = Date.now() - questionStartTimeRef.current;
+      const elapsed = Math.max(80, Math.round(performance.now() - questionStartTimeRef.current));
+      totalAttemptedRef.current += 1;
       setFeedback('wrong');
       setCurrentStreak(0);
-      setWrongCount((prev) => prev + 1);
-      setTotalAttempted((prev) => prev + 1);
+      setTotalAttempted(totalAttemptedRef.current);
       setAttemptHistory((prev) => [
         ...prev,
         {
@@ -709,7 +838,7 @@ export default function CalcLabPage() {
         },
       ]);
 
-      setTimeout(() => {
+      window.setTimeout(() => {
         setFeedback('none');
         setUserInput('');
       }, 320);
@@ -734,8 +863,9 @@ export default function CalcLabPage() {
     }
   };
 
-  const accuracy =
-    totalAttempted > 0 ? ((score / totalAttempted) * 100).toFixed(0) : '100';
+  const accuracyNum =
+    totalAttempted > 0 ? Math.round((score / totalAttempted) * 100) : 100;
+  const accuracy = String(accuracyNum);
   const elapsedSeconds = Math.max(1, totalDurationSec - timeLeft);
   const questionsPerMinute = ((score / elapsedSeconds) * 60).toFixed(1);
   const formatClock = (secs: number) => {
@@ -745,6 +875,25 @@ export default function CalcLabPage() {
   };
 
   const leagueBadge = getEloLeagueBadge(playerElo);
+
+  const duelOutcome = useMemo(() => {
+    if (!isGameFinished || !acceptedChallenge) return null;
+    return evaluateCalcLabDuel(acceptedChallenge, score, accuracyNum);
+  }, [acceptedChallenge, accuracyNum, isGameFinished, score]);
+
+  const outgoingChallengePayload = useMemo<CalcLabChallengePayload>(
+    () => ({
+      arena: 'calc_lab',
+      challenger: challengerDisplayName,
+      score,
+      durationSec: totalDurationSec,
+      module: playedModule,
+      difficulty: playedDifficulty,
+      accuracy: accuracyNum,
+      seed: sessionSeed,
+    }),
+    [accuracyNum, challengerDisplayName, playedDifficulty, playedModule, score, sessionSeed, totalDurationSec]
+  );
 
   const MODULE_CARDS: {
     id: ModuleType;
@@ -819,14 +968,14 @@ export default function CalcLabPage() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-lg sm:text-xl font-black tracking-tight text-white">
-                  Speed Calculation &amp; 1v1 Combat Arena
+                  Speed Calculation &amp; 1v1 Blitz Arena
                 </h1>
                 <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full border bg-amber-400/15 text-amber-300 border-amber-400/30">
-                  Speed &amp; Combat Lab
+                  H2H Challenges
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Custom-Timer Mental Math Drills &amp; Live 1v1 Speed Duels for Banking Exams
+                60s Mental Math Blitz, Live 1v1 Duels &amp; Shareable Telegram / WhatsApp Challenge Links
               </p>
             </div>
           </div>
@@ -851,6 +1000,16 @@ export default function CalcLabPage() {
           </div>
         </header>
 
+        {/* INCOMING HEAD-TO-HEAD CHALLENGE BANNER FROM TELEGRAM / WHATSAPP */}
+        {!isGameActive && !isGameFinished && pendingChallenge && (
+          <HeadToHeadIncomingBanner
+            challenge={pendingChallenge}
+            acceptButtonLabel={`⚔️ Accept ${formatCalcDurationLabel(pendingChallenge.durationSec)} Challenge →`}
+            onAccept={() => handleAcceptChallenge(pendingChallenge)}
+            onDismiss={() => setDismissedToken(challengeTokenParam)}
+          />
+        )}
+
         {/* TOP 3-MODE SWITCHER (HIDDEN DURING ACTIVE GAME) */}
         {!isGameActive && (
           <div className="grid grid-cols-3 bg-slate-900/90 p-1.5 rounded-2xl border border-white/[0.08] text-xs font-black gap-1.5 shadow-xl">
@@ -860,14 +1019,14 @@ export default function CalcLabPage() {
                 setIsGameFinished(false);
                 setActiveTab('practice');
               }}
-              className={`py-3 rounded-xl transition flex items-center justify-center gap-2 ${
+              className={`py-3 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer ${
                 activeTab === 'practice'
                   ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
               <span>⏱️</span>
-              <span>Solo Practice (Custom Timer)</span>
+              <span>60s Blitz &amp; Solo Drill</span>
             </button>
 
             <button
@@ -876,7 +1035,7 @@ export default function CalcLabPage() {
                 setIsGameFinished(false);
                 setActiveTab('combat');
               }}
-              className={`py-3 rounded-xl transition flex items-center justify-center gap-2 ${
+              className={`py-3 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer ${
                 activeTab === 'combat'
                   ? 'bg-gradient-to-r from-rose-500 to-orange-500 text-white shadow-lg shadow-rose-500/25'
                   : 'text-slate-400 hover:text-white'
@@ -891,9 +1050,9 @@ export default function CalcLabPage() {
               onClick={() => {
                 setIsGameFinished(false);
                 setActiveTab('leaderboard');
-                fetchLeaderboard();
+                void fetchLeaderboard();
               }}
-              className={`py-3 rounded-xl transition flex items-center justify-center gap-2 ${
+              className={`py-3 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer ${
                 activeTab === 'leaderboard'
                   ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
                   : 'text-slate-400 hover:text-white'
@@ -906,7 +1065,7 @@ export default function CalcLabPage() {
         )}
 
         {/* =================================================================== */}
-        {/* ACTIVE GAME ARENA (SHARED BY BOTH SOLO PRACTICE & 1V1 COMBAT)       */}
+        {/* ACTIVE GAME ARENA (SHARED BY SOLO BLITZ, H2H CHALLENGE & 1V1 COMBAT) */}
         {/* =================================================================== */}
         {isGameActive ? (
           <div className="max-w-2xl mx-auto space-y-5 animate-fade-in">
@@ -953,6 +1112,17 @@ export default function CalcLabPage() {
               </div>
             </div>
 
+            {/* HEAD-TO-HEAD TARGET SCORE BAR WHEN PLAYING AN ACCEPTED CHALLENGE */}
+            {acceptedChallenge && (
+              <HeadToHeadLiveTargetBar
+                challengerName={acceptedChallenge.challenger}
+                currentValue={score}
+                targetValue={acceptedChallenge.score}
+                unitLabel="pts"
+                extraTargetNote={formatCalcDurationLabel(acceptedChallenge.durationSec)}
+              />
+            )}
+
             {/* 1V1 COMBAT LIVE TUG-OF-WAR BAR */}
             {gameModeType === 'combat' && activeOpponent && (
               <div className="bg-slate-900/95 border border-rose-500/35 rounded-2xl p-4 space-y-3 shadow-xl">
@@ -978,7 +1148,6 @@ export default function CalcLabPage() {
                   </div>
                 </div>
 
-                {/* Tug of War Progress Bar */}
                 {(() => {
                   const totalPts = score + opponentScore;
                   const myRatio =
@@ -1012,7 +1181,7 @@ export default function CalcLabPage() {
                 <button
                   type="button"
                   onClick={handleSkipQuestion}
-                  className="text-[11px] font-bold text-slate-400 hover:text-amber-300 transition"
+                  className="text-[11px] font-bold text-slate-400 hover:text-amber-300 transition cursor-pointer"
                 >
                   Skip Question →
                 </button>
@@ -1046,7 +1215,7 @@ export default function CalcLabPage() {
                     key={btn}
                     type="button"
                     onClick={() => handleNumpadClick(btn)}
-                    className={`p-3.5 font-black rounded-2xl text-lg transition active:scale-95 ${
+                    className={`p-3.5 font-black rounded-2xl text-lg transition active:scale-95 cursor-pointer ${
                       btn === 'CLEAR'
                         ? 'bg-rose-950/50 border border-rose-800/50 text-rose-300 text-xs font-sans'
                         : btn === 'SKIP'
@@ -1063,8 +1232,8 @@ export default function CalcLabPage() {
             <div className="text-center pt-1">
               <button
                 type="button"
-                onClick={endGame}
-                className="text-xs font-bold text-slate-400 hover:text-rose-400 transition"
+                onClick={() => void finishSession()}
+                className="text-xs font-bold text-slate-400 hover:text-rose-400 transition cursor-pointer"
               >
                 ⏹ End Session Early &amp; View Report
               </button>
@@ -1072,9 +1241,17 @@ export default function CalcLabPage() {
           </div>
         ) : isGameFinished ? (
           /* ================================================================= */
-          /* POST-SESSION PERFORMANCE & COMBAT RESULT SCREEN                   */
+          /* POST-SESSION PERFORMANCE, DUEL VERDICT & SHARE CHALLENGE SCREEN   */
           /* ================================================================= */
-          <div className="max-w-2xl mx-auto bg-slate-900/95 border border-white/[0.1] rounded-3xl p-7 sm:p-8 space-y-6 shadow-2xl animate-fade-in">
+          <div className="max-w-2xl mx-auto bg-slate-900/95 border border-white/[0.1] rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl animate-fade-in">
+            {/* HEAD-TO-HEAD DUEL VERDICT (IF PLAYING AN ACCEPTED CHALLENGE LINK) */}
+            {duelOutcome && acceptedChallenge && (
+              <HeadToHeadVerdictBanner
+                outcome={duelOutcome}
+                onRematchSameSeed={() => handleAcceptChallenge(acceptedChallenge)}
+              />
+            )}
+
             {gameModeType === 'combat' && activeOpponent ? (
               <div className="text-center space-y-3 border-b border-slate-800 pb-6">
                 <span className="text-5xl block">
@@ -1108,11 +1285,11 @@ export default function CalcLabPage() {
               <div className="text-center space-y-2 border-b border-slate-800 pb-5">
                 <span className="text-4xl block">🎉</span>
                 <h2 className="text-2xl font-black text-white">
-                  Speed Session Complete!
+                  {formatCalcDurationLabel(totalDurationSec)} Complete!
                 </h2>
                 <p className="text-xs text-slate-400">
-                  Practiced for {Math.round(totalDurationSec / 60)}{' '}
-                  {Math.round(totalDurationSec / 60) === 1 ? 'Minute' : 'Minutes'} • Score synced to Leaderboard
+                  Solved <strong className="text-emerald-400">{score}</strong> problems in{' '}
+                  {formatCalcDurationLabel(totalDurationSec)} • Challenge friends below!
                 </p>
               </div>
             )}
@@ -1152,6 +1329,16 @@ export default function CalcLabPage() {
                 </span>
               </div>
             </div>
+
+            {/* SHAREABLE HEAD-TO-HEAD CHALLENGE CARD FOR TELEGRAM & WHATSAPP */}
+            <HeadToHeadSharePanel
+              payload={outgoingChallengePayload}
+              conqueredChallenge={duelOutcome}
+              onChallengerNameChange={(nextName) => {
+                saveChallengerName(nextName);
+                setChallengerDisplayName(nextName);
+              }}
+            />
 
             {/* Question-by-Question Speed Log */}
             {attemptHistory.length > 0 && (
@@ -1206,14 +1393,14 @@ export default function CalcLabPage() {
                     ? startCombatMatchmaking()
                     : startPracticeSession()
                 }
-                className="flex-1 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black py-3.5 rounded-2xl transition text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20"
+                className="flex-1 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black py-3.5 rounded-2xl transition text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20 cursor-pointer"
               >
-                {gameModeType === 'combat' ? '⚔️ Play Rematch / Next Duel' : '🔄 Practice Again'}
+                {gameModeType === 'combat' ? '⚔️ Play Rematch / Next Duel' : '🔄 Play New Blitz'}
               </button>
               <button
                 type="button"
                 onClick={() => setIsGameFinished(false)}
-                className="px-5 py-3.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-2xl transition text-xs"
+                className="px-5 py-3.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-2xl transition text-xs cursor-pointer"
               >
                 ⚙️ Change Time / Module
               </button>
@@ -1222,9 +1409,9 @@ export default function CalcLabPage() {
                 onClick={() => {
                   setIsGameFinished(false);
                   setActiveTab('leaderboard');
-                  fetchLeaderboard();
+                  void fetchLeaderboard();
                 }}
-                className="px-5 py-3.5 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold rounded-2xl transition text-xs"
+                className="px-5 py-3.5 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold rounded-2xl transition text-xs cursor-pointer"
               >
                 🏆 Leaderboard
               </button>
@@ -1242,14 +1429,16 @@ export default function CalcLabPage() {
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <label className="text-xs font-black uppercase tracking-widest text-amber-400 flex items-center gap-2">
-                      <span>⏱️ Step 1: Select Practice Duration (Minutes)</span>
+                      <span>⏱️ Step 1: Select Duration (60s Blitz or Custom Sprint)</span>
                     </label>
                     <span className="text-[11px] text-slate-400 font-semibold">
                       Selected:{' '}
                       <strong className="text-white">
                         {customMinutesInput
                           ? `${customMinutesInput} Min(s)`
-                          : `${selectedMinutes} ${selectedMinutes === 1 ? 'Minute' : 'Minutes'}`}
+                          : selectedMinutes === 1
+                          ? '60s Blitz (1 Minute)'
+                          : `${selectedMinutes} Minutes`}
                       </strong>
                     </span>
                   </div>
@@ -1265,13 +1454,13 @@ export default function CalcLabPage() {
                             setSelectedMinutes(mins);
                             setCustomMinutesInput('');
                           }}
-                          className={`py-3 px-3 rounded-2xl font-black text-xs border transition flex flex-col items-center justify-center ${
+                          className={`py-3 px-3 rounded-2xl font-black text-xs border transition flex flex-col items-center justify-center cursor-pointer ${
                             isActive
                               ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 border-amber-300 shadow-lg shadow-amber-500/20'
                               : 'bg-slate-950/90 border-slate-800 text-slate-300 hover:border-amber-400/40 hover:text-white'
                           }`}
                         >
-                          <span className="text-base">{mins} Min</span>
+                          <span className="text-base">{mins === 1 ? '60s' : `${mins} Min`}</span>
                           <span className="text-[9px] opacity-75 font-bold uppercase mt-0.5">
                             {mins === 1
                               ? 'Blitz'
@@ -1332,7 +1521,7 @@ export default function CalcLabPage() {
                         key={d.id}
                         type="button"
                         onClick={() => setDifficulty(d.id)}
-                        className={`p-3.5 rounded-2xl border text-left transition ${
+                        className={`p-3.5 rounded-2xl border text-left transition cursor-pointer ${
                           difficulty === d.id
                             ? 'bg-blue-600/20 border-blue-400 text-white shadow-lg'
                             : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:text-white'
@@ -1357,7 +1546,7 @@ export default function CalcLabPage() {
                         key={mod.id}
                         type="button"
                         onClick={() => setSelectedModule(mod.id)}
-                        className={`p-4 rounded-2xl border text-left transition flex items-start justify-between gap-3 ${
+                        className={`p-4 rounded-2xl border text-left transition flex items-start justify-between gap-3 cursor-pointer ${
                           selectedModule === mod.id
                             ? 'bg-amber-400/15 border-amber-400 text-white shadow-lg shadow-amber-500/10'
                             : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700'
@@ -1383,13 +1572,15 @@ export default function CalcLabPage() {
                 <button
                   type="button"
                   onClick={startPracticeSession}
-                  className="w-full bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black py-4 rounded-2xl transition text-sm sm:text-base uppercase tracking-wider shadow-xl shadow-amber-500/25"
+                  className="w-full bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black py-4 rounded-2xl transition text-sm sm:text-base uppercase tracking-wider shadow-xl shadow-amber-500/25 cursor-pointer"
                 >
                   🚀 Start{' '}
                   {customMinutesInput
-                    ? `${customMinutesInput}-Minute`
-                    : `${selectedMinutes}-Minute`}{' '}
-                  Speed Drill Now →
+                    ? `${customMinutesInput}-Minute Speed Drill`
+                    : selectedMinutes === 1
+                    ? '60s Blitz (Generate Challenge Link After)'
+                    : `${selectedMinutes}-Minute Speed Drill`}{' '}
+                  →
                 </button>
               </div>
             )}
@@ -1406,7 +1597,7 @@ export default function CalcLabPage() {
                       Head-to-Head Mental Math Duel
                     </h2>
                     <p className="text-xs text-slate-400">
-                      Race against an opponent matched to your ELO or enter a shared Room Code to duel a friend on the exact same question sequence!
+                      Race an ELO-matched rival, enter a Room Code, or finish a match to share a 1-click Telegram / WhatsApp Challenge Link!
                     </p>
                   </div>
 
@@ -1439,23 +1630,23 @@ export default function CalcLabPage() {
                   </div>
                 </div>
 
-                {/* Combat Duration & Difficulty */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Combat Duration, Difficulty & Room Code */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 space-y-2.5">
                     <span className="text-[11px] font-black uppercase tracking-wider text-slate-300 block">
-                      ⏱️ Combat Match Duration
+                      ⏱️ Combat Duration
                     </span>
                     <div className="grid grid-cols-3 gap-2">
                       {[
-                        { sec: 60, label: '1 Min Blitz' },
-                        { sec: 120, label: '2 Min Duel' },
-                        { sec: 180, label: '3 Min Clash' },
+                        { sec: 60, label: '60s Blitz' },
+                        { sec: 120, label: '2m Duel' },
+                        { sec: 180, label: '3m Clash' },
                       ].map((item) => (
                         <button
                           key={item.sec}
                           type="button"
                           onClick={() => setCombatDurationSec(item.sec)}
-                          className={`py-2.5 rounded-xl text-xs font-black border transition ${
+                          className={`py-2.5 rounded-xl text-xs font-black border transition cursor-pointer ${
                             combatDurationSec === item.sec
                               ? 'bg-rose-500 text-white border-rose-400 shadow'
                               : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
@@ -1469,24 +1660,53 @@ export default function CalcLabPage() {
 
                   <div className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 space-y-2.5">
                     <span className="text-[11px] font-black uppercase tracking-wider text-slate-300 block">
-                      🔗 Friend Duel Room Code (Optional)
+                      🎚️ Combat Difficulty
+                    </span>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(
+                        [
+                          { id: 'easy', label: 'Clerk' },
+                          { id: 'medium', label: 'PO' },
+                          { id: 'hard', label: 'Mains' },
+                        ] as { id: DifficultyLevel; label: string }[]
+                      ).map((lvl) => (
+                        <button
+                          key={lvl.id}
+                          type="button"
+                          onClick={() => setCombatDifficulty(lvl.id)}
+                          className={`py-2.5 rounded-xl text-xs font-black border transition cursor-pointer ${
+                            combatDifficulty === lvl.id
+                              ? 'bg-amber-400 text-slate-950 border-amber-300 shadow'
+                              : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                          }`}
+                        >
+                          {lvl.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-950/90 border border-slate-800 rounded-2xl p-4 space-y-2.5">
+                    <span className="text-[11px] font-black uppercase tracking-wider text-slate-300 block">
+                      🔗 Friend Room Code
                     </span>
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
                         value={friendRoomCode}
                         onChange={(e) => setFriendRoomCode(e.target.value.toUpperCase())}
-                        placeholder="e.g. BANK88 (Leave blank for Ranked Match)"
-                        className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono uppercase placeholder-slate-500 outline-none focus:border-rose-400"
+                        placeholder="e.g. BANK88"
+                        className="flex-1 min-w-0 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono uppercase placeholder-slate-500 outline-none focus:border-rose-400"
                       />
                       <button
                         type="button"
-                        onClick={() =>
-                          setFriendRoomCode(`BS${Math.floor(100 + Math.random() * 900)}`)
-                        }
-                        className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-[11px] rounded-xl whitespace-nowrap"
+                        onClick={() => {
+                          const num = 100 + Math.floor((performance.now() * 17) % 900);
+                          setFriendRoomCode(`BS${num}`);
+                        }}
+                        className="px-2.5 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-[11px] rounded-xl whitespace-nowrap cursor-pointer"
                       >
-                        Generate Code
+                        Code
                       </button>
                     </div>
                   </div>
@@ -1506,9 +1726,9 @@ export default function CalcLabPage() {
                   <button
                     type="button"
                     onClick={startCombatMatchmaking}
-                    className="w-full py-4 bg-gradient-to-r from-rose-500 via-orange-500 to-amber-500 hover:from-rose-400 hover:to-amber-400 text-white font-black text-sm sm:text-base rounded-2xl uppercase tracking-wider shadow-xl shadow-rose-500/25 transition"
+                    className="w-full py-4 bg-gradient-to-r from-rose-500 via-orange-500 to-amber-500 hover:from-rose-400 hover:to-amber-400 text-white font-black text-sm sm:text-base rounded-2xl uppercase tracking-wider shadow-xl shadow-rose-500/25 transition cursor-pointer"
                   >
-                    ⚔️ Find 1v1 Opponent &amp; Start Combat ({combatDurationSec / 60} Min) →
+                    ⚔️ Find 1v1 Opponent &amp; Start {formatCalcDurationLabel(combatDurationSec)} →
                   </button>
                 )}
               </div>
@@ -1522,8 +1742,9 @@ export default function CalcLabPage() {
                     <span>🏆 Top Speed Calculators &amp; Combat Champions</span>
                   </h3>
                   <button
-                    onClick={() => fetchLeaderboard()}
-                    className="text-xs text-amber-400 hover:underline font-bold"
+                    type="button"
+                    onClick={() => void fetchLeaderboard()}
+                    className="text-xs text-amber-400 hover:underline font-bold cursor-pointer"
                   >
                     🔄 Refresh
                   </button>
@@ -1632,5 +1853,19 @@ export default function CalcLabPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function CalcLabPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#020617] text-slate-300 flex items-center justify-center text-sm font-bold">
+          Loading Speed Calculation Arena…
+        </div>
+      }
+    >
+      <CalcLabContent />
+    </Suspense>
   );
 }

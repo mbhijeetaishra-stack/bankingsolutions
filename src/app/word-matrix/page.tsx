@@ -1,8 +1,30 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import React, {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import ThemeToggle from '@/components/ThemeToggle';
+import {
+  HeadToHeadIncomingBanner,
+  HeadToHeadLiveTargetBar,
+  HeadToHeadSharePanel,
+  HeadToHeadVerdictBanner,
+} from '@/components/HeadToHeadChallengeCard';
+import {
+  decodeChallengeToken,
+  evaluateWordMatrixDuel,
+  getSavedChallengerName,
+  saveChallengerName,
+  type WordMatrixChallengePayload,
+} from '@/lib/headToHeadChallenge';
 import { supabase } from '@/lib/supabase';
 import {
   BANKING_JARGON_PAIRS,
@@ -195,7 +217,27 @@ function relationLabel(relation: MatchRelationType, kind: 'term' | 'match'): str
   }
 }
 
-export default function WordMatrixPage() {
+function WordMatrixContent() {
+  const searchParams = useSearchParams();
+  const challengeTokenParam = searchParams.get('c');
+
+  const incomingChallenge = useMemo<WordMatrixChallengePayload | null>(() => {
+    const decoded = decodeChallengeToken(challengeTokenParam, 'word_matrix');
+    return decoded && decoded.arena === 'word_matrix' ? decoded : null;
+  }, [challengeTokenParam]);
+
+  const [dismissedChallengeToken, setDismissedChallengeToken] = useState<string | null>(null);
+  const [acceptedChallenge, setAcceptedChallenge] = useState<WordMatrixChallengePayload | null>(
+    null
+  );
+
+  const pendingChallenge =
+    incomingChallenge &&
+    challengeTokenParam !== dismissedChallengeToken &&
+    !acceptedChallenge
+      ? incomingChallenge
+      : null;
+
   const rawStats = useSyncExternalStore(
     subscribeExternalStorage,
     getRawStatsSnapshot,
@@ -327,7 +369,8 @@ export default function WordMatrixPage() {
       const guestId = getOrCreateGuestPlayerId();
       const savedGuestName =
         typeof window !== 'undefined'
-          ? localStorage.getItem(WORD_MATRIX_PLAYER_NAME_KEY) || 'Banking Aspirant'
+          ? localStorage.getItem(WORD_MATRIX_PLAYER_NAME_KEY) ||
+            getSavedChallengerName('Banking Aspirant')
           : 'Banking Aspirant';
       setIsSignedInUser(false);
       setPlayerUserId(guestId);
@@ -534,6 +577,7 @@ export default function WordMatrixPage() {
   );
 
   const startMissedTermsDrill = useCallback(() => {
+    setAcceptedChallenge(null);
     const missedSet = new Set(stats.missedPairIds);
     const missedPool = allPairs.filter((p) => missedSet.has(p.id));
     let selected = shuffleArray(missedPool).slice(0, 8);
@@ -544,6 +588,18 @@ export default function WordMatrixPage() {
     }
     startRound('mixed', selected);
   }, [allPairs, startRound, stats.missedPairIds]);
+
+  const handleAcceptChallenge = useCallback(
+    (challenge: WordMatrixChallengePayload) => {
+      const pairMap = new Map(allPairs.map((p) => [p.id, p]));
+      const matchedFixed = challenge.pairIds
+        .map((id) => pairMap.get(id))
+        .filter((p): p is WordPair => Boolean(p));
+      setAcceptedChallenge(challenge);
+      startRound(challenge.mode, matchedFixed.length === 8 ? matchedFixed : undefined);
+    },
+    [allPairs, startRound]
+  );
 
   // 45-Second Countdown Interval
   useEffect(() => {
@@ -820,6 +876,7 @@ export default function WordMatrixPage() {
     if (!cleaned) return;
     setPlayerName(cleaned);
     setEditingGuestName(false);
+    saveChallengerName(cleaned);
     if (typeof window !== 'undefined') {
       localStorage.setItem(WORD_MATRIX_PLAYER_NAME_KEY, cleaned);
     }
@@ -836,6 +893,51 @@ export default function WordMatrixPage() {
     }
     showToast(`Display name updated to "${cleaned}"!`);
   };
+
+  const handleChallengerNameSync = useCallback(
+    (nextName: string) => {
+      const clean = nextName.trim();
+      if (!clean) return;
+      saveChallengerName(clean);
+      if (!isSignedInUser) {
+        setPlayerName(clean);
+        setGuestNameDraft(clean);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(WORD_MATRIX_PLAYER_NAME_KEY, clean);
+        }
+      }
+    },
+    [isSignedInUser]
+  );
+
+  const duelOutcome = useMemo(() => {
+    if (
+      !acceptedChallenge ||
+      (gameStatus !== 'won' && gameStatus !== 'lost_time' && gameStatus !== 'lost_lives')
+    ) {
+      return null;
+    }
+    return evaluateWordMatrixDuel(
+      acceptedChallenge,
+      score,
+      clearTimeMs,
+      matchedPairIds.length
+    );
+  }, [acceptedChallenge, clearTimeMs, gameStatus, matchedPairIds.length, score]);
+
+  const sharePayload = useMemo<WordMatrixChallengePayload>(
+    () => ({
+      arena: 'word_matrix',
+      challenger: playerName,
+      score,
+      clearTimeMs,
+      matchedPairs: matchedPairIds.length,
+      totalPairs: 8,
+      mode,
+      pairIds: roundPairs.map((p) => p.id),
+    }),
+    [clearTimeMs, matchedPairIds.length, mode, playerName, roundPairs, score]
+  );
 
   return (
     <div className="min-h-screen bg-[#020617] text-slate-100 flex flex-col relative overflow-x-hidden">
@@ -984,6 +1086,15 @@ export default function WordMatrixPage() {
 
         {activeTab === 'play' ? (
           <div className="space-y-6">
+            {pendingChallenge && gameStatus !== 'playing' && (
+              <HeadToHeadIncomingBanner
+                challenge={pendingChallenge}
+                acceptButtonLabel="⚔️ Accept Same 8-Pair Matrix →"
+                onAccept={() => handleAcceptChallenge(pendingChallenge)}
+                onDismiss={() => setDismissedChallengeToken(challengeTokenParam)}
+              />
+            )}
+
             {/* CATEGORY / JARGON MODE PILLS */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
               {MODE_OPTIONS.map((opt) => {
@@ -995,6 +1106,7 @@ export default function WordMatrixPage() {
                     onClick={() => {
                       setMode(opt.id);
                       if (gameStatus !== 'ready') {
+                        setAcceptedChallenge(null);
                         startRound(opt.id);
                       }
                     }}
@@ -1100,7 +1212,10 @@ export default function WordMatrixPage() {
                   {gameStatus === 'playing' && (
                     <button
                       type="button"
-                      onClick={() => startRound(mode)}
+                      onClick={() => {
+                        setAcceptedChallenge(null);
+                        startRound(mode);
+                      }}
                       title="Deal a fresh 4×4 board"
                       className="px-3 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-white/[0.08] text-xs font-black text-slate-200 transition cursor-pointer"
                     >
@@ -1189,7 +1304,10 @@ export default function WordMatrixPage() {
                 <div className="pt-2">
                   <button
                     type="button"
-                    onClick={() => startRound(mode)}
+                    onClick={() => {
+                      setAcceptedChallenge(null);
+                      startRound(mode);
+                    }}
                     className="px-8 py-4 rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-sm uppercase tracking-wider shadow-xl shadow-amber-500/20 transition transform hover:-translate-y-0.5 cursor-pointer"
                   >
                     🚀 Start 45s Word Matrix
@@ -1198,6 +1316,19 @@ export default function WordMatrixPage() {
               </div>
             ) : gameStatus === 'playing' ? (
               <div className="space-y-3">
+                {acceptedChallenge && (
+                  <HeadToHeadLiveTargetBar
+                    challengerName={acceptedChallenge.challenger}
+                    currentValue={score}
+                    targetValue={acceptedChallenge.score}
+                    unitLabel="pts"
+                    extraTargetNote={
+                      acceptedChallenge.clearTimeMs !== null
+                        ? `${(acceptedChallenge.clearTimeMs / 1000).toFixed(1)}s clear`
+                        : `${acceptedChallenge.matchedPairs}/${acceptedChallenge.totalPairs} pairs`
+                    }
+                  />
+                )}
                 <div className="flex items-center justify-between px-1 text-[11px] text-slate-400">
                   <span>
                     💡 <strong>Tip:</strong> Tap two tiles to match, or drag a{' '}
@@ -1373,7 +1504,10 @@ export default function WordMatrixPage() {
                   <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
                     <button
                       type="button"
-                      onClick={() => startRound(mode)}
+                      onClick={() => {
+                        setAcceptedChallenge(null);
+                        startRound(mode);
+                      }}
                       className="px-6 py-3.5 rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20 transition cursor-pointer"
                     >
                       🎲 New 4×4 Matrix
@@ -1394,6 +1528,19 @@ export default function WordMatrixPage() {
                     </button>
                   </div>
                 </div>
+
+                {duelOutcome && (
+                  <HeadToHeadVerdictBanner
+                    outcome={duelOutcome}
+                    onRematchSameSeed={() => startRound(mode, roundPairs)}
+                  />
+                )}
+
+                <HeadToHeadSharePanel
+                  payload={sharePayload}
+                  onChallengerNameChange={handleChallengerNameSync}
+                  conqueredChallenge={duelOutcome}
+                />
 
                 {/* POST-GAME 8-PAIR REVISION & VAULT SAVER */}
                 <div className="bg-slate-900/85 border border-white/[0.08] rounded-3xl p-5 sm:p-7 space-y-4">
@@ -1903,6 +2050,23 @@ export default function WordMatrixPage() {
         )}
       </main>
     </div>
+  );
+}
+
+export default function WordMatrixPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#020617] text-slate-100 flex items-center justify-center">
+          <div className="text-center space-y-2">
+            <div className="text-3xl animate-bounce">🧩</div>
+            <p className="text-xs font-bold text-slate-400">Loading 4×4 Word Matrix Arena…</p>
+          </div>
+        </div>
+      }
+    >
+      <WordMatrixContent />
+    </Suspense>
   );
 }
 
